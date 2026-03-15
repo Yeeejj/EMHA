@@ -3,10 +3,12 @@ Hybrid CNN-HMM Model
 Combines CNN feature extraction with HMM classification.
 """
 
-from typing import Tuple, Optional
+from typing import Tuple, List
 import numpy as np
+import torch
+from torch.utils.data import DataLoader
 
-from .cnn import CNNFeatureExtractor
+from .cnn import EmotionCNN
 from .hmm import HMMClassifier
 
 
@@ -16,8 +18,9 @@ class HybridCNNHMM:
 
     Pipeline:
     1. CNN extracts spatial features from handwriting images
-    2. HMM classifies the temporal/sequential patterns
-    3. Output: Emotion prediction (HAPPY/SAD) with confidence
+    2. Features are organized as left-to-right sequences
+    3. HMM classifies the sequential patterns
+    4. Output: Emotion prediction (HAPPY/SAD) with confidence
     """
 
     def __init__(
@@ -25,112 +28,134 @@ class HybridCNNHMM:
         cnn_features: int = 256,
         hmm_states: int = 4,
         image_size: Tuple[int, int] = (224, 224),
-        input_channels: int = 1
+        input_channels: int = 1,
+        dropout_rate: float = 0.5,
+        device: torch.device = None,
     ):
         self.cnn_features = cnn_features
         self.hmm_states = hmm_states
         self.image_size = image_size
+        self.device = device or torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
 
-        # Initialize components
-        self.cnn = CNNFeatureExtractor(
+        self.cnn = EmotionCNN(
             input_channels=input_channels,
             num_features=cnn_features,
-            image_size=image_size
-        )
+            num_classes=2,
+            dropout_rate=dropout_rate,
+        ).to(self.device)
 
         self.hmm = HMMClassifier(
             n_states=hmm_states,
-            n_features=cnn_features
+            n_features=cnn_features,
         )
 
         self.is_trained = False
 
-    def extract_features(self, images: np.ndarray) -> np.ndarray:
+    def extract_all_features(
+        self, data_loader: DataLoader
+    ) -> Tuple[np.ndarray, np.ndarray, List[int]]:
         """
-        Extract features from batch of images using CNN.
-
-        Args:
-            images: Array of shape (batch, channels, height, width)
+        Extract sequence features from all samples in a DataLoader.
 
         Returns:
-            Features of shape (batch, cnn_features)
+            features: Concatenated feature array (n_total_timesteps, 256)
+            labels: Per-sample label array (n_samples,)
+            lengths: Length of each sequence (n_samples,)
         """
-        # features = self.cnn.forward(images)
-        # return features.detach().numpy()
-        return np.zeros((images.shape[0], self.cnn_features))  # Placeholder
+        self.cnn.eval()
+        all_features = []
+        all_labels = []
+        all_lengths = []
 
-    def train(self, images: np.ndarray, labels: np.ndarray):
+        with torch.no_grad():
+            for images, labels in data_loader:
+                images = images.to(self.device)
+                # (batch, seq_len, 256)
+                seq_feats = self.cnn.extract_sequence_features(images)
+
+                for i in range(seq_feats.shape[0]):
+                    seq = seq_feats[i].cpu().numpy()  # (seq_len, 256)
+                    all_features.append(seq)
+                    all_lengths.append(seq.shape[0])
+
+                all_labels.append(labels.numpy())
+
+        features = np.concatenate(all_features, axis=0)
+        labels = np.concatenate(all_labels)
+        return features, labels, all_lengths
+
+    def extract_global_features(
+        self, data_loader: DataLoader
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Extract single-vector global features (for simpler HMM mode)."""
+        self.cnn.eval()
+        all_features = []
+        all_labels = []
+
+        with torch.no_grad():
+            for images, labels in data_loader:
+                images = images.to(self.device)
+                features = self.cnn.extract_features(images)
+                all_features.append(features.cpu().numpy())
+                all_labels.append(labels.numpy())
+
+        return np.concatenate(all_features), np.concatenate(all_labels)
+
+    def predict(
+        self, image: torch.Tensor
+    ) -> Tuple[str, float]:
         """
-        Train the hybrid model.
+        Predict emotion for a single image tensor.
 
         Args:
-            images: Training images
-            labels: Emotion labels (0=HAPPY, 1=SAD)
-        """
-        print("Training CNN-HMM Hybrid Model...")
-
-        # Step 1: Train CNN (or use pretrained)
-        print("Step 1: Extracting features with CNN...")
-        features = self.extract_features(images)
-
-        # Step 2: Train HMM on extracted features
-        print("Step 2: Training HMM classifier...")
-        self.hmm.fit(features, labels)
-
-        self.is_trained = True
-        print("Training complete!")
-
-    def predict(self, image: np.ndarray) -> Tuple[str, float]:
-        """
-        Predict emotion for a single image.
-
-        Args:
-            image: Input image
+            image: (1, channels, H, W) or (channels, H, W) tensor
 
         Returns:
-            Tuple of (emotion, confidence)
+            (emotion_string, confidence)
         """
         if not self.is_trained:
             raise RuntimeError("Model must be trained before prediction")
 
-        # Extract features
-        features = self.extract_features(image.reshape(1, *image.shape))
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
 
-        # Classify with HMM
-        emotion, confidence = self.hmm.predict(features)
+        image = image.to(self.device)
 
-        return emotion, confidence
+        self.cnn.eval()
+        with torch.no_grad():
+            seq_feats = self.cnn.extract_sequence_features(image)
 
-    def predict_batch(self, images: np.ndarray) -> list:
-        """Predict emotions for a batch of images."""
-        results = []
-        for i in range(len(images)):
-            emotion, confidence = self.predict(images[i])
-            results.append({"emotion": emotion, "confidence": confidence})
-        return results
+        seq = seq_feats[0].cpu().numpy()  # (seq_len, 256)
+        predictions, confidences = self.hmm.predict(
+            seq, lengths=[seq.shape[0]]
+        )
 
-    def save(self, path: str):
+        emotion = HMMClassifier.LABEL_TO_EMOTION[predictions[0]]
+        return emotion, confidences[0]
+
+    def save(self, cnn_path: str, hmm_path: str):
         """Save the complete hybrid model."""
-        # TODO: Save CNN weights and HMM models
-        # torch.save(self.cnn.model.state_dict(), f"{path}/cnn.pth")
-        # self.hmm.save(f"{path}/hmm.pkl")
-        pass
+        torch.save(self.cnn.state_dict(), cnn_path)
+        self.hmm.save(hmm_path)
 
-    def load(self, path: str):
+    def load(self, cnn_path: str, hmm_path: str):
         """Load a trained hybrid model."""
-        # TODO: Load CNN weights and HMM models
-        # self.cnn.model.load_state_dict(torch.load(f"{path}/cnn.pth"))
-        # self.hmm.load(f"{path}/hmm.pkl")
-        # self.is_trained = True
-        pass
+        self.cnn.load_state_dict(
+            torch.load(cnn_path, map_location=self.device)
+        )
+        self.hmm.load(hmm_path)
+        self.is_trained = True
 
 
 if __name__ == "__main__":
     model = HybridCNNHMM(
         cnn_features=256,
         hmm_states=4,
-        image_size=(224, 224)
+        image_size=(224, 224),
     )
     print("Hybrid CNN-HMM Model initialized")
     print(f"CNN features: {model.cnn_features}")
     print(f"HMM states: {model.hmm_states}")
+    print(f"Device: {model.device}")

@@ -3,11 +3,10 @@ HMM Classifier Module
 Hidden Markov Model for classifying emotion sequences.
 """
 
-from typing import List, Tuple, Optional
+from typing import Tuple, List
 import numpy as np
-
-# Uncomment when hmmlearn is installed:
-# from hmmlearn import hmm
+import joblib
+from hmmlearn import hmm
 
 
 class HMMClassifier:
@@ -15,103 +14,146 @@ class HMMClassifier:
     Hidden Markov Model classifier for emotion recognition.
 
     Uses separate HMMs for each emotion class (HAPPY, SAD).
-    Classification is done by comparing likelihoods.
+    Classification is done by comparing log-likelihoods.
+
+    Supports both:
+    - Single-vector features: shape (n_samples, n_features)
+    - Sequence features: list of arrays, each (seq_len, n_features)
     """
+
+    LABEL_TO_EMOTION = {0: "HAPPY", 1: "SAD"}
+    EMOTION_TO_LABEL = {"HAPPY": 0, "SAD": 1}
 
     def __init__(
         self,
         n_states: int = 4,
-        n_features: int = 256,
         n_iter: int = 100,
         covariance_type: str = "diag"
     ):
         self.n_states = n_states
-        self.n_features = n_features
         self.n_iter = n_iter
         self.covariance_type = covariance_type
+        self.models = {}
 
-        self.models = {}  # Separate HMM for each emotion
+    def _create_hmm(self, n_samples: int):
+        """Create a new HMM instance, capping states at sample count."""
+        n_components = min(self.n_states, n_samples)
+        return hmm.GaussianHMM(
+            n_components=n_components,
+            covariance_type=self.covariance_type,
+            n_iter=self.n_iter,
+            random_state=42,
+        )
 
-    def _create_hmm(self):
-        """Create a new HMM instance."""
-        # return hmm.GaussianHMM(
-        #     n_components=self.n_states,
-        #     covariance_type=self.covariance_type,
-        #     n_iter=self.n_iter,
-        #     random_state=42
-        # )
-        pass
-
-    def fit(self, features: np.ndarray, labels: np.ndarray):
+    def fit(
+        self,
+        features: np.ndarray,
+        labels: np.ndarray,
+        lengths: List[int] = None,
+    ):
         """
         Train separate HMMs for each emotion class.
 
         Args:
-            features: Array of shape (n_samples, n_features)
-            labels: Array of emotion labels (0=HAPPY, 1=SAD)
+            features: Concatenated feature array (n_total, n_features).
+                      If using sequences, concatenate all sequences and
+                      provide lengths.
+            labels: Per-sequence labels (one label per sequence).
+            lengths: Length of each sequence. If None, each row of
+                     features is treated as a single-timestep sequence.
         """
+        if lengths is None:
+            lengths = [1] * len(labels)
+
         unique_labels = np.unique(labels)
 
+        # Build index mapping from sequence index to row ranges
+        seq_starts = np.cumsum([0] + list(lengths))
+
         for label in unique_labels:
-            # Get features for this emotion
             mask = labels == label
-            emotion_features = features[mask]
+            seq_indices = np.where(mask)[0]
 
-            # Create and train HMM
-            model = self._create_hmm()
-            # model.fit(emotion_features)
+            # Gather rows belonging to this class
+            class_rows = []
+            class_lengths = []
+            for si in seq_indices:
+                start = seq_starts[si]
+                end = seq_starts[si + 1]
+                class_rows.append(features[start:end])
+                class_lengths.append(lengths[si])
 
-            emotion_name = "HAPPY" if label == 0 else "SAD"
+            class_features = np.concatenate(class_rows, axis=0)
+
+            model = self._create_hmm(len(seq_indices))
+            model.fit(class_features, lengths=class_lengths)
+
+            emotion_name = self.LABEL_TO_EMOTION[label]
             self.models[emotion_name] = model
-            print(f"Trained HMM for {emotion_name} with {mask.sum()} samples")
+            print(
+                f"  HMM trained for {emotion_name}: "
+                f"{len(seq_indices)} sequences, "
+                f"{model.n_components} states"
+            )
 
-    def predict(self, features: np.ndarray) -> Tuple[str, float]:
+    def predict(
+        self,
+        features: np.ndarray,
+        lengths: List[int] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Predict emotion for given features.
 
         Args:
-            features: Feature vector(s) to classify
+            features: Feature array (n_total, n_features).
+            lengths: Length of each sequence. If None, each row is one
+                     single-timestep sequence.
 
         Returns:
-            Tuple of (predicted_emotion, confidence)
+            (predictions, confidences) arrays.
         """
-        scores = {}
+        if lengths is None:
+            lengths = [1] * len(features)
 
-        for emotion, model in self.models.items():
-            # score = model.score(features)
-            # scores[emotion] = score
-            scores[emotion] = 0.0  # Placeholder
+        seq_starts = np.cumsum([0] + list(lengths))
+        n_sequences = len(lengths)
 
-        # Select emotion with highest likelihood
-        predicted = max(scores, key=scores.get)
-        confidence = self._compute_confidence(scores)
+        predictions = []
+        confidences = []
 
-        return predicted, confidence
+        for i in range(n_sequences):
+            start = seq_starts[i]
+            end = seq_starts[i + 1]
+            sample = features[start:end]
+
+            scores = {}
+            for emotion, model in self.models.items():
+                scores[emotion] = model.score(sample, lengths=[lengths[i]])
+
+            predicted = max(scores, key=scores.get)
+            pred_label = self.EMOTION_TO_LABEL[predicted]
+            predictions.append(pred_label)
+            confidences.append(self._compute_confidence(scores))
+
+        return np.array(predictions), np.array(confidences)
 
     def _compute_confidence(self, scores: dict) -> float:
-        """Compute confidence from log-likelihood scores."""
-        # Convert log-likelihoods to probabilities
-        # Use softmax-like approach
+        """Compute confidence from log-likelihood scores using softmax."""
         values = np.array(list(scores.values()))
-        # probs = np.exp(values - np.max(values))
-        # probs = probs / probs.sum()
-        # return float(np.max(probs))
-        return 0.5  # Placeholder
+        probs = np.exp(values - np.max(values))
+        probs = probs / probs.sum()
+        return float(np.max(probs))
 
     def save(self, path: str):
         """Save trained models."""
-        # import joblib
-        # joblib.dump(self.models, path)
-        pass
+        joblib.dump(self.models, path)
 
     def load(self, path: str):
         """Load trained models."""
-        # import joblib
-        # self.models = joblib.load(path)
-        pass
+        self.models = joblib.load(path)
 
 
 if __name__ == "__main__":
-    classifier = HMMClassifier(n_states=4, n_features=256)
+    classifier = HMMClassifier(n_states=4)
     print(f"HMM Classifier initialized")
-    print(f"States: {classifier.n_states}, Features: {classifier.n_features}")
+    print(f"States: {classifier.n_states}")

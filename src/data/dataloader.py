@@ -3,25 +3,22 @@ Data Loading Module
 Handles loading and batching of preprocessed handwriting images for training.
 """
 
-import os
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Tuple, List
 
 import numpy as np
-
-# Uncomment when dependencies are installed:
-# import torch
-# from torch.utils.data import Dataset, DataLoader
-# from torchvision import transforms
-# from PIL import Image
+import torch
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from PIL import Image
 
 
-class HandwritingDataset:
+class HandwritingDataset(Dataset):
     """
-    Dataset class for loading handwriting samples.
+    PyTorch Dataset for loading handwriting samples.
 
     Expects folder structure:
-        DATA/PROCESSED/
+        data_dir/
         ├── HAPPY/
         │   ├── sample1.png
         │   └── ...
@@ -36,13 +33,10 @@ class HandwritingDataset:
     def __init__(
         self,
         data_dir: str = "DATA/PROCESSED",
-        image_size: Tuple[int, int] = (224, 224),
-        augment: bool = False
+        transform: transforms.Compose = None
     ):
         self.data_dir = Path(data_dir)
-        self.image_size = image_size
-        self.augment = augment
-
+        self.transform = transform
         self.samples: List[Tuple[str, int]] = []
         self._load_samples()
 
@@ -51,29 +45,34 @@ class HandwritingDataset:
         for emotion, label in self.EMOTION_TO_LABEL.items():
             emotion_dir = self.data_dir / emotion
             if emotion_dir.exists():
-                for img_path in emotion_dir.glob("*.png"):
-                    self.samples.append((str(img_path), label))
-                for img_path in emotion_dir.glob("*.jpg"):
-                    self.samples.append((str(img_path), label))
+                for ext in ("*.png", "*.jpg", "*.jpeg"):
+                    for img_path in emotion_dir.glob(ext):
+                        self.samples.append((str(img_path), label))
 
-        print(f"Loaded {len(self.samples)} samples")
+        print(
+            f"Loaded {len(self.samples)} samples "
+            f"(HAPPY: {sum(1 for _, l in self.samples if l == 0)}, "
+            f"SAD: {sum(1 for _, l in self.samples if l == 1)})"
+        )
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Tuple[np.ndarray, int]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         """Load and return a sample."""
         img_path, label = self.samples[idx]
+        image = Image.open(img_path).convert("L")  # Grayscale
 
-        # TODO: Implement actual image loading
-        # image = Image.open(img_path).convert('RGB')
-        # image = image.resize(self.image_size)
-        # image = np.array(image) / 255.0
-
-        # Placeholder
-        image = np.zeros((*self.image_size, 3))
+        if self.transform:
+            image = self.transform(image)
+        else:
+            image = transforms.ToTensor()(image)
 
         return image, label
+
+    def get_labels(self) -> List[int]:
+        """Return list of all labels."""
+        return [label for _, label in self.samples]
 
     def get_class_distribution(self) -> dict:
         """Return count of samples per class."""
@@ -84,30 +83,80 @@ class HandwritingDataset:
         return distribution
 
 
+def get_train_transform(image_size: Tuple[int, int] = (224, 224)):
+    """Training transforms with handwriting-safe augmentations."""
+    return transforms.Compose([
+        transforms.Resize(image_size),
+        transforms.RandomRotation(degrees=5),
+        transforms.RandomAffine(
+            degrees=0,
+            translate=(0.05, 0.05),
+            scale=(0.95, 1.05),
+        ),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5]),
+    ])
+
+
+def get_val_transform(image_size: Tuple[int, int] = (224, 224)):
+    """Validation/test transforms (no augmentation)."""
+    return transforms.Compose([
+        transforms.Resize(image_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5]),
+    ])
+
+
+class TransformSubset(Dataset):
+    """Subset of a dataset with a custom transform override."""
+
+    def __init__(self, dataset: HandwritingDataset, indices, transform=None):
+        self.dataset = dataset
+        self.indices = indices
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        img_path, label = self.dataset.samples[self.indices[idx]]
+        image = Image.open(img_path).convert("L")
+
+        if self.transform:
+            image = self.transform(image)
+        else:
+            image = transforms.ToTensor()(image)
+
+        return image, label
+
+
 def create_data_loaders(
     data_dir: str = "DATA/SPLITS",
     batch_size: int = 32,
-    image_size: Tuple[int, int] = (224, 224)
+    image_size: Tuple[int, int] = (224, 224),
+    num_workers: int = 0
 ) -> dict:
-    """
-    Create train, validation, and test data loaders.
+    """Create train, validation, and test data loaders."""
+    train_transform = get_train_transform(image_size)
+    val_transform = get_val_transform(image_size)
 
-    Returns:
-        Dictionary with 'train', 'val', 'test' loaders
-    """
     loaders = {}
 
-    for split in ['train', 'val', 'test']:
+    for split in ["train", "val", "test"]:
         split_dir = Path(data_dir) / split
         if split_dir.exists():
+            transform = train_transform if split == "train" else val_transform
             dataset = HandwritingDataset(
                 data_dir=str(split_dir),
-                image_size=image_size,
-                augment=(split == 'train')
+                transform=transform,
             )
-            loaders[split] = dataset
-            # TODO: Wrap in actual DataLoader when PyTorch is available
-            # loaders[split] = DataLoader(dataset, batch_size=batch_size, shuffle=(split == 'train'))
+            loaders[split] = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=(split == "train"),
+                num_workers=num_workers,
+            )
 
     return loaders
 
