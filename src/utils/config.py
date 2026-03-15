@@ -4,7 +4,7 @@ Centralized configuration for model hyperparameters and paths.
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Optional, Tuple
 from pathlib import Path
 
 
@@ -27,7 +27,7 @@ class DataConfig:
 class PreprocessingConfig:
     """Preprocessing configuration."""
     target_size: Tuple[int, int] = (224, 224)
-    binarize_threshold: int = None  # None = Otsu's method
+    binarize_threshold: Optional[int] = None  # None = Otsu's method
     denoise_kernel_size: int = 3
     normalize: bool = True
 

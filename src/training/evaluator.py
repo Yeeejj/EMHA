@@ -3,14 +3,13 @@ Evaluation Module
 Computes metrics and generates evaluation reports.
 """
 
-from typing import Dict, List, Tuple
+import json
+from typing import Dict
 import numpy as np
-
-# Uncomment when dependencies are installed:
-# from sklearn.metrics import (
-#     accuracy_score, precision_score, recall_score, f1_score,
-#     confusion_matrix, classification_report
-# )
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report
+)
 
 
 class Evaluator:
@@ -35,29 +34,19 @@ class Evaluator:
         y_true: np.ndarray,
         y_pred: np.ndarray
     ) -> Dict[str, float]:
-        """
-        Compute all evaluation metrics.
-
-        Args:
-            y_true: Ground truth labels
-            y_pred: Predicted labels
-
-        Returns:
-            Dictionary of metrics
-        """
-        # accuracy = accuracy_score(y_true, y_pred)
-        # precision = precision_score(y_true, y_pred, average='macro')
-        # recall = recall_score(y_true, y_pred, average='macro')
-        # f1 = f1_score(y_true, y_pred, average='macro')
-        # cm = confusion_matrix(y_true, y_pred)
-
-        # Placeholder values
+        """Compute all evaluation metrics."""
         self.results = {
-            "accuracy": 0.0,
-            "precision_macro": 0.0,
-            "recall_macro": 0.0,
-            "f1_macro": 0.0,
-            "confusion_matrix": np.zeros((2, 2))
+            "accuracy": accuracy_score(y_true, y_pred),
+            "precision_macro": precision_score(
+                y_true, y_pred, average="macro", zero_division=0
+            ),
+            "recall_macro": recall_score(
+                y_true, y_pred, average="macro", zero_division=0
+            ),
+            "f1_macro": f1_score(
+                y_true, y_pred, average="macro", zero_division=0
+            ),
+            "confusion_matrix": confusion_matrix(y_true, y_pred),
         }
 
         return self.results
@@ -71,14 +60,20 @@ class Evaluator:
         per_class = {}
 
         for i, label in enumerate(self.LABELS):
-            # precision = precision_score(y_true, y_pred, labels=[i], average=None)[0]
-            # recall = recall_score(y_true, y_pred, labels=[i], average=None)[0]
-            # f1 = f1_score(y_true, y_pred, labels=[i], average=None)[0]
+            precision = precision_score(
+                y_true, y_pred, labels=[i], average=None, zero_division=0
+            )
+            rec = recall_score(
+                y_true, y_pred, labels=[i], average=None, zero_division=0
+            )
+            f1 = f1_score(
+                y_true, y_pred, labels=[i], average=None, zero_division=0
+            )
 
             per_class[label] = {
-                "precision": 0.0,
-                "recall": 0.0,
-                "f1": 0.0
+                "precision": float(precision[0]) if len(precision) > 0 else 0.0,
+                "recall": float(rec[0]) if len(rec) > 0 else 0.0,
+                "f1": float(f1[0]) if len(f1) > 0 else 0.0,
             }
 
         return per_class
@@ -100,9 +95,9 @@ class Evaluator:
         print(f"\nConfusion Matrix:")
         print(f"              Predicted")
         print(f"              HAPPY  SAD")
-        cm = metrics['confusion_matrix']
-        print(f"Actual HAPPY   {cm[0,0]:4.0f}  {cm[0,1]:4.0f}")
-        print(f"       SAD     {cm[1,0]:4.0f}  {cm[1,1]:4.0f}")
+        cm = metrics["confusion_matrix"]
+        print(f"Actual HAPPY   {cm[0, 0]:4d}  {cm[0, 1]:4d}")
+        print(f"       SAD     {cm[1, 0]:4d}  {cm[1, 1]:4d}")
 
         per_class = self.compute_per_class_metrics(y_true, y_pred)
         print(f"\nPer-Class Metrics:")
@@ -114,12 +109,22 @@ class Evaluator:
 
         print("=" * 50 + "\n")
 
+        # Also print sklearn's built-in report
+        print(classification_report(
+            y_true, y_pred, target_names=self.LABELS, zero_division=0
+        ))
+
     def save_results(self, path: str):
         """Save evaluation results to file."""
-        # import json
-        # with open(path, 'w') as f:
-        #     json.dump(self.results, f, indent=2)
-        pass
+        serializable = {}
+        for key, value in self.results.items():
+            if isinstance(value, np.ndarray):
+                serializable[key] = value.tolist()
+            else:
+                serializable[key] = value
+
+        with open(path, "w") as f:
+            json.dump(serializable, f, indent=2)
 
 
 if __name__ == "__main__":
