@@ -48,7 +48,6 @@ class HybridCNNHMM:
 
         self.hmm = HMMClassifier(
             n_states=hmm_states,
-            n_features=cnn_features,
         )
 
         self.is_trained = False
@@ -103,9 +102,7 @@ class HybridCNNHMM:
 
         return np.concatenate(all_features), np.concatenate(all_labels)
 
-    def predict(
-        self, image: torch.Tensor
-    ) -> Tuple[str, float]:
+    def predict(self, image: torch.Tensor) -> Tuple[str, float]:
         """
         Predict emotion for a single image tensor.
 
@@ -128,9 +125,7 @@ class HybridCNNHMM:
             seq_feats = self.cnn.extract_sequence_features(image)
 
         seq = seq_feats[0].cpu().numpy()  # (seq_len, 256)
-        predictions, confidences = self.hmm.predict(
-            seq, lengths=[seq.shape[0]]
-        )
+        predictions, confidences = self.hmm.predict(seq, lengths=[seq.shape[0]])
 
         emotion = HMMClassifier.LABEL_TO_EMOTION[predictions[0]]
         return emotion, confidences[0]
@@ -142,9 +137,7 @@ class HybridCNNHMM:
 
     def load(self, cnn_path: str, hmm_path: str):
         """Load a trained hybrid model."""
-        self.cnn.load_state_dict(
-            torch.load(cnn_path, map_location=self.device)
-        )
+        self.cnn.load_state_dict(torch.load(cnn_path, map_location=self.device))
         self.hmm.load(hmm_path)
         self.is_trained = True
 
