@@ -25,11 +25,13 @@ class PreprocessingPipeline:
         self,
         target_size: Tuple[int, int] = (224, 224),
         binarize_threshold: Optional[int] = None,
-        denoise_kernel_size: int = 3
+        denoise_kernel_size: int = 3,
+        skip_skew: bool = False,
     ):
         self.target_size = target_size
         self.binarize_threshold = binarize_threshold
         self.denoise_kernel_size = denoise_kernel_size
+        self.skip_skew = skip_skew
 
     def grayscale(self, image: np.ndarray) -> np.ndarray:
         """Convert image to grayscale."""
@@ -51,9 +53,7 @@ class PreprocessingPipeline:
 
     def denoise(self, image: np.ndarray) -> np.ndarray:
         """Remove noise using morphological operations."""
-        kernel = np.ones(
-            (self.denoise_kernel_size, self.denoise_kernel_size), np.uint8
-        )
+        kernel = np.ones((self.denoise_kernel_size, self.denoise_kernel_size), np.uint8)
         opened = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)
         closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
         return closed
@@ -68,13 +68,11 @@ class PreprocessingPipeline:
             angle = 90 + angle
         if abs(angle) > 15:
             return image  # Skip extreme angles
-        (h, w) = image.shape[:2]
+        h, w = image.shape[:2]
         center = (w // 2, h // 2)
         M = cv2.getRotationMatrix2D(center, angle, 1.0)
         rotated = cv2.warpAffine(
-            image, M, (w, h),
-            flags=cv2.INTER_CUBIC,
-            borderMode=cv2.BORDER_REPLICATE
+            image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
         )
         return rotated
 
@@ -89,7 +87,7 @@ class PreprocessingPipeline:
         gray = self.grayscale(image)
         binary = self.binarize(gray)
         denoised = self.denoise(binary)
-        deskewed = self.correct_skew(denoised)
+        deskewed = denoised if self.skip_skew else self.correct_skew(denoised)
         normalized = self.normalize(deskewed)
         return normalized
 
@@ -107,12 +105,7 @@ class PreprocessingPipeline:
             print(f"Error processing {input_path}: {e}")
             return False
 
-    def process_directory(
-        self,
-        input_dir: str,
-        output_dir: str,
-        emotion: str
-    ) -> int:
+    def process_directory(self, input_dir: str, output_dir: str, emotion: str) -> int:
         """Process all images in a directory."""
         input_path = Path(input_dir)
         output_path = Path(output_dir) / emotion
@@ -143,9 +136,7 @@ if __name__ == "__main__":
         input_dir = Path(config.data.labeled_dir) / emotion
         if input_dir.exists():
             count = pipeline.process_directory(
-                str(input_dir),
-                config.data.processed_dir,
-                emotion
+                str(input_dir), config.data.processed_dir, emotion
             )
             print(f"{emotion}: {count} images processed")
         else:

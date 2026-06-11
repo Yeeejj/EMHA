@@ -44,6 +44,7 @@ class CrossValidator:
         cnn_features: int = 256,
         hmm_states: int = 4,
         image_size=(224, 224),
+        use_pretrained: bool = False,
     ):
         self.n_splits = n_splits
         self.random_state = random_state
@@ -54,10 +55,9 @@ class CrossValidator:
         self.cnn_features = cnn_features
         self.hmm_states = hmm_states
         self.image_size = image_size
+        self.use_pretrained = use_pretrained
         self.fold_results = []
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def cross_validate(
         self,
@@ -104,9 +104,7 @@ class CrossValidator:
             train_subset = TransformSubset(
                 dataset, train_idx, transform=train_transform
             )
-            val_subset = TransformSubset(
-                dataset, val_idx, transform=val_transform
-            )
+            val_subset = TransformSubset(dataset, val_idx, transform=val_transform)
 
             train_loader = DataLoader(
                 train_subset, batch_size=self.batch_size, shuffle=True
@@ -120,6 +118,7 @@ class CrossValidator:
             cnn_model = EmotionCNN(
                 input_channels=1,
                 num_features=self.cnn_features,
+                use_pretrained=self.use_pretrained,
             ).to(self.device)
 
             trainer = Trainer(
@@ -133,16 +132,13 @@ class CrossValidator:
 
             # Step 2: Extract sequence features
             print("\n  Step 2: Extracting sequence features...")
-            train_features, train_labels, train_lengths = (
-                self._extract_sequences(cnn_model, train_loader)
+            train_features, train_labels, train_lengths = self._extract_sequences(
+                cnn_model, train_loader
             )
-            val_features, val_labels, val_lengths = (
-                self._extract_sequences(cnn_model, val_loader)
+            val_features, val_labels, val_lengths = self._extract_sequences(
+                cnn_model, val_loader
             )
-            print(
-                f"  Train: {train_features.shape}, "
-                f"Val: {val_features.shape}"
-            )
+            print(f"  Train: {train_features.shape}, " f"Val: {val_features.shape}")
 
             # Step 3: Train HMM
             print("\n  Step 3: Training HMM...")
@@ -150,20 +146,12 @@ class CrossValidator:
             hmm_clf.fit(train_features, train_labels, lengths=train_lengths)
 
             # Step 4: Evaluate
-            y_pred, confidences = hmm_clf.predict(
-                val_features, lengths=val_lengths
-            )
+            y_pred, confidences = hmm_clf.predict(val_features, lengths=val_lengths)
 
             acc = accuracy_score(val_labels, y_pred)
-            prec = precision_score(
-                val_labels, y_pred, average="macro", zero_division=0
-            )
-            rec = recall_score(
-                val_labels, y_pred, average="macro", zero_division=0
-            )
-            f1 = f1_score(
-                val_labels, y_pred, average="macro", zero_division=0
-            )
+            prec = precision_score(val_labels, y_pred, average="macro", zero_division=0)
+            rec = recall_score(val_labels, y_pred, average="macro", zero_division=0)
+            f1 = f1_score(val_labels, y_pred, average="macro", zero_division=0)
 
             fold_metrics = {
                 "accuracy": acc,
