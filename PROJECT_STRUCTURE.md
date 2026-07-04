@@ -1,64 +1,102 @@
-# INSIDE-OUT Project Structure
+# INSIDE-OUT / EMHA — Project Structure
 
-This document describes the folder structure and organization of the INSIDE-OUT emotion recognition system.
+Authoritative as of July 2026. See `ProcessPipeline.txt` for the full
+19-phase pipeline (P0-P18). See `CLAUDE.md` for coding rules.
 
 ---
 
-## Directory Overview
+## Repository Layout
 
 ```
 EMHA/
-├── src/                    # Source code modules
-├── DATA/                   # All data files
-├── notebooks/              # Jupyter notebooks for exploration
-├── models/                 # Saved model weights
-├── results/                # Evaluation outputs and reports
-├── CITATIONS/              # Research papers and references
-├── DOCS/                   # Thesis documents and proposals
-├── requirements.txt        # Python dependencies
-├── README.md               # Project overview
-└── PROJECT_STRUCTURE.md    # This file
+├── src/                        Source code
+│   ├── data/                   Pipeline data modules (Phases 1-8)
+│   ├── models/                 CNN, HMM, Hybrid model
+│   ├── preprocessing/          Image preprocessing pipeline
+│   ├── training/               Trainer, evaluator, cross-validator
+│   ├── analysis/               Psychometrics (Phase 13)
+│   ├── utils/                  Config, artifact generator
+│   └── predict.py              End-to-end inference (Phase 11)
+├── DATA/
+│   ├── METADATA/               All pipeline CSVs (tracked in git)
+│   ├── CROPS/                  Extracted crops — GITIGNORED
+│   └── PROCESSED/              Preprocessed images — GITIGNORED
+├── DATASET/
+│   └── raw/                    Original scans — READ-ONLY, gitignored
+├── FIGURES/                    Thesis figures 300 DPI — GITIGNORED
+├── models/                     Checkpoints (*.pth, *.pkl) — GITIGNORED
+├── results/                    CV results, evaluation CSVs
+├── notebooks/
+│   └── EMHA_Colab_Pipeline.ipynb  Colab GPU training notebook
+├── DOCS/                       Thesis docs and instrument scans
+├── CITATIONS/                  Research papers
+├── ProcessPipeline.txt         AUTHORITATIVE 19-phase pipeline
+├── CLAUDE.md                   Claude Code rules and commands
+├── SYSTEMS_GUIDE.md            Detailed system documentation
+├── smoke_test.py               Phase 14 smoke test (run before full run)
+├── requirements.txt            Python dependencies
+├── setup.cfg                   Black / pytest config
+└── .flake8                     Flake8 linting config
 ```
 
 ---
 
 ## Source Code (`src/`)
 
-### `src/data/` - Data Management
+### `src/data/` — Pipeline Phases 1-8
+
+| File | Phase | Creates |
+|------|-------|---------|
+| `register_participants.py` | P1 | `participants.csv` |
+| `assign_pages.py` | P2 | `page_manifest.csv` |
+| `questionnaire_scorer.py` | P3 | `labels.csv` |
+| `content_extractor.py` | P4 | `DATA/CROPS/{P###}/`, `extraction_report.csv` |
+| `propagate_labels.py` | P5 | `crop_index.csv` |
+| `qc.py` | P6 | `qc_report.csv`, `exclusions.csv` |
+| `participant_aware_splitter.py` | P8 | `splits.json` |
+| `dataloader.py` | P9 | PyTorch Dataset class |
+| `preview_crops.py` | util | Crop tuning visualisation |
+
+### `src/preprocessing/`
+
+| File | Phase | Description |
+|------|-------|-------------|
+| `pipeline.py` | P7 | Grayscale→binarize→denoise→deskew→224×224→norm |
+| `run_preprocessing.py` | P7 | Batch runner → `DATA/PROCESSED/{P###}/` |
+
+### `src/models/`
 
 | File | Description |
 |------|-------------|
-| `collector.py` | Handles image capture, participant registration, and sample organization |
-| `labeler.py` | Assigns emotion labels (HAPPY/SAD) based on questionnaire scores |
-| `dataloader.py` | PyTorch dataset class for loading preprocessed images |
+| `cnn.py` | `PretrainedCNNExtractor` (ResNet18, primary) + `CNNFeatureExtractor` (4-block, secondary) |
+| `hmm.py` | `HMMClassifier` — per-class GaussianHMM, 4 states, diagonal covariance |
+| `hybrid.py` | `HybridCNNHMM` — CNN→sequence→HMM→prediction |
 
-### `src/preprocessing/` - Image Processing
+### `src/training/`
 
-| File | Description |
-|------|-------------|
-| `pipeline.py` | Complete preprocessing pipeline: grayscale → binarization → denoising → skew correction → normalization |
+| File | Phase | Description |
+|------|-------|-------------|
+| `trainer.py` | P9 | Training loop, early stopping, CNN + baseline |
+| `evaluator.py` | P10 | Metrics: accuracy, precision, recall, F1, confusion matrix, ROC-AUC |
+| `cross_validate.py` | P10 | Respondent-level 5-fold CV using splits.json |
 
-### `src/models/` - Neural Network Models
-
-| File | Description |
-|------|-------------|
-| `cnn.py` | CNN feature extractor for spatial pattern recognition |
-| `hmm.py` | HMM classifier for temporal sequence classification |
-| `hybrid.py` | Combined CNN-HMM model (main classification system) |
-
-### `src/training/` - Training & Evaluation
+### `src/utils/`
 
 | File | Description |
 |------|-------------|
-| `trainer.py` | Training loop with validation, early stopping, checkpointing |
-| `evaluator.py` | Computes metrics: accuracy, precision, recall, F1-score, confusion matrix |
-| `cross_validate.py` | Stratified 5-fold cross-validation |
+| `config.py` | All hyperparameters in dataclasses. Import: `from src.utils.config import config` |
+| `artifact_generator.py` | Phase 12 — confusion matrix, ROC, fold bars, dataset charts @ 300 DPI |
 
-### `src/utils/` - Utilities
+### `src/analysis/`
 
-| File | Description |
-|------|-------------|
-| `config.py` | Centralized configuration for hyperparameters and paths |
+| File | Phase | Description |
+|------|-------|-------------|
+| `psychometrics.py` | P13 | Cronbach's alpha, item-total correlations, score distribution |
+
+### `src/predict.py` — Phase 11
+
+End-to-end inference: raw scanned folder (or single crop) → HAPPY/SAD + confidence.
+No questionnaire at inference. Defense demo artifact.
 
 ---
 
@@ -66,269 +104,72 @@ EMHA/
 
 ```
 DATA/
-├── RAW/                    # Original unprocessed samples
-│   ├── participant_001/
-│   │   ├── handwriting_01.png
-│   │   ├── handwriting_02.png
-│   │   └── questionnaire.pdf
-│   ├── participant_002/
-│   └── ...
+├── METADATA/               Tracked in git (pipeline CSVs)
+│   ├── participants.csv    P###, folder, barcode status
+│   ├── page_manifest.csv   P###, page_index, file, page_role
+│   ├── labels.csv          P###, age, gender, scores, p_happy, label
+│   ├── extraction_report.csv  per-crop success/failure
+│   ├── crop_index.csv      crop_path, P###, task_code, task_type, label, p_happy
+│   ├── qc_report.csv       quality gate summary
+│   ├── exclusions.csv      excluded crops with reasons
+│   ├── splits.json         train/val/test + 5-fold assignments
+│   ├── preprocessing_log.csv
+│   └── psychometrics_report.csv
 │
-├── LABELED/                # After emotion assignment
-│   ├── HAPPY/
-│   │   ├── P001_sample_01.png
-│   │   └── ...
-│   └── SAD/
-│       ├── P002_sample_01.png
-│       └── ...
+├── CROPS/                  GITIGNORED — Phase 4 output
+│   └── P001/
+│       ├── P001_draw_circles.png
+│       ├── P001_word_content_left.png
+│       └── ...  (24 files per respondent)
 │
-├── PROCESSED/              # After preprocessing (ready for training)
-│   ├── HAPPY/
-│   └── SAD/
-│
-├── SPLITS/                 # Train/validation/test splits
-│   ├── train/
-│   │   ├── HAPPY/
-│   │   └── SAD/
-│   ├── val/
-│   │   ├── HAPPY/
-│   │   └── SAD/
-│   └── test/
-│       ├── HAPPY/
-│       └── SAD/
-│
-└── METADATA/               # CSV files for tracking
-    ├── participants.csv
-    ├── questionnaire_scores.csv
-    └── labels.csv
-```
-
-### Data Flow
-
-```
-1. COLLECT          2. SCORE             3. LABEL            4. PREPROCESS        5. SPLIT
-┌─────────┐      ┌──────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  RAW/   │  →   │ questionnaire │  →  │  LABELED/   │  →  │ PROCESSED/  │  →  │  SPLITS/    │
-│(scanned)│      │  _scores.csv  │     │ HAPPY/ SAD/ │     │ HAPPY/ SAD/ │     │train/val/test│
-└─────────┘      └──────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+└── PROCESSED/              GITIGNORED — Phase 7 output (mirrors CROPS)
+    └── P001/
+        └── ...  (224×224 preprocessed PNG)
 ```
 
 ---
 
-## Metadata Files
-
-### `participants.csv`
-
-Tracks participant demographics and consent.
-
-```csv
-participant_id,age,gender,handedness,consent_date,notes
-P001,22,F,R,2025-03-01,
-P002,19,M,R,2025-03-01,
-P003,24,F,R,2025-03-02,glasses
-```
-
-| Column | Description |
-|--------|-------------|
-| `participant_id` | Unique ID (P001, P002, ...) |
-| `age` | Participant age (18-25) |
-| `gender` | M/F/Other |
-| `handedness` | R (right-handed only for this study) |
-| `consent_date` | Date consent was given |
-| `notes` | Any additional notes |
-
-### `questionnaire_scores.csv`
-
-Stores DASS-21 and happiness scale scores.
-
-```csv
-participant_id,dass_depression,dass_anxiety,dass_stress,happiness_score,assigned_emotion
-P001,5,8,10,48,HAPPY
-P002,22,18,25,18,SAD
-P003,3,5,7,52,HAPPY
-```
-
-| Column | Description |
-|--------|-------------|
-| `dass_depression` | DASS-21 depression subscale (0-42) |
-| `dass_anxiety` | DASS-21 anxiety subscale (0-42) |
-| `dass_stress` | DASS-21 stress subscale (0-42) |
-| `happiness_score` | Oxford/SDHS happiness score |
-| `assigned_emotion` | Final label: HAPPY, SAD, or NEUTRAL |
-
-### `labels.csv`
-
-Maps image files to emotion labels.
-
-```csv
-filename,participant_id,emotion,collection_date,validated
-P001_sample_01.png,P001,HAPPY,2025-03-01,TRUE
-P001_sample_02.png,P001,HAPPY,2025-03-01,TRUE
-P002_sample_01.png,P002,SAD,2025-03-01,FALSE
-```
-
----
-
-## Labeling Thresholds
-
-Emotions are assigned based on questionnaire scores:
-
-| Condition | Label |
-|-----------|-------|
-| `happiness_score >= 40` AND `dass_depression < 14` | **HAPPY** |
-| `happiness_score < 30` OR `dass_depression >= 14` | **SAD** |
-| Otherwise | NEUTRAL (excluded from training) |
-
----
-
-## Model Outputs (`models/`)
+## Labeling — FINALE 24-item (Section A, non-negotiable)
 
 ```
-models/
-├── best_model.pth          # Best CNN weights (based on val loss)
-├── cnn_epoch_50.pth        # Checkpoint at epoch 50
-├── hmm_happy.pkl           # Trained HMM for HAPPY class
-├── hmm_sad.pkl             # Trained HMM for SAD class
-└── hybrid_final.pkl        # Complete hybrid model
+happiness_items  = (2,4,6,8,10,12,13,16,19,20,21,23)   kept raw
+sadness_items    = (1,3,5,7,9,11,14,15,17,18,22,24)    kept raw
+adjusted_total   = happiness_sum + (72 - sadness_sum)   range 24-120
+label            = HAPPY if adjusted_total >= 72 else SAD
+p_happy          = (adjusted_total/24 - 1) / 4          stored only
 ```
 
----
-
-## Results (`results/`)
-
-```
-results/
-├── training_history.json    # Loss and accuracy per epoch
-├── confusion_matrix.png     # Visualization
-├── classification_report.txt
-├── cross_validation_results.csv
-└── predictions/
-    └── test_predictions.csv
-```
-
----
-
-## Notebooks (`notebooks/`)
-
-| Notebook | Purpose |
-|----------|---------|
-| `01_data_exploration.ipynb` | Explore raw data, check class balance |
-| `02_preprocessing_test.ipynb` | Test preprocessing pipeline |
-| `03_model_training.ipynb` | Train and tune the hybrid model |
-| `04_evaluation.ipynb` | Generate final evaluation metrics |
-
----
-
-## File Naming Conventions
-
-### Handwriting Samples
-
-```
-{participant_id}_sample_{number}_{date}.png
-
-Examples:
-P001_sample_01_20250301.png
-P001_sample_02_20250301.png
-P042_sample_01_20250315.png
-```
-
-### Model Checkpoints
-
-```
-{model_type}_{description}.{ext}
-
-Examples:
-cnn_epoch_50.pth
-hmm_happy.pkl
-hybrid_best_f1_0.85.pkl
-```
+**NO NEUTRAL class.** All 400 respondents are labelled and included.
 
 ---
 
 ## Configuration (`src/utils/config.py`)
 
-Key hyperparameters defined in `config.py`:
-
 ```python
-# Image settings
-image_size = (224, 224)
-
-# CNN settings
-num_features = 256
-dropout_rate = 0.5
-
-# HMM settings
-n_states = 4
-covariance_type = "diag"
-
-# Training settings
-batch_size = 32
-epochs = 100
-learning_rate = 0.001
-patience = 10  # Early stopping
-
-# Cross-validation
-n_folds = 5
+# Key defaults
+config.data.raw_data_dir      = "E:\\EMHA_Thesis\\DATASET\\raw"  # READ-ONLY
+config.data.crops_dir         = "DATA/CROPS"
+config.data.processed_dir     = "DATA/PROCESSED"
+config.cnn.use_pretrained     = True          # ResNet18
+config.cnn.num_features       = 256
+config.hmm.n_states           = 4
+config.hmm.covariance_type    = "diag"
+config.training.batch_size    = 32
+config.training.epochs        = 100
+config.training.learning_rate = 0.001
+config.training.n_folds       = 5
+config.training.random_state  = 42
+config.labeling.adjusted_total_threshold = 72
 ```
+
+Crop bounding boxes (fractional 0.0-1.0): `DRAWING_CROPS`, `WORD_CROPS`, `CURSIVE_CROPS`.
+Tune against real scans using `python -m src.data.preview_crops P001`.
 
 ---
 
-## Quick Start
+## Sequencing Rule (Phase 14)
 
-### 1. Install Dependencies
+smoke test (3-5 respondents) → 30-respondent pilot → full run.
+Never scale before the previous stage passes.
 
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Collect Data
-
-Place scanned handwriting samples in `DATA/RAW/participant_XXX/`
-
-### 3. Score Questionnaires
-
-Fill in `DATA/METADATA/questionnaire_scores.csv` with DASS and happiness scores
-
-### 4. Label Samples
-
-```bash
-python -m src.data.labeler
-```
-
-### 5. Preprocess Images
-
-```bash
-python -m src.preprocessing.pipeline
-```
-
-### 6. Train Model
-
-```bash
-python -m src.training.trainer
-```
-
-### 7. Evaluate
-
-```bash
-python -m src.training.evaluator
-```
-
----
-
-## Dependencies
-
-Core libraries used in this project:
-
-| Library | Purpose |
-|---------|---------|
-| `torch` | Deep learning (CNN) |
-| `hmmlearn` | Hidden Markov Models |
-| `opencv-python` | Image preprocessing |
-| `scikit-learn` | Metrics, cross-validation |
-| `pandas` | Data management |
-| `numpy` | Numerical operations |
-| `matplotlib` | Visualization |
-
----
-
-*Last updated: March 2026*
+*Last updated: July 2026*

@@ -1,0 +1,326 @@
+================================================================================
+INSIDE-OUT / EMHA — THESIS PROCESS PIPELINE (AUTHORITATIVE, END TO END)
+Emotion Recognition through Handwriting Analysis using a CNN-HMM Hybrid Approach
+Cyrel Jane A. Edano — University of San Carlos, DCISM
+Adviser: Christian V. Maderazo, M.Eng.
+Version: July 2026 — supersedes all prior process maps and checklists
+================================================================================
+
+GOAL
+Identify a person's emotion (HAPPY or SAD) from his/her handwriting and drawings
+alone. The 400 answered FINALE assessments are used ONLY to create ground-truth
+labels for training. At inference time, the trained model receives only scanned
+handwriting/drawing images and outputs HAPPY or SAD. The precise thesis claim:
+"predicting concurrent self-reported emotional state from offline scanned
+handwriting and drawing." Primary contribution = the FINALE dataset and the
+extraction pipeline; accuracy numbers are secondary (target 70-85 percent).
+
+--------------------------------------------------------------------------------
+SECTION A. NON-NEGOTIABLE DECISIONS (ENFORCE IN EVERY PHASE)
+--------------------------------------------------------------------------------
+1.  Binary labels only: HAPPY or SAD. No NEUTRAL class. No exclusion band.
+    All 400 respondents contribute to training.
+2.  Finalized scoring scheme (24-item FINALE, Likert 1-5):
+      Happiness items kept raw:      Q2 Q4 Q6 Q8 Q10 Q12 Q13 Q16 Q19 Q20 Q21 Q23
+      Sadness items reverse-scored:  Q1 Q3 Q5 Q7 Q9 Q11 Q14 Q15 Q17 Q18 Q22 Q24
+      reverse = 6 - raw
+      adjusted_total = happiness_sum + (72 - sadness_sum)     range 24-120
+      label = HAPPY if adjusted_total >= 72 else SAD          integer math only
+      soft label P_happy = (mean_score - 1) / 4               stored, not used
+      for the decision boundary
+3.  Participant-level splitting only. Never split at file level (data leakage).
+    All 24 crops of a respondent stay in the same split.
+4.  skip_skew = True for all 4 drawing crops. Deskew ON for the 15 word cells
+    and 5 cursive cells.
+5.  PyTorch only. No TensorFlow anywhere (code, docs, or slides).
+6.  ResNet18 pretrained backbone is the priority CNN. Activate
+    use_pretrained = True in config.py (current default False is wrong).
+7.  All hyperparameters live in dataclasses in src/utils/config.py.
+    Modules run as python -m src.* from project root. black + flake8.
+8.  Raw data at E:\EMHA_Thesis\DATASET\raw is READ-ONLY. All pipeline outputs
+    are written elsewhere; raw scans are never modified.
+9.  Self-report circularity is acknowledged openly in Chapter 6 and in the
+    defense. It is scoped, not hidden.
+10. Pre-register a minimum viable sample floor BEFORE looking at pilot data
+    (recommended: commit to a floor of 240 usable respondents in writing).
+
+--------------------------------------------------------------------------------
+SECTION B. TOOL ROUTING (WHAT HAPPENS WHERE)
+--------------------------------------------------------------------------------
+Claude.ai Project        Planning, documents, prompts, decisions, this file.
+Cursor IDE + Claude Code Implementation on local disk E:\EMHA_Thesis, using
+                         fully self-contained paste-ready prompts (exact file
+                         paths, class names, method signatures, acceptance
+                         checks). Commit and push to github.com/Yeeejj/EMHA.
+GitHub (Yeeejj/EMHA)     Version control. Commit at the end of every phase.
+                         Colab clones/pulls from here.
+Google Colab             Heavy work only: CNN training, HMM fitting, 5-fold CV,
+                         Grad-CAM. Notebook: EMHA_Colab_Pipeline.ipynb. Data
+                         synced via Google Drive. GPU runtime.
+Google Sheets            Tabulation of self-report answers. Target spreadsheet
+                         ID 1SgE-dXfiXkUhJv7vTHF3JNxTPtIioHXUDzYfrYT4Db8, fed by
+                         Google Form 1m9FPXQMPc-XKM7eDgBx7RV3el6SBfqoCeernDBvX6WI
+                         through EMHA_Form_to_Tabulation_Bridge.gs (routes rows
+                         by Respondent ID into the self-report data tab).
+Local Excel              ERHA_HappySad_Tabulation.xlsx mirrors the sheet:
+                         columns participant_id, age, gender, q1-q24,
+                         happiness_sum, sadness_sum, adjusted_total,
+                         mean_adjusted, p_happy, label, plus the Tabulation
+                         Summary block (label counts, gender breakdown, age
+                         stats, label x gender cross-tab).
+
+--------------------------------------------------------------------------------
+SECTION C. IMMEDIATE GATE (DO THESE BEFORE ANYTHING ELSE)
+--------------------------------------------------------------------------------
+GATE 1. Fix hybrid.py line 51. It passes n_features to HMMClassifier, which
+        only accepts n_states, n_iter, covariance_type. Nothing in the training
+        pipeline can run until this is removed. One-line fix + a smoke assert.
+GATE 2. Build questionnaire_scorer.py implementing the Section A scoring scheme
+        exactly, reading the tabulation sheet/workbook, writing labels.csv.
+GATE 3. Build WritingCellExtractor in content_extractor.py so each respondent
+        yields the 20 writing crops (15 word cells from the 5x3 grid + 5
+        cursive rows) alongside the 4 drawing crops = 24 crops per respondent,
+        named {participant_id}_{task_code}.png. Grid detection is
+        morphological (no OCR). Use normalized/fractional bounding boxes, not
+        absolute pixels (template scan is anisotropic, ~74.5 DPI horizontal,
+        ~81.1 DPI vertical). Barcode decoding via pyzbar is separate.
+GATE 4. Reconcile documentation. labeler.py, CLAUDE.md, SYSTEMS_GUIDE.md, and
+        README_THESIS_INSTRUCTIONS.md still describe the obsolete DASS-21 +
+        Oxford scheme with a NEUTRAL class and TensorFlow references. Rewrite
+        all four to match Section A. Also merge the two competing checklists
+        (16-phase P0-P15 vs 19-phase 0-18) into this single document; the
+        19-phase 0-18 scheme below is now authoritative.
+
+--------------------------------------------------------------------------------
+SECTION D. THE 19-PHASE PIPELINE (P0 - P18)
+--------------------------------------------------------------------------------
+
+PHASE 0 — ENVIRONMENT SETUP
+Where: Cursor local + GitHub + Colab.
+Do: Clone/verify repo layout matching PROJECT_STRUCTURE.md. Python venv,
+    requirements.txt install (PyTorch, OpenCV, hmmlearn, scikit-learn, pandas,
+    numpy, matplotlib, seaborn, openpyxl, pyzbar). black + flake8 configured.
+    Confirm python -m src.utils.config runs and prints config. Confirm Colab
+    notebook can pull the repo and mount Drive.
+Create: .flake8 / pyproject settings if missing; verified requirements.txt.
+Done when: fresh clone + install + config import works on local AND Colab.
+
+PHASE 1 — PARTICIPANT REGISTRATION (BARCODE -> P-ID)
+Where: Cursor local.
+Do: Walk E:\EMHA_Thesis\DATASET\raw. Each folder respondent_001 ...
+    respondent_NNN contains PNG/ and PDF/ with exactly 4 EMHA-timestamped
+    files each. Map folder to barcode ID: strip "respondent_", zero-pad to 3,
+    prepend "P" (respondent_001 -> P001). Verify with pyzbar barcode decode on
+    page 1 where possible; log mismatches, never overwrite raw.
+Create: participants.csv (participant_id, folder, n_png, n_pdf, barcode_ok).
+Done when: every folder registers, zero ID collisions, mismatch report empty
+    or explained.
+
+PHASE 2 — PAGE ROLE ASSIGNMENT
+Where: Cursor local.
+Do: Within each PNG folder, alphabetical sort of the 4 EMHA-timestamped files
+    equals chronological/page order. Assign roles: page 1 questionnaire,
+    page 2 drawings sheet (2x2 grid, unequal row heights: Overlapping Circles,
+    Connect the Dots, Person in the Rain, House and Tree), pages 3-4 writing
+    sheets (5 words: content, melancholic, optimistic, disconnected, vibrant,
+    each in 3 handedness variants = 5x3 grid; plus 5 cursive sentence rows).
+Create: page_manifest.csv (participant_id, page_index, file, role).
+Done when: 4 roles assigned for all respondents; anomalies (missing/extra
+    pages) quarantined into an exclusions list with reasons.
+
+PHASE 3 — QUESTIONNAIRE SCORING + LABELING          [GATE 2 DELIVERABLE]
+Where: Google Form/Sheets for encoding; Cursor for scorer.
+Do: Encoders enter q1-q24 + age + gender via the Google Form; the Apps Script
+    bridge routes rows into the self-report data tab keyed by Respondent ID.
+    Export/download as xlsx (reliable method: download and parse via Python
+    zipfile + xl/worksheets XML for multi-tab inspection, or openpyxl).
+    questionnaire_scorer.py computes happiness_sum, sadness_sum,
+    adjusted_total, mean_adjusted, p_happy, label per Section A. Integer
+    comparisons only at the >= 72 boundary.
+Create: src/data/questionnaire_scorer.py; DATA/METADATA/labels.csv;
+    refreshed Tabulation Summary block (label counts, gender breakdown, age
+    stats, label x gender cross-tab).
+Done when: scorer output matches hand-computed spot checks on 10 respondents;
+    label distribution reported; zero NEUTRAL anywhere.
+
+PHASE 4 — CONTENT EXTRACTION (24 CROPS/PARTICIPANT)  [GATE 3 DELIVERABLE]
+Where: Cursor local.
+Do: content_extractor.py with WritingCellExtractor and the drawing extractor.
+    Morphological grid detection, fractional bounding boxes, deskew ON for
+    word/cursive cells, skip_skew=True for the 4 drawing crops. Output
+    {participant_id}_{task_code}.png, 24 files per respondent.
+Create: src/data/content_extractor.py; DATA/CROPS/<participant_id>/ tree;
+    extraction_report.csv (per-cell success/failure + reason).
+Done when: 24/24 crops for clean respondents; failures logged with reasons,
+    not silently skipped.
+
+PHASE 5 — LABEL PROPAGATION
+Where: Cursor local.
+Do: Join labels.csv to every crop. Each of a respondent's 24 crops inherits
+    that respondent's binary label. Persist a single crop-level index.
+Create: DATA/METADATA/crop_index.csv (crop_path, participant_id, task_code,
+    task_type drawing/word/cursive, label, p_happy).
+Done when: row count = 24 x usable respondents; no crop without a label; no
+    label without crops.
+
+PHASE 5B — DATA TABULATION AND ENCODING CLOSE-OUT
+Where: Google Sheets + local Excel.
+Do: Freeze the self-report data tab once all forms are encoded. Sync
+    ERHA_HappySad_Tabulation.xlsx to match. Lock a dated snapshot copy.
+Create: dated snapshot of the workbook committed to the repo (or Drive) as
+    the canonical label source for the thesis.
+Done when: sheet, xlsx, and labels.csv agree row-for-row.
+
+PHASE 6 — QUALITY CONTROL
+Where: Cursor local.
+Do: Automated checks on crops: blank cell detection (ink-pixel ratio
+    threshold), truncation, wrong-cell content flags, unreadable scans.
+    Quarantine failures per-crop, and per-respondent if page-level. Compute
+    the actual exclusion rate — this is the number that decides whether ~400
+    collected yields the realistic usable pool of ~264-320 and clears the
+    pre-registered floor.
+Create: src/data/qc.py; qc_report.csv; exclusions.csv with reasons.
+Done when: usable-pool count is known and compared against the pre-registered
+    minimum floor.
+
+PHASE 7 — PREPROCESSING
+Where: Cursor local (logic), Colab (bulk run if slow).
+Do: Grayscale -> Otsu binarization -> morphological noise removal ->
+    conditional deskew (per rule 4) -> resize/normalize to 224x224. All
+    parameters from config.py dataclasses.
+Create: src/data/preprocess.py updates; DATA/PROCESSED tree mirroring CROPS.
+Done when: visual spot-check of 5 respondents x 24 crops looks correct;
+    drawings untouched by deskew.
+
+PHASE 8 — PARTICIPANT-AWARE SPLITTING
+Where: Cursor local.
+Do: participant_aware_splitter.py. Stratified by label at the RESPONDENT
+    level, then expand to crops. Fixed seed in config. Also emit the 5-fold
+    CV fold assignments (respondent-level) for Phase 10.
+Create: src/data/participant_aware_splitter.py; splits.json
+    (train/val/test respondent lists + fold map).
+Done when: assert no participant_id appears in more than one split/fold;
+    label proportions within a few points across splits.
+
+PHASE 9 — BUG FIX + MODEL TRAINING                    [GATE 1 FIRST]
+Where: fix in Cursor; training in Colab.
+Do: (a) Remove n_features from the HMMClassifier call at hybrid.py line 51.
+    (b) Set use_pretrained=True (ResNet18 backbone) in config.py.
+    (c) Architecture: CNNFeatureExtractor -> 256-dim spatial sequence ->
+        per-class GaussianHMM (4 states, diagonal covariance), class
+        HybridCNNHMM. Train on Colab GPU via EMHA_Colab_Pipeline.ipynb,
+        pulling code from GitHub and data from Drive.
+    (d) Train the logistic regression baseline on handcrafted graphological
+        features for comparison.
+Create: fixed hybrid.py; trained checkpoints; baseline model; training logs.
+Done when: full training run completes without crash on the pilot subset,
+    then on the full usable pool.
+
+PHASE 10 — EVALUATION
+Where: Colab.
+Do: Respondent-level stratified 5-fold CV using splits.json folds. Metrics:
+    accuracy, precision, recall, F1, confusion matrix, ROC-AUC (use p_happy
+    soft labels for calibration analysis only). Report per-task-type breakdown
+    (drawings vs words vs cursive) and hybrid vs baseline comparison. Frame
+    results against the 70-85 percent target.
+Create: src/evaluation updates as needed; results tables (csv) + figures.
+Done when: CV results reproducible from a clean Colab run with fixed seeds.
+
+PHASE 11 — END-TO-END INFERENCE (predict.py)
+Where: Cursor local.
+Do: predict.py CLI: input = a scanned page set (or a single crop), pipeline =
+    register -> extract -> preprocess -> model -> HAPPY/SAD + confidence.
+    This is the artifact that literally demonstrates the thesis goal: emotion
+    from handwriting alone, no questionnaire.
+Create: src/predict.py; usage doc; 3 demo runs saved for the defense.
+Done when: python -m src.predict <path> prints label + confidence on a
+    held-out respondent never seen in training.
+
+PHASE 12 — ARTIFACT GENERATION
+Where: Colab (Grad-CAM) + Cursor.
+Do: artifact_generator.py producing thesis-ready figures at 300 DPI:
+    confusion matrices, ROC curves, per-fold bars, Grad-CAM overlays on
+    sample crops, dataset composition charts (matplotlib/seaborn). Draw.io
+    for the architecture diagram.
+Create: src/utils/artifact_generator.py; FIGURES/ folder, all 300 DPI.
+Done when: every figure referenced by Chapters 4-5 exists in FIGURES/.
+
+PHASE 13 — PSYCHOMETRICS AND INSTRUMENT VALIDITY
+Where: Cursor local.
+Do: psychometrics.py computing Cronbach's alpha for the 24-item FINALE
+    (overall and per subscale), item-total correlations, score distribution.
+    Note supervision by the four licensed psychometricians in the write-up.
+Create: src/analysis/psychometrics.py; psychometrics_report (table + text).
+Done when: alpha reported with interpretation; feeds Chapter 4 methodology.
+
+PHASE 14 — SMOKE TEST AND PILOT (SEQUENCING RULE)
+Where: local for smoke, Colab for pilot training.
+Order enforced throughout: smoke test (3-5 respondents, smoke_test.py stages
+A-G, run AFTER Gate 1 fix) -> 30-respondent pilot (measures real exclusion
+rate, validates scorer + extractor end to end, estimates timing) -> full run.
+Never scale before the previous stage passes.
+Done when: pilot report states exclusion rate, projected usable pool vs the
+pre-registered floor, and a go/no-go for full collection processing.
+
+PHASE 15 — THESIS WRITING (CHAPTERS 5-6)
+Where: Claude.ai Project for drafting support; Word for the manuscript.
+Do: Chapter 5 (Results): CV metrics, baseline comparison, per-task analysis,
+    Grad-CAM qualitative findings. Chapter 6 (Discussion/Conclusion):
+    interpret against 70-85 target; EXPLICITLY address self-report
+    circularity as a scoped limitation; position FINALE dataset + pipeline
+    as the primary contribution; limitations (sample size, single
+    university, right-handed only, concurrent-state-not-trait); future work.
+Done when: Chapters 5-6 drafted, figures embedded, adviser review passed.
+
+PHASE 16 — DEFENSE PREPARATION
+Where: Claude.ai + slides tool of choice.
+Do: Defense deck: problem -> FINALE instrument -> pipeline -> architecture ->
+    results -> live/recorded predict.py demo -> limitations (lead with
+    circularity, do not bury it) -> contributions. Rehearse Q and A on:
+    why binary, why >= 72, why no neutral, leakage prevention
+    (participant-level splits), why CNN-HMM vs CNN alone, sample
+    sufficiency (pilot-measured exclusion rate).
+Done when: deck complete, demo rehearsed, mock defense with adviser done.
+
+PHASE 17 — REVISIONS
+Do: Incorporate panel feedback; rerun any analysis the panel requires;
+    version every change in GitHub with clear commit messages.
+Done when: revision matrix (comment -> change -> location) signed off.
+
+PHASE 18 — SUBMISSION AND HARD BINDING
+Do: Final manuscript per USC format, plagiarism/format checks, dataset and
+    code archived (tag a release on Yeeejj/EMHA), FIGURES and labels
+    snapshot included, hard-bound copies submitted.
+Done when: submitted, bound, archived release tagged. Thesis complete.
+
+--------------------------------------------------------------------------------
+SECTION E. CRITICAL PATH SUMMARY (WHAT TO DO NEXT, IN ORDER)
+--------------------------------------------------------------------------------
+1. Fix hybrid.py n_features bug (Gate 1).
+2. Build questionnaire_scorer.py (Gate 2).
+3. Build WritingCellExtractor / content_extractor.py (Gate 3).
+4. Rewrite labeler.py, CLAUDE.md, SYSTEMS_GUIDE.md,
+   README_THESIS_INSTRUCTIONS.md to the finalized scheme (Gate 4).
+5. Smoke test A-G on 3-5 respondents.
+6. 30-respondent pilot; measure exclusion rate vs pre-registered floor.
+7. Full extraction + QC + splits on the usable pool.
+8. Colab training (ResNet18 hybrid + logistic baseline), 5-fold CV.
+9. predict.py end-to-end demo on a held-out respondent.
+10. Figures, psychometrics, Chapters 5-6, defense deck, revisions, binding.
+
+--------------------------------------------------------------------------------
+SECTION F. DEFINITION OF PROJECT SUCCESS
+--------------------------------------------------------------------------------
+1. A frozen, documented FINALE dataset: usable respondents x 24 labeled crops,
+   with QC and exclusion reporting, meeting the pre-registered sample floor.
+2. A working end-to-end system: raw scanned page in -> HAPPY/SAD out, with no
+   questionnaire at inference (predict.py demo on unseen respondent).
+3. CNN-HMM hybrid evaluated with respondent-level 5-fold CV, benchmarked
+   against a logistic regression baseline, results honestly framed within
+   the 70-85 percent target range.
+4. Circularity and scope limitations stated plainly in the manuscript and
+   defended, not discovered by the panel.
+5. Manuscript approved, defended, revised, and hard-bound; code and data
+   release tagged on GitHub.
+
+END OF DOCUMENT

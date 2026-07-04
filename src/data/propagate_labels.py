@@ -1,16 +1,23 @@
 """
-Phase 5 — Propagate labels: join extraction log with participant labels.
+Phase 5 — Propagate labels: join extraction report with participant labels.
 
-Reads DATA/METADATA/extraction_log.csv and DATA/METADATA/labels.csv.
-For every extraction row whose status is SUCCESS:
+Reads:
+    DATA/METADATA/extraction_report.csv  (from Phase 4)
+    DATA/METADATA/labels.csv             (from Phase 3)
 
-  HAPPY  -> included (excluded = False)
-  SAD    -> included (excluded = False)
-  NEUTRAL -> excluded (excluded = True)
-  not found in labels.csv -> excluded = True, label = UNKNOWN, warning printed
+For every SUCCESS row in the extraction report, looks up the participant's
+label and p_happy from labels.csv. There is NO NEUTRAL class (Section A):
+every labelled participant is included. Participants absent from labels.csv
+are assigned UNKNOWN and excluded with a warning.
 
-Writes DATA/METADATA/samples_manifest.csv with columns:
-    participant_id, task_code, image_path, label, excluded
+Writes DATA/METADATA/crop_index.csv with columns:
+    crop_path, participant_id, task_code, task_type, label, p_happy,
+    excluded, exclusion_reason
+
+task_type is derived from the task_code prefix:
+    draw_*    -> drawing
+    word_*    -> word
+    cursive_* -> cursive
 
 Run from the project root:
 
@@ -27,98 +34,115 @@ from pathlib import Path
 from src.utils.config import config
 
 INCLUDED_LABELS = {"HAPPY", "SAD"}
-EXCLUDED_LABEL = "NEUTRAL"
 UNKNOWN_LABEL = "UNKNOWN"
 
+CROP_INDEX_FIELDS = [
+    "crop_path", "participant_id", "task_code", "task_type",
+    "label", "p_happy", "excluded", "exclusion_reason",
+]
 
-def load_labels(labels_path: Path) -> dict[str, str]:
-    """Return participant_id -> label from labels.csv."""
-    label_map: dict[str, str] = {}
+
+def _task_type(task_code: str) -> str:
+    if task_code.startswith("draw_"):
+        return "drawing"
+    if task_code.startswith("word_"):
+        return "word"
+    if task_code.startswith("cursive_"):
+        return "cursive"
+    return "unknown"
+
+
+def load_labels(labels_path: Path) -> dict[str, dict]:
+    """Return participant_id -> {label, p_happy, ...} from labels.csv."""
+    label_map: dict[str, dict] = {}
     with labels_path.open(newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             pid = (row.get("participant_id") or "").strip()
-            label = (row.get("label") or "").strip().upper()
             if pid:
-                label_map[pid] = label
+                label_map[pid] = {
+                    "label":   (row.get("label") or "").strip().upper(),
+                    "p_happy": row.get("p_happy", ""),
+                }
     return label_map
 
 
-def build_manifest(
-    log_path: Path,
-    label_map: dict[str, str],
+def build_crop_index(
+    report_path: Path,
+    label_map: dict[str, dict],
 ) -> tuple[list[dict], set[str]]:
-    """Return (manifest_rows, unknown_pids) for all SUCCESS extractions."""
+    """Return (crop_index_rows, unknown_pids) for all SUCCESS extractions."""
     rows: list[dict] = []
     unknown_pids: set[str] = set()
 
-    with log_path.open(newline="", encoding="utf-8") as fh:
+    with report_path.open(newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             if (row.get("status") or "").strip().upper() != "SUCCESS":
                 continue
 
             pid = (row.get("participant_id") or "").strip()
             task_code = (row.get("task_code") or "").strip()
-            image_path = (row.get("output_path") or "").strip()
+            crop_path = (row.get("output_path") or "").strip()
 
             if pid in label_map:
-                label = label_map[pid]
-                excluded = label not in INCLUDED_LABELS
+                label = label_map[pid]["label"]
+                p_happy = label_map[pid]["p_happy"]
+                excluded = False
+                exclusion_reason = ""
             else:
                 label = UNKNOWN_LABEL
+                p_happy = ""
                 excluded = True
+                exclusion_reason = "participant not in labels.csv"
                 unknown_pids.add(pid)
 
-            rows.append(
-                {
-                    "participant_id": pid,
-                    "task_code": task_code,
-                    "image_path": image_path,
-                    "label": label,
-                    "excluded": excluded,
-                }
-            )
+            rows.append({
+                "crop_path":        crop_path,
+                "participant_id":   pid,
+                "task_code":        task_code,
+                "task_type":        _task_type(task_code),
+                "label":            label,
+                "p_happy":          p_happy,
+                "excluded":         excluded,
+                "exclusion_reason": exclusion_reason,
+            })
 
     return rows, unknown_pids
 
 
-def write_manifest(manifest_path: Path, rows: list[dict]) -> None:
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["participant_id", "task_code", "image_path", "label", "excluded"]
-    with manifest_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+def write_crop_index(index_path: Path, rows: list[dict]) -> None:
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    with index_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CROP_INDEX_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
 
 
 def print_summary(rows: list[dict]) -> None:
-    total = len(rows)
-    happy = sum(1 for r in rows if r["label"] == "HAPPY" and not r["excluded"])
-    sad = sum(1 for r in rows if r["label"] == "SAD" and not r["excluded"])
-    neutral = sum(1 for r in rows if r["label"] == EXCLUDED_LABEL and r["excluded"])
-    unknown = sum(1 for r in rows if r["label"] == UNKNOWN_LABEL and r["excluded"])
-    for_training = happy + sad
+    from collections import Counter
+    included = [r for r in rows if not r["excluded"]]
+    label_counts = Counter(r["label"] for r in included)
+    unknown = sum(1 for r in rows if r["label"] == UNKNOWN_LABEL)
 
-    print(f"  Total files processed : {total}")
-    print(f"  HAPPY    (included)   : {happy}")
-    print(f"  SAD      (included)   : {sad}")
-    print(f"  NEUTRAL  (excluded)   : {neutral}")
-    print(f"  UNKNOWN  (excluded)   : {unknown}")
-    print(f"  Total for training    : {for_training}")
+    print(f"  Total crops processed  : {len(rows)}")
+    print(f"  HAPPY (included)       : {label_counts['HAPPY']}")
+    print(f"  SAD   (included)       : {label_counts['SAD']}")
+    print(f"  UNKNOWN (excluded)     : {unknown}")
+    print(f"  Total for training     : {label_counts['HAPPY'] + label_counts['SAD']}")
+    print("  (No NEUTRAL class - Section A)")
 
 
 def propagate_labels(
-    log_path: Path,
+    report_path: Path,
     labels_path: Path,
-    manifest_path: Path,
+    index_path: Path,
 ) -> None:
     print("=" * 60)
-    print("Phase 5 - PROPAGATE labels")
+    print("Phase 5 - PROPAGATE labels -> crop_index.csv")
     print("=" * 60)
 
-    if not log_path.is_file():
-        print(f"ERROR: extraction log not found: {log_path}")
+    if not report_path.is_file():
+        print(f"ERROR: extraction report not found: {report_path}")
         sys.exit(1)
-
     if not labels_path.is_file():
         print(f"ERROR: labels file not found: {labels_path}")
         sys.exit(1)
@@ -126,27 +150,26 @@ def propagate_labels(
     label_map = load_labels(labels_path)
     print(f"Labels loaded  : {len(label_map)} participants")
 
-    rows, unknown_pids = build_manifest(log_path, label_map)
+    rows, unknown_pids = build_crop_index(report_path, label_map)
 
     for pid in sorted(unknown_pids):
         warnings.warn(
-            f"Participant '{pid}' not found in labels.csv; "
-            "assigned UNKNOWN and excluded.",
+            f"Participant '{pid}' not in labels.csv; assigned UNKNOWN.",
             UserWarning,
             stacklevel=2,
         )
 
-    write_manifest(manifest_path, rows)
-    print(f"Manifest written: {manifest_path}")
+    write_crop_index(index_path, rows)
+    print(f"Crop index written: {index_path}")
     print_summary(rows)
 
 
 def main() -> int:
-    metadata_dir = Path(config.data.metadata_dir)
+    meta = Path(config.data.metadata_dir)
     propagate_labels(
-        log_path=metadata_dir / "extraction_log.csv",
-        labels_path=metadata_dir / "labels.csv",
-        manifest_path=metadata_dir / "samples_manifest.csv",
+        report_path=meta / "extraction_report.csv",
+        labels_path=meta / "labels.csv",
+        index_path=meta / "crop_index.csv",
     )
     return 0
 

@@ -1,6 +1,7 @@
 """
-Configuration Module
-Centralized configuration for model hyperparameters and paths.
+Configuration Module — INSIDE-OUT / EMHA
+All hyperparameters live here in dataclasses. Modules run as python -m src.*
+from the project root. See ProcessPipeline.txt Section A for labeling rules.
 """
 
 from dataclasses import dataclass, field
@@ -12,15 +13,13 @@ from pathlib import Path
 class DataConfig:
     """Data-related configuration."""
 
-    raw_data_dir: str = "E:\\EMHA_Thesis\\DATASET\\raw"
-    staging_dir: str = "DATA/STAGING"
+    raw_data_dir: str = "E:\\EMHA_Thesis\\DATASET\\raw"  # READ-ONLY
     metadata_dir: str = "DATA/METADATA"
-    extracted_dir: str = "DATA/EXTRACTED"
-    processed_dir: str = "DATA/PROCESSED"
-    splits_dir: str = "DATA/SPLITS"
+    crops_dir: str = "DATA/CROPS"          # Phase 4 output
+    processed_dir: str = "DATA/PROCESSED"  # Phase 7 output (mirrors CROPS)
 
     image_size: Tuple[int, int] = (224, 224)
-    train_ratio: float = 0.7
+    train_ratio: float = 0.70
     val_ratio: float = 0.15
     test_ratio: float = 0.15
 
@@ -33,11 +32,9 @@ class PreprocessingConfig:
     binarize_threshold: Optional[int] = None  # None = Otsu's method
     denoise_kernel_size: int = 3
     normalize: bool = True
-    # Quality gate thresholds (validate_quality.py)
     min_crop_size: Tuple[int, int] = (80, 80)
-    blank_threshold: float = 245.0  # grayscale mean above this = blank page
-    # Skew correction is meaningless on drawing crops (no text baseline).
-    # Task codes whose prefix appears here will have skip_skew=True.
+    blank_threshold: float = 245.0  # grayscale mean above this = blank
+    # Task-code prefixes whose crops skip deskew (drawings have no text baseline).
     skip_skew_prefixes: Tuple[str, ...] = ("draw_",)
 
 
@@ -45,12 +42,10 @@ class PreprocessingConfig:
 class CNNConfig:
     """CNN model configuration."""
 
-    input_channels: int = 1  # Grayscale
+    input_channels: int = 1          # Grayscale
     num_features: int = 256
     dropout_rate: float = 0.5
-
-    # Architecture options
-    use_pretrained: bool = True
+    use_pretrained: bool = True       # ResNet18 backbone (Section A Rule 6)
     pretrained_backbone: str = "resnet18"
     freeze_backbone: bool = True
 
@@ -61,7 +56,7 @@ class HMMConfig:
 
     n_states: int = 4
     n_iter: int = 100
-    covariance_type: str = "diag"  # "full", "diag", "tied", "spherical"
+    covariance_type: str = "diag"
 
 
 @dataclass
@@ -72,45 +67,30 @@ class TrainingConfig:
     epochs: int = 100
     learning_rate: float = 0.001
     weight_decay: float = 1e-4
-
-    # Early stopping
     patience: int = 10
     min_delta: float = 0.001
-
-    # Cross-validation
     n_folds: int = 5
     random_state: int = 42
-
-    # Checkpointing
     checkpoint_dir: str = "models"
     save_best_only: bool = True
 
 
 @dataclass
 class LabelingConfig:
-    """FINALE 24-item self-report scoring and emotion-labeling thresholds.
+    """FINALE 24-item self-report scoring per ProcessPipeline.txt Section A.
 
-    Items are 1-5 Likert. Each subscale is summed in its own keyed
-    direction (no within-subscale reversal): higher happiness_score = happier,
-    higher sadness_score = sadder. Both composites range 12-60. Thresholds are
-    anchored to per-item means on the 1-5 scale: mean >= 3.5 -> 42 (elevated),
-    mean <= 2.5 -> 30 (low). Confirm against the pilot distribution with the
-    psychometrician panel before final lock.
+    Happiness items kept raw; sadness items reverse-scored (6 - raw).
+    adjusted_total = happiness_sum + (72 - sadness_sum)   range 24-120
+    label = HAPPY if adjusted_total >= 72 else SAD        integer math only
+    soft P_happy = (adjusted_total/24 - 1) / 4            stored, not used
+    for the binary decision.  NO NEUTRAL class anywhere.
     """
 
-    # 1-based item numbers (item_01 .. item_24 in questionnaire_scores.csv).
     happiness_items: Tuple[int, ...] = (2, 4, 6, 8, 10, 12, 13, 16, 19, 20, 21, 23)
     sadness_items: Tuple[int, ...] = (1, 3, 5, 7, 9, 11, 14, 15, 17, 18, 22, 24)
-
     likert_min: int = 1
     likert_max: int = 5
-
-    score_min: int = 12  # 12 items x 1
-    score_max: int = 60  # 12 items x 5
-
-    happiness_high: float = 42.0  # item mean >= 3.5
-    happiness_low: float = 30.0  # item mean <= 2.5
-    sadness_threshold: float = 42.0  # item mean >= 3.5
+    adjusted_total_threshold: int = 72   # HAPPY if >= 72, SAD otherwise
 
 
 @dataclass
@@ -124,23 +104,21 @@ class Config:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
 
-    # Project info
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
 
     def __post_init__(self):
-        """Create writable pipeline directories if they don't exist.
+        """Create writable pipeline directories.
 
-        The raw data dir is deliberately excluded: it is READ-ONLY and must
-        never be created or written to (see CLAUDE.md Critical Rule 1).
+        DATASET/raw is READ-ONLY and deliberately excluded here.
         """
         for dir_path in [
-            self.data.staging_dir,
             self.data.metadata_dir,
-            self.data.extracted_dir,
+            self.data.crops_dir,
             self.data.processed_dir,
-            self.data.splits_dir,
             self.training.checkpoint_dir,
+            "FIGURES",
+            "results",
         ]:
             Path(dir_path).mkdir(parents=True, exist_ok=True)
 
@@ -150,53 +128,50 @@ config = Config()
 
 
 # ---------------------------------------------------------------------------
-# Crop coordinate maps for page_drawing and page_writing
+# Crop coordinate maps — fractional (0.0–1.0) relative to scan dimensions.
+# Reference scan: ~1700 px wide × ~2200 px tall (anisotropic ~74.5 DPI H,
+# ~81.1 DPI V).  Tune against real scans with src/data/preview_crops.py.
+# Format: (x1_frac, y1_frac, x2_frac, y2_frac)
 # ---------------------------------------------------------------------------
-# PLACEHOLDER pixel boxes (x1, y1, x2, y2), sized to the actual scan
-# resolution of this dataset: 1700 x 2200 px (portrait). These are first-pass
-# estimates of a proportional layout and are meant to be tuned against real
-# scans using src/data/preview_crops.py.
-SCAN_WIDTH_PX = 1700
-SCAN_HEIGHT_PX = 2200
 
-# page_drawing (index 2): 2x2 grid below the header band, with margins for the
-# page border and per-quadrant labels.
+# page_drawing (page index 2): 2×2 grid below the header band.
+# Row heights are unequal: top row (Circles, Dots) is shorter than bottom row.
 DRAWING_CROPS = {
-    "draw_circles": (120, 510, 810, 1210),  # top-left
-    "draw_dots": (890, 510, 1580, 1210),  # top-right (pre-printed dots)
-    "draw_person": (120, 1380, 810, 2080),  # bottom-left (person in rain)
-    "draw_house": (890, 1380, 1580, 2080),  # bottom-right (house and tree)
+    "draw_circles": (0.0706, 0.2318, 0.4765, 0.5500),   # top-left
+    "draw_dots":    (0.5235, 0.2318, 0.9294, 0.5500),   # top-right
+    "draw_person":  (0.0706, 0.6273, 0.4765, 0.9455),   # bottom-left
+    "draw_house":   (0.5235, 0.6273, 0.9294, 0.9455),   # bottom-right
 }
 
-# page_writing (index 3), section 1: 5-row x 3-column word table (15 cells).
+# page_writing (page index 3), section 1: 5×3 word table (15 cells).
 # Rows: content, melancholic, optimistic, disconnected, vibrant.
-# Columns: left (hand), right (hand), upper(case).
+# Columns: left-hand, right-hand, uppercase.
 WORD_CROPS = {
-    "word_content_left": (430, 440, 800, 584),
-    "word_content_right": (810, 440, 1180, 584),
-    "word_content_upper": (1190, 440, 1570, 584),
-    "word_melancholic_left": (430, 604, 800, 748),
-    "word_melancholic_right": (810, 604, 1180, 748),
-    "word_melancholic_upper": (1190, 604, 1570, 748),
-    "word_optimistic_left": (430, 768, 800, 912),
-    "word_optimistic_right": (810, 768, 1180, 912),
-    "word_optimistic_upper": (1190, 768, 1570, 912),
-    "word_disconnected_left": (430, 932, 800, 1076),
-    "word_disconnected_right": (810, 932, 1180, 1076),
-    "word_disconnected_upper": (1190, 932, 1570, 1076),
-    "word_vibrant_left": (430, 1096, 800, 1240),
-    "word_vibrant_right": (810, 1096, 1180, 1240),
-    "word_vibrant_upper": (1190, 1096, 1570, 1240),
+    "word_content_left":        (0.2529, 0.2000, 0.4706, 0.2655),
+    "word_content_right":       (0.4765, 0.2000, 0.6941, 0.2655),
+    "word_content_upper":       (0.7000, 0.2000, 0.9235, 0.2655),
+    "word_melancholic_left":    (0.2529, 0.2745, 0.4706, 0.3400),
+    "word_melancholic_right":   (0.4765, 0.2745, 0.6941, 0.3400),
+    "word_melancholic_upper":   (0.7000, 0.2745, 0.9235, 0.3400),
+    "word_optimistic_left":     (0.2529, 0.3491, 0.4706, 0.4145),
+    "word_optimistic_right":    (0.4765, 0.3491, 0.6941, 0.4145),
+    "word_optimistic_upper":    (0.7000, 0.3491, 0.9235, 0.4145),
+    "word_disconnected_left":   (0.2529, 0.4236, 0.4706, 0.4891),
+    "word_disconnected_right":  (0.4765, 0.4236, 0.6941, 0.4891),
+    "word_disconnected_upper":  (0.7000, 0.4236, 0.9235, 0.4891),
+    "word_vibrant_left":        (0.2529, 0.4982, 0.4706, 0.5636),
+    "word_vibrant_right":       (0.4765, 0.4982, 0.6941, 0.5636),
+    "word_vibrant_upper":       (0.7000, 0.4982, 0.9235, 0.5636),
 }
 
-# page_writing (index 3), section 2: 5 cursive sentence row-cells. Each cell
-# includes its pre-printed prompt (expected, not an error).
+# page_writing (page index 3), section 2: 5 cursive sentence rows.
+# Each row includes its pre-printed prompt line.
 CURSIVE_CROPS = {
-    "cursive_01": (130, 1390, 1570, 1520),
-    "cursive_02": (130, 1530, 1570, 1660),
-    "cursive_03": (130, 1670, 1570, 1800),
-    "cursive_04": (130, 1810, 1570, 1940),
-    "cursive_05": (130, 1950, 1570, 2080),
+    "cursive_01": (0.0765, 0.6318, 0.9235, 0.6909),
+    "cursive_02": (0.0765, 0.6955, 0.9235, 0.7545),
+    "cursive_03": (0.0765, 0.7591, 0.9235, 0.8182),
+    "cursive_04": (0.0765, 0.8227, 0.9235, 0.8818),
+    "cursive_05": (0.0765, 0.8864, 0.9235, 0.9455),
 }
 
 
@@ -204,19 +179,15 @@ if __name__ == "__main__":
     print("INSIDE-OUT Configuration")
     print("=" * 40)
     print(f"\nProject: {config.project_name} v{config.version}")
-    print("\nData Config:")
-    print(f"  Image size: {config.data.image_size}")
-    print(
-        f"  Train/Val/Test: {config.data.train_ratio}/"
-        f"{config.data.val_ratio}/{config.data.test_ratio}"
-    )
-    print("\nCNN Config:")
-    print(f"  Features: {config.cnn.num_features}")
-    print(f"  Pretrained: {config.cnn.use_pretrained}")
-    print("\nHMM Config:")
-    print(f"  States: {config.hmm.n_states}")
-    print("\nTraining Config:")
-    print(f"  Batch size: {config.training.batch_size}")
-    print(f"  Epochs: {config.training.epochs}")
-    print(f"  Learning rate: {config.training.learning_rate}")
-    print(f"  K-folds: {config.training.n_folds}")
+    print(f"\nData Config:")
+    print(f"  Raw (READ-ONLY): {config.data.raw_data_dir}")
+    print(f"  Crops:           {config.data.crops_dir}")
+    print(f"  Processed:       {config.data.processed_dir}")
+    print(f"\nCNN Config:")
+    print(f"  use_pretrained: {config.cnn.use_pretrained}  (ResNet18)")
+    print(f"  num_features:   {config.cnn.num_features}")
+    print(f"\nHMM Config:")
+    print(f"  n_states: {config.hmm.n_states}")
+    print(f"\nLabeling (Section A):")
+    print(f"  threshold (adjusted_total >= {config.labeling.adjusted_total_threshold} -> HAPPY)")
+    print(f"  NO NEUTRAL class")

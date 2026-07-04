@@ -1,26 +1,26 @@
 """
-Phase 6 — Validate quality: run per-file checks on included samples.
+Phase 6 — Quality control: per-crop checks on included samples.
 
-Reads DATA/METADATA/samples_manifest.csv.  For every row where
-excluded is False, four checks are applied in order; the first
-failure sets excluded = True and records the reason:
+Reads DATA/METADATA/crop_index.csv.  For every row where excluded is False,
+four checks are applied in order; the first failure sets excluded=True:
 
-  missing_file    — file does not exist or has zero bytes
-  corrupt_image   — PIL cannot open or fully load the file
-  low_resolution  — width or height < config.preprocessing.min_crop_size
-  blank_content   — grayscale mean pixel value > config.preprocessing.blank_threshold
-                    (participant left the section empty)
+    missing_file    - file does not exist or has zero bytes
+    corrupt_image   - PIL cannot open or fully load the file
+    low_resolution  - width or height < config.preprocessing.min_crop_size
+    blank_content   - grayscale mean pixel > config.preprocessing.blank_threshold
 
-Rows already excluded (NEUTRAL / UNKNOWN) are passed through unchanged.
-Exclusion is per file; a failure in one crop does not exclude the other
-crops of the same participant.
+Rows already excluded (UNKNOWN) pass through unchanged.
+Exclusion is per-crop; a failure in one crop does not exclude others for that
+participant.
 
-Writes back to DATA/METADATA/samples_manifest.csv (adds exclusion_reason
-column), and writes a summary to DATA/METADATA/quality_report.csv.
+Outputs:
+    DATA/METADATA/crop_index.csv  (updated with exclusion flags)
+    DATA/METADATA/qc_report.csv   (summary statistics)
+    DATA/METADATA/exclusions.csv  (excluded crop rows with reasons)
 
 Run from the project root:
 
-    python -m src.data.validate_quality
+    python -m src.data.qc
 """
 
 from __future__ import annotations
@@ -35,16 +35,12 @@ from PIL import Image, UnidentifiedImageError
 
 from src.utils.config import config
 
-MANIFEST_FIELDS = [
-    "participant_id",
-    "task_code",
-    "image_path",
-    "label",
-    "excluded",
-    "exclusion_reason",
+CROP_INDEX_FIELDS = [
+    "crop_path", "participant_id", "task_code", "task_type",
+    "label", "p_happy", "excluded", "exclusion_reason",
 ]
-
 REPORT_FIELDS = ["metric", "value"]
+EXCLUSIONS_FIELDS = CROP_INDEX_FIELDS
 
 FAILURE_REASONS = (
     "missing_file",
@@ -58,10 +54,10 @@ def _parse_bool(val: str) -> bool:
     return val.strip().lower() in ("true", "1", "yes")
 
 
-def check_image(image_path: str) -> tuple[bool, str]:
+def check_image(crop_path: str) -> tuple[bool, str]:
     """Run all four quality checks. Return (passed, reason)."""
     cfg = config.preprocessing
-    path = Path(image_path)
+    path = Path(crop_path)
 
     if not path.is_file() or path.stat().st_size == 0:
         return False, "missing_file"
@@ -83,11 +79,8 @@ def check_image(image_path: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_manifest(rows: list[dict]) -> list[dict]:
-    """
-    Run quality checks on every included row.  Returns updated rows with
-    the exclusion_reason field populated.
-    """
+def run_qc(rows: list[dict]) -> list[dict]:
+    """Apply quality checks to every included row; return updated rows."""
     updated: list[dict] = []
     for row in rows:
         r = dict(row)
@@ -97,13 +90,12 @@ def validate_manifest(rows: list[dict]) -> list[dict]:
             updated.append(r)
             continue
 
-        passed, reason = check_image(r["image_path"])
+        passed, reason = check_image(r["crop_path"])
         if not passed:
             r["excluded"] = True
             r["exclusion_reason"] = reason
 
         updated.append(r)
-
     return updated
 
 
@@ -111,7 +103,6 @@ def build_report(
     original_rows: list[dict],
     updated_rows: list[dict],
 ) -> list[dict]:
-    """Return key/value rows for quality_report.csv."""
     originally_included = [
         r for r in original_rows if not _parse_bool(r.get("excluded", "False"))
     ]
@@ -131,7 +122,7 @@ def build_report(
     final_usable = [
         r for r in updated_rows if not _parse_bool(str(r.get("excluded", "False")))
     ]
-    class_counts: Counter = Counter(r["label"] for r in final_usable)
+    label_counts: Counter = Counter(r["label"] for r in final_usable)
 
     report = [
         {"metric": "total_checked", "value": total_checked},
@@ -140,31 +131,39 @@ def build_report(
     for reason in FAILURE_REASONS:
         report.append({"metric": f"failed_{reason}", "value": failure_counts[reason]})
     for label in ("HAPPY", "SAD"):
-        report.append({"metric": f"usable_{label}", "value": class_counts[label]})
+        report.append({"metric": f"usable_{label}", "value": label_counts[label]})
     report.append(
-        {"metric": "total_usable", "value": class_counts["HAPPY"] + class_counts["SAD"]}
+        {"metric": "total_usable", "value": label_counts["HAPPY"] + label_counts["SAD"]}
     )
     return report
 
 
-def read_manifest(manifest_path: Path) -> list[dict]:
-    with manifest_path.open(newline="", encoding="utf-8") as fh:
+def read_crop_index(path: Path) -> list[dict]:
+    with path.open(newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
 
 
-def write_manifest(manifest_path: Path, rows: list[dict]) -> None:
-    with manifest_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=MANIFEST_FIELDS)
+def write_crop_index(path: Path, rows: list[dict]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CROP_INDEX_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
 
 
-def write_report(report_path: Path, report: list[dict]) -> None:
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    with report_path.open("w", newline="", encoding="utf-8") as fh:
+def write_report(path: Path, report: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=REPORT_FIELDS)
         writer.writeheader()
         writer.writerows(report)
+
+
+def write_exclusions(path: Path, rows: list[dict]) -> None:
+    excluded = [r for r in rows if _parse_bool(str(r.get("excluded", "False")))]
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=EXCLUSIONS_FIELDS)
+        writer.writeheader()
+        writer.writerows(excluded)
 
 
 def print_summary(report: list[dict]) -> None:
@@ -174,44 +173,49 @@ def print_summary(report: list[dict]) -> None:
     print(f"  Passed           : {kv['passed']}")
     for reason in FAILURE_REASONS:
         print(f"  Failed ({reason:<20}): {kv[f'failed_{reason}']}")
-    print("\nFinal class distribution for Chapter 4:")
-    print(f"  HAPPY (usable)   : {kv['usable_HAPPY']}")
-    print(f"  SAD   (usable)   : {kv['usable_SAD']}")
-    print(f"  Total for training: {kv['total_usable']}")
+    print("\nFinal usable pool (Chapter 4):")
+    print(f"  HAPPY : {kv['usable_HAPPY']}")
+    print(f"  SAD   : {kv['usable_SAD']}")
+    print(f"  Total : {kv['total_usable']}")
 
 
 def validate_quality(
-    manifest_path: Path,
+    index_path: Path,
     report_path: Path,
+    exclusions_path: Path,
 ) -> None:
     print("=" * 60)
-    print("Phase 6 - VALIDATE quality")
+    print("Phase 6 - QUALITY CONTROL")
     print("=" * 60)
 
-    if not manifest_path.is_file():
-        print(f"ERROR: samples manifest not found: {manifest_path}")
+    if not index_path.is_file():
+        print(f"ERROR: crop index not found: {index_path}")
         sys.exit(1)
 
-    print(f"Manifest : {manifest_path}")
+    print(f"Crop index : {index_path}")
 
-    original_rows = read_manifest(manifest_path)
-    updated_rows = validate_manifest(original_rows)
+    original_rows = read_crop_index(index_path)
+    updated_rows = run_qc(original_rows)
     report = build_report(original_rows, updated_rows)
 
-    write_manifest(manifest_path, updated_rows)
-    print(f"Manifest updated : {manifest_path}")
+    write_crop_index(index_path, updated_rows)
+    print(f"Crop index updated : {index_path}")
 
     write_report(report_path, report)
-    print(f"Quality report   : {report_path}")
+    print(f"QC report          : {report_path}")
+
+    write_exclusions(exclusions_path, updated_rows)
+    print(f"Exclusions         : {exclusions_path}")
 
     print_summary(report)
 
 
 def main() -> int:
-    metadata_dir = Path(config.data.metadata_dir)
+    meta = Path(config.data.metadata_dir)
     validate_quality(
-        manifest_path=metadata_dir / "samples_manifest.csv",
-        report_path=metadata_dir / "quality_report.csv",
+        index_path=meta / "crop_index.csv",
+        report_path=meta / "qc_report.csv",
+        exclusions_path=meta / "exclusions.csv",
     )
     return 0
 
