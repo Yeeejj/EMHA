@@ -1,0 +1,35 @@
+This is INSIDE-OUT, a CS thesis project at University of San Carlos (DCISM).
+Binary emotion classification (HAPPY vs SAD) from offline scanned handwriting
+and drawing samples using a CNN-HMM hybrid architecture.
+
+Researcher: Cyrel Jane A. Edaño
+Adviser: Christian V. Maderazo, M.Eng.
+GitHub: https://github.com/Yeeejj/EMHA
+
+RAW DATASET STRUCTURE:
+- respondent_001/ through respondent_NNN/ on local desktop
+- Each has PNG/ (4 files) and PDF/ (4 files)
+- Files named EMHA{YYYYMMDD}_{HHMMSSff}.ext
+- Alphabetical sort = page order: index 0=cover, 1=selfreport, 2=drawing, 3=writing
+- Barcode rule: respondent_001 → P001 (strip prefix, zero-pad, prepend P)
+
+ASSESSMENT STRUCTURE (FINALE):
+- Page 2: 24-item Likert self-report (1-5), ground truth label source
+- Page 3: 2x2 drawing grid (circles, dots, person, house)
+- Page 4: 5x3 word table (Content/Melancholic/Optimistic/Disconnected/Vibrant
+  × Left/Right/Uppercase) + 5 cursive sentence rows
+
+CODING CONVENTIONS:
+- PyTorch only, no TensorFlow
+- All hyperparameters in config.py via dataclasses
+- Run modules from project root: python -m src.*
+- black + flake8 for formatting
+- Do NOT modify DATA/SPLITS/test/ until final evaluation
+- Fix known bug in hybrid.py before any training: HMMClassifier
+  called with unsupported n_features argument
+
+KEY FILES:
+- CLAUDE.md: project conventions
+- SYSTEMS_GUIDE.md: full architecture documentation
+- config.py: all hyperparameters and paths
+- DATA/METADATA/: all CSV manifests
