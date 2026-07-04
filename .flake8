@@ -1,0 +1,19 @@
+[flake8]
+max-line-length = 100
+exclude =
+    .git,
+    __pycache__,
+    venv,
+    env,
+    .venv,
+    notebooks,
+    DATASET,
+    DATA,
+    FIGURES,
+    models,
+    results,
+    DOCS,
+    CITATIONS
+per-file-ignores =
+    # Allow star imports in __init__ files
+    src/*/__init__.py: F401

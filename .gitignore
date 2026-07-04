@@ -2,12 +2,15 @@ BACKUP/
 ~$*
 .claude/
 
-# ── Raw and processed data ────────────────────────────────────────────────────
-# NEVER commit image data (CLAUDE.md Critical Rule 1)
+# ── Pipeline data outputs (never commit image data) ───────────────────────────
 DATA/STAGING/
-DATA/EXTRACTED/
-DATA/PROCESSED/
+DATA/CROPS/*
+DATA/PROCESSED/*
 DATA/SPLITS/
+!DATA/CROPS/.gitkeep
+!DATA/PROCESSED/.gitkeep
+FIGURES/*
+!FIGURES/.gitkeep
 
 # ── Model checkpoints ─────────────────────────────────────────────────────────
 # Trained on real data; too large for git and not source code

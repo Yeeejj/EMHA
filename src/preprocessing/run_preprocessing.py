@@ -1,17 +1,17 @@
 """
-Phase 7 — Run preprocessing: apply image pipeline to all included samples.
+Phase 7 — Run preprocessing: apply image pipeline to all included crops.
 
-Reads DATA/METADATA/samples_manifest.csv and processes every row where
-excluded is False.
+Reads DATA/METADATA/crop_index.csv (after Phase 6 QC) and processes every
+row where excluded is False.
 
-Pipeline order:
+Pipeline order (all params from config.preprocessing):
     grayscale -> Otsu binarization -> morphological denoising
-    -> skew correction (skipped when task_code starts with a prefix
-       listed in config.preprocessing.skip_skew_prefixes, i.e. draw_*)
+    -> skew correction (skipped for draw_* task codes)
     -> resize to 224x224 -> normalize to [0, 1]
 
 Processed images are saved as uint8 PNG to:
-    DATA/PROCESSED/{label}/{participant_id}_{task_code}.png
+    DATA/PROCESSED/{participant_id}/{participant_id}_{task_code}.png
+    (mirrors DATA/CROPS structure — Section A pipeline)
 
 Every attempt is recorded in DATA/METADATA/preprocessing_log.csv.
 
@@ -93,10 +93,9 @@ def process_row(
     """Process one manifest row and return a log dict."""
     pid = row["participant_id"]
     task_code = row["task_code"]
-    input_path = Path(row["image_path"])
-    label = row["label"]
+    input_path = Path(row["crop_path"])
 
-    out_dir = processed_dir / label
+    out_dir = processed_dir / pid
     out_dir.mkdir(parents=True, exist_ok=True)
     output_path = out_dir / f"{pid}_{task_code}.png"
 
@@ -149,7 +148,7 @@ def run_preprocessing(
     included = [r for r in all_rows if not _parse_bool(r.get("excluded", "False"))]
     skipped = len(all_rows) - len(included)
 
-    print(f"Manifest       : {manifest_path}")
+    print(f"Crop index     : {manifest_path}")
     print(f"Total rows     : {len(all_rows)}")
     print(f"Included       : {len(included)}")
     print(f"Skipped (excl) : {skipped}")
@@ -219,11 +218,11 @@ def _print_example_pairs(log_rows: list[dict]) -> None:
 
 
 def main() -> int:
-    metadata_dir = Path(config.data.metadata_dir)
+    meta = Path(config.data.metadata_dir)
     run_preprocessing(
-        manifest_path=metadata_dir / "samples_manifest.csv",
+        manifest_path=meta / "crop_index.csv",
         processed_dir=Path(config.data.processed_dir),
-        log_path=metadata_dir / "preprocessing_log.csv",
+        log_path=meta / "preprocessing_log.csv",
     )
     return 0
 
