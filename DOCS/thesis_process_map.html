@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INSIDE-OUT: Thesis Process Map</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    min-height: 100vh;
+    color: #e0e0ff;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  header {
+    text-align: center;
+    margin-bottom: 50px;
+  }
+  header h1 {
+    font-size: 2.2rem;
+    background: linear-gradient(90deg, #667eea, #764ba2, #f093fb);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  header p { color: #8888bb; font-size: 0.95rem; }
+  header .author { color: #6666aa; font-size: 0.85rem; margin-top: 4px; }
+
+  .timeline {
+    position: relative;
+    padding: 20px 0;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(180deg, #667eea, #f093fb, #4facfe, #43e97b, #fee140, #ff6b6b, #ffd93d, #6bcb77, #4d96ff);
+    border-radius: 2px;
+  }
+
+  .phase {
+    position: relative;
+    width: 45%;
+    padding: 24px;
+    background: rgba(26, 26, 62, 0.9);
+    border-radius: 16px;
+    margin-bottom: 40px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+  .phase:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .phase.left { margin-left: 0; margin-right: auto; }
+  .phase.right { margin-left: auto; margin-right: 0; }
+
+  .phase::after {
+    content: '';
+    position: absolute;
+    top: 30px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    z-index: 2;
+  }
+  .phase.left::after { right: -8%; }
+  .phase.right::after { left: -8%; }
+
+  .phase .number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-weight: bold;
+    font-size: 0.85rem;
+    margin-right: 10px;
+    color: #fff;
+  }
+  .phase h2 {
+    display: inline;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .phase .content { margin-top: 16px; }
+  .phase .content h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin: 12px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .phase ul { list-style: none; padding: 0; }
+  .phase li {
+    padding: 4px 0 4px 20px;
+    position: relative;
+    font-size: 0.9rem;
+    color: #a0a0cc;
+    line-height: 1.5;
+  }
+  .phase li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .output {
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    font-family: 'Fira Code', monospace;
+    font-size: 0.8rem;
+  }
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin: 2px 4px 2px 0;
+  }
+  .tag.happy { background: rgba(67, 233, 123, 0.2); color: #43e97b; }
+  .tag.sad { background: rgba(245, 87, 108, 0.2); color: #f5576c; }
+  .tag.neutral { background: rgba(136, 136, 187, 0.2); color: #8888bb; }
+
+  /* Phase-specific colors */
+  .p1 { border-color: #667eea; }
+  .p1 h2, .p1 .content h3 { color: #667eea; }
+  .p1 .number { background: #667eea; }
+  .p1::after { background: #667eea; box-shadow: 0 0 12px #667eea; }
+  .p1 li::before { background: #667eea; }
+
+  .p2 { border-color: #f093fb; }
+  .p2 h2, .p2 .content h3 { color: #f093fb; }
+  .p2 .number { background: #f093fb; }
+  .p2::after { background: #f093fb; box-shadow: 0 0 12px #f093fb; }
+  .p2 li::before { background: #f093fb; }
+
+  .p3 { border-color: #4facfe; }
+  .p3 h2, .p3 .content h3 { color: #4facfe; }
+  .p3 .number { background: #4facfe; }
+  .p3::after { background: #4facfe; box-shadow: 0 0 12px #4facfe; }
+  .p3 li::before { background: #4facfe; }
+
+  .p4 { border-color: #43e97b; }
+  .p4 h2, .p4 .content h3 { color: #43e97b; }
+  .p4 .number { background: #43e97b; color: #1a1a3e; }
+  .p4::after { background: #43e97b; box-shadow: 0 0 12px #43e97b; }
+  .p4 li::before { background: #43e97b; }
+
+  .p5 { border-color: #fee140; }
+  .p5 h2, .p5 .content h3 { color: #fee140; }
+  .p5 .number { background: #fee140; color: #1a1a3e; }
+  .p5::after { background: #fee140; box-shadow: 0 0 12px #fee140; }
+  .p5 li::before { background: #fee140; }
+
+  .p6 { border-color: #ff6b6b; }
+  .p6 h2, .p6 .content h3 { color: #ff6b6b; }
+  .p6 .number { background: #ff6b6b; }
+  .p6::after { background: #ff6b6b; box-shadow: 0 0 12px #ff6b6b; }
+  .p6 li::before { background: #ff6b6b; }
+
+  .p7 { border-color: #ffd93d; }
+  .p7 h2, .p7 .content h3 { color: #ffd93d; }
+  .p7 .number { background: #ffd93d; color: #1a1a3e; }
+  .p7::after { background: #ffd93d; box-shadow: 0 0 12px #ffd93d; }
+  .p7 li::before { background: #ffd93d; }
+
+  .p8 { border-color: #6bcb77; }
+  .p8 h2, .p8 .content h3 { color: #6bcb77; }
+  .p8 .number { background: #6bcb77; color: #1a1a3e; }
+  .p8::after { background: #6bcb77; box-shadow: 0 0 12px #6bcb77; }
+  .p8 li::before { background: #6bcb77; }
+
+  .p9 { border-color: #4d96ff; }
+  .p9 h2, .p9 .content h3 { color: #4d96ff; }
+  .p9 .number { background: #4d96ff; }
+  .p9::after { background: #4d96ff; box-shadow: 0 0 12px #4d96ff; }
+  .p9 li::before { background: #4d96ff; }
+
+  .phase { border: 2px solid; }
+
+  /* Data flow bar */
+  .flow-bar {
+    margin-top: 60px;
+    padding: 24px;
+    background: rgba(26, 26, 62, 0.9);
+    border-radius: 16px;
+    text-align: center;
+    border: 1px solid #555588;
+  }
+  .flow-bar h3 {
+    color: #fff;
+    margin-bottom: 16px;
+    font-size: 1rem;
+  }
+  .flow-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .flow-step {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .flow-arrow { color: #555588; font-size: 1.2rem; }
+
+  /* Tech stack */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 40px;
+  }
+  .tech-card {
+    background: rgba(26, 26, 62, 0.9);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid #333366;
+  }
+  .tech-card h3 {
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .tech-card p { color: #a0a0cc; font-size: 0.85rem; line-height: 1.6; }
+
+  footer {
+    text-align: center;
+    margin-top: 50px;
+    color: #444466;
+    font-size: 0.8rem;
+  }
+
+  @media (max-width: 768px) {
+    .timeline::before { left: 20px; }
+    .phase { width: 85%; margin-left: 50px !important; }
+    .phase::after { left: -38px !important; right: auto !important; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>INSIDE-OUT</h1>
+    <p>Emotion Recognition through Handwriting &amp; Drawing Analysis using CNN-HMM Hybrid Approach</p>
+    <p class="author">Cyrel Jane A. Edano &bull; University of San Carlos, DCISM &bull; May 2025</p>
+  </header>
+
+  <div class="timeline">
+    <!-- Phase 1 -->
+    <div class="phase left p1">
+      <span class="number">1</span>
+      <h2>Assessment Design</h2>
+      <div class="content">
+        <h3>3-Part Instrument</h3>
+        <ul>
+          <li><strong>Part 1:</strong> 24-item Self-Report (Likert 1-5) &mdash; mix of positive &amp; negative items</li>
+          <li><strong>Part 2:</strong> 4 Drawing Exercises &mdash; Circles, Dots, Person in Rain, House &amp; Tree</li>
+          <li><strong>Part 3:</strong> Writing Exercises &mdash; 5 words &times; 3 styles (Left/Right/Uppercase) + 5 cursive sentences</li>
+        </ul>
+        <div class="output">Participants: 300+ | Ages 18-25 | Right-handed | Single sitting | No erasing</div>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="phase right p2">
+      <span class="number">2</span>
+      <h2>Data Collection</h2>
+      <div class="content">
+        <h3>Participant Registration</h3>
+        <ul>
+          <li>Barcode ID assignment (P001 &rarr; P300+)</li>
+          <li>Consent form + demographics (age, gender, handedness)</li>
+          <li>Validated against participants.csv to prevent ID collision</li>
+        </ul>
+        <h3>Sample Acquisition</h3>
+        <ul>
+          <li>Handwriting &amp; drawing pages scanned to PNG</li>
+          <li>Organized: DATA/RAW/participant_XXX/</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="phase left p3">
+      <span class="number">3</span>
+      <h2>Scoring &amp; Labeling</h2>
+      <div class="content">
+        <h3>Questionnaire Scoring</h3>
+        <ul>
+          <li>DASS-21 Depression subscale (0-42)</li>
+          <li>Oxford/SDHS Happiness scale</li>
+        </ul>
+        <h3>Emotion Labels</h3>
+        <div style="margin-top: 8px;">
+          <span class="tag happy">HAPPY: happiness &ge; 40 AND dass &lt; 14</span><br>
+          <span class="tag sad">SAD: happiness &lt; 30 OR dass &ge; 14</span><br>
+          <span class="tag neutral">NEUTRAL: excluded from training</span>
+        </div>
+        <div class="output">Output: DATA/LABELED/{HAPPY,SAD}/</div>
+      </div>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="phase right p4">
+      <span class="number">4</span>
+      <h2>Image Preprocessing</h2>
+      <div class="content">
+        <h3>5-Step Pipeline</h3>
+        <ul>
+          <li><strong>1.</strong> Grayscale conversion (BGR &rarr; Gray)</li>
+          <li><strong>2.</strong> Binarization (Otsu's adaptive threshold)</li>
+          <li><strong>3.</strong> Noise removal (morphological open + close)</li>
+          <li><strong>4.</strong> Skew correction (min-area-rect rotation)</li>
+          <li><strong>5.</strong> Normalize &amp; resize to 224&times;224</li>
+        </ul>
+        <div class="output">Output: DATA/PROCESSED/{HAPPY,SAD}/ &mdash; clean 224&times;224 grayscale PNGs</div>
+      </div>
+    </div>
+
+    <!-- Phase 5 -->
+    <div class="phase left p5">
+      <span class="number">5</span>
+      <h2>CNN Feature Extraction</h2>
+      <div class="content">
+        <h3>Architecture (4 Conv Blocks)</h3>
+        <ul>
+          <li>Conv2d(1&rarr;32) + BatchNorm + ReLU + MaxPool</li>
+          <li>Conv2d(32&rarr;64) + BatchNorm + ReLU + MaxPool</li>
+          <li>Conv2d(64&rarr;128) + BatchNorm + ReLU + MaxPool</li>
+          <li>Conv2d(128&rarr;256) + BatchNorm + ReLU</li>
+        </ul>
+        <h3>Dual Output</h3>
+        <ul>
+          <li><strong>Global:</strong> AdaptiveAvgPool &rarr; FC(256) &rarr; single vector</li>
+          <li><strong>Sequence:</strong> Height-average &rarr; (batch, 28, 256) left-to-right spatial features</li>
+        </ul>
+        <div class="output">Pretrained via classification head (CrossEntropy + early stopping)</div>
+      </div>
+    </div>
+
+    <!-- Phase 6 -->
+    <div class="phase right p6">
+      <span class="number">6</span>
+      <h2>HMM Classification</h2>
+      <div class="content">
+        <h3>Per-Class Gaussian HMMs</h3>
+        <ul>
+          <li><strong>HMM_HAPPY:</strong> 4 states, diagonal covariance, trained on happy sequences</li>
+          <li><strong>HMM_SAD:</strong> 4 states, diagonal covariance, trained on sad sequences</li>
+        </ul>
+        <h3>Sequence Classification</h3>
+        <ul>
+          <li>28-timestep spatial sequences model left-to-right handwriting progression</li>
+          <li>Compare per-class log-likelihoods &rarr; softmax &rarr; prediction + confidence</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 7 -->
+    <div class="phase left p7">
+      <span class="number">7</span>
+      <h2>Cross-Validation</h2>
+      <div class="content">
+        <h3>Stratified 5-Fold CV</h3>
+        <ul>
+          <li>Balanced class distribution in each fold</li>
+          <li><strong>Per fold:</strong></li>
+          <li style="padding-left: 36px;">1. Train CNN with augmentation (rotation, affine, jitter)</li>
+          <li style="padding-left: 36px;">2. Extract spatial sequence features</li>
+          <li style="padding-left: 36px;">3. Train HMM on extracted sequences</li>
+          <li style="padding-left: 36px;">4. Evaluate on held-out fold</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 8 -->
+    <div class="phase right p8">
+      <span class="number">8</span>
+      <h2>Evaluation</h2>
+      <div class="content">
+        <h3>Metrics</h3>
+        <ul>
+          <li><strong>Accuracy</strong> (target: 80-85%)</li>
+          <li><strong>Precision</strong> (macro-averaged)</li>
+          <li><strong>Recall</strong> (macro-averaged)</li>
+          <li><strong>F1-Score</strong> (macro-averaged, primary metric)</li>
+          <li><strong>Confusion Matrix</strong> (HAPPY vs SAD)</li>
+        </ul>
+        <div class="output">Results: mean &plusmn; std across 5 folds</div>
+      </div>
+    </div>
+
+    <!-- Phase 9 -->
+    <div class="phase left p9">
+      <span class="number">9</span>
+      <h2>Final Model &amp; Deployment</h2>
+      <div class="content">
+        <h3>Saved Artifacts</h3>
+        <ul>
+          <li><strong>cnn_model.pth</strong> &mdash; trained CNN weights</li>
+          <li><strong>hmm_models.pkl</strong> &mdash; per-class HMM parameters</li>
+          <li><strong>cv_results.json</strong> &mdash; cross-validation metrics</li>
+        </ul>
+        <h3>Inference Pipeline</h3>
+        <div class="output">New Image &rarr; Preprocess &rarr; CNN Sequences &rarr; HMM Score &rarr; HAPPY / SAD + Confidence</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Flow Bar -->
+  <div class="flow-bar">
+    <h3>End-to-End Data Flow</h3>
+    <div class="flow-steps">
+      <span class="flow-step" style="background:rgba(102,126,234,0.3);color:#667eea;">Assessment</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(240,147,251,0.3);color:#f093fb;">Scan</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(79,172,254,0.3);color:#4facfe;">Score &amp; Label</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(67,233,123,0.3);color:#43e97b;">Preprocess</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(254,225,64,0.3);color:#fee140;">CNN Features</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(255,107,107,0.3);color:#ff6b6b;">HMM Classify</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(255,217,61,0.3);color:#ffd93d;">5-Fold CV</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(107,203,119,0.3);color:#6bcb77;">Evaluate</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-step" style="background:rgba(77,150,255,0.3);color:#4d96ff;">HAPPY / SAD</span>
+    </div>
+  </div>
+
+  <!-- Tech Stack -->
+  <div class="tech-grid">
+    <div class="tech-card">
+      <h3 style="color:#667eea;">Deep Learning</h3>
+      <p>PyTorch &bull; torchvision</p>
+    </div>
+    <div class="tech-card">
+      <h3 style="color:#f093fb;">Sequence Modeling</h3>
+      <p>hmmlearn (GaussianHMM)</p>
+    </div>
+    <div class="tech-card">
+      <h3 style="color:#43e97b;">Image Processing</h3>
+      <p>OpenCV &bull; Pillow</p>
+    </div>
+    <div class="tech-card">
+      <h3 style="color:#4facfe;">ML &amp; Evaluation</h3>
+      <p>scikit-learn (metrics, CV)</p>
+    </div>
+    <div class="tech-card">
+      <h3 style="color:#fee140;">Data &amp; Viz</h3>
+      <p>pandas &bull; numpy &bull; matplotlib &bull; seaborn</p>
+    </div>
+    <div class="tech-card">
+      <h3 style="color:#ff6b6b;">Platform</h3>
+      <p>Google Colab (GPU) &bull; Google Drive</p>
+    </div>
+  </div>
+
+  <footer>
+    <p>INSIDE-OUT Thesis Process Map &mdash; CNN-HMM Hybrid Emotion Recognition from Handwriting</p>
+    <p>University of San Carlos, DCISM &mdash; May 2025</p>
+  </footer>
+</div>
+</body>
+</html>
