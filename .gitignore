@@ -2,6 +2,9 @@ BACKUP/
 ~$*
 .claude/
 
+# ── Raw participant dataset (never commit — read-only, human-subject data) ────
+DATASET/
+
 # ── Pipeline data outputs (never commit image data) ───────────────────────────
 DATA/STAGING/
 DATA/CROPS/*
