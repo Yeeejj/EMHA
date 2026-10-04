@@ -158,6 +158,19 @@ class LabelingConfig:
     min_per_class: int = 100
 
 
+@dataclass
+class IngestConfig:
+    """src/data/ingest.py — raw scan validation and checksums.
+
+    expected_dpi=200 matches the real scans (confirmed via PIL on multiple
+    participants' files: 1700x2200px, ~199.9996 DPI isotropic) — not the
+    old, apparently-incorrect "~74.5x81.1 anisotropic" figure, and not 300.
+    """
+
+    expected_dpi: int = 200
+    size_tolerance: float = 0.02
+
+
 def _try_mkdir(path: Path) -> bool:
     """Create path (with parents). Return False instead of raising on failure."""
     try:
@@ -178,6 +191,7 @@ class Config:
     hmm: HMMConfig = field(default_factory=HMMConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
+    ingest: IngestConfig = field(default_factory=IngestConfig)
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
@@ -324,3 +338,7 @@ if __name__ == "__main__":
     print(f"  analysis_design:      {config.labeling.analysis_design}")
     print(f"  middle_band_fraction: {config.labeling.middle_band_fraction}")
     print(f"  min_per_class:        {config.labeling.min_per_class}")
+
+    print("\nIngest Config:")
+    print(f"  expected_dpi:   {config.ingest.expected_dpi}")
+    print(f"  size_tolerance: {config.ingest.size_tolerance}")
