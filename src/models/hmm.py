@@ -25,10 +25,7 @@ class HMMClassifier:
     EMOTION_TO_LABEL = {"HAPPY": 0, "SAD": 1}
 
     def __init__(
-        self,
-        n_states: int = 4,
-        n_iter: int = 100,
-        covariance_type: str = "diag"
+        self, n_states: int = 4, n_iter: int = 100, covariance_type: str = "diag"
     ):
         self.n_states = n_states
         self.n_iter = n_iter
@@ -155,5 +152,5 @@ class HMMClassifier:
 
 if __name__ == "__main__":
     classifier = HMMClassifier(n_states=4)
-    print(f"HMM Classifier initialized")
+    print("HMM Classifier initialized")
     print(f"States: {classifier.n_states}")

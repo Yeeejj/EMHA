@@ -15,7 +15,7 @@ class DataConfig:
 
     raw_data_dir: str = "E:\\EMHA_Thesis\\DATASET\\raw"  # READ-ONLY
     metadata_dir: str = "DATA/METADATA"
-    crops_dir: str = "DATA/CROPS"          # Phase 4 output
+    crops_dir: str = "DATA/CROPS"  # Phase 4 output
     processed_dir: str = "DATA/PROCESSED"  # Phase 7 output (mirrors CROPS)
 
     image_size: Tuple[int, int] = (224, 224)
@@ -42,10 +42,10 @@ class PreprocessingConfig:
 class CNNConfig:
     """CNN model configuration."""
 
-    input_channels: int = 1          # Grayscale
+    input_channels: int = 1  # Grayscale
     num_features: int = 256
     dropout_rate: float = 0.5
-    use_pretrained: bool = True       # ResNet18 backbone (Section A Rule 6)
+    use_pretrained: bool = True  # ResNet18 backbone (Section A Rule 6)
     pretrained_backbone: str = "resnet18"
     freeze_backbone: bool = True
 
@@ -90,7 +90,7 @@ class LabelingConfig:
     sadness_items: Tuple[int, ...] = (1, 3, 5, 7, 9, 11, 14, 15, 17, 18, 22, 24)
     likert_min: int = 1
     likert_max: int = 5
-    adjusted_total_threshold: int = 72   # HAPPY if >= 72, SAD otherwise
+    adjusted_total_threshold: int = 72  # HAPPY if >= 72, SAD otherwise
 
 
 @dataclass
@@ -137,31 +137,31 @@ config = Config()
 # page_drawing (page index 2): 2×2 grid below the header band.
 # Row heights are unequal: top row (Circles, Dots) is shorter than bottom row.
 DRAWING_CROPS = {
-    "draw_circles": (0.0706, 0.2318, 0.4765, 0.5500),   # top-left
-    "draw_dots":    (0.5235, 0.2318, 0.9294, 0.5500),   # top-right
-    "draw_person":  (0.0706, 0.6273, 0.4765, 0.9455),   # bottom-left
-    "draw_house":   (0.5235, 0.6273, 0.9294, 0.9455),   # bottom-right
+    "draw_circles": (0.0706, 0.2318, 0.4765, 0.5500),  # top-left
+    "draw_dots": (0.5235, 0.2318, 0.9294, 0.5500),  # top-right
+    "draw_person": (0.0706, 0.6273, 0.4765, 0.9455),  # bottom-left
+    "draw_house": (0.5235, 0.6273, 0.9294, 0.9455),  # bottom-right
 }
 
 # page_writing (page index 3), section 1: 5×3 word table (15 cells).
 # Rows: content, melancholic, optimistic, disconnected, vibrant.
 # Columns: left-hand, right-hand, uppercase.
 WORD_CROPS = {
-    "word_content_left":        (0.2529, 0.2000, 0.4706, 0.2655),
-    "word_content_right":       (0.4765, 0.2000, 0.6941, 0.2655),
-    "word_content_upper":       (0.7000, 0.2000, 0.9235, 0.2655),
-    "word_melancholic_left":    (0.2529, 0.2745, 0.4706, 0.3400),
-    "word_melancholic_right":   (0.4765, 0.2745, 0.6941, 0.3400),
-    "word_melancholic_upper":   (0.7000, 0.2745, 0.9235, 0.3400),
-    "word_optimistic_left":     (0.2529, 0.3491, 0.4706, 0.4145),
-    "word_optimistic_right":    (0.4765, 0.3491, 0.6941, 0.4145),
-    "word_optimistic_upper":    (0.7000, 0.3491, 0.9235, 0.4145),
-    "word_disconnected_left":   (0.2529, 0.4236, 0.4706, 0.4891),
-    "word_disconnected_right":  (0.4765, 0.4236, 0.6941, 0.4891),
-    "word_disconnected_upper":  (0.7000, 0.4236, 0.9235, 0.4891),
-    "word_vibrant_left":        (0.2529, 0.4982, 0.4706, 0.5636),
-    "word_vibrant_right":       (0.4765, 0.4982, 0.6941, 0.5636),
-    "word_vibrant_upper":       (0.7000, 0.4982, 0.9235, 0.5636),
+    "word_content_left": (0.2529, 0.2000, 0.4706, 0.2655),
+    "word_content_right": (0.4765, 0.2000, 0.6941, 0.2655),
+    "word_content_upper": (0.7000, 0.2000, 0.9235, 0.2655),
+    "word_melancholic_left": (0.2529, 0.2745, 0.4706, 0.3400),
+    "word_melancholic_right": (0.4765, 0.2745, 0.6941, 0.3400),
+    "word_melancholic_upper": (0.7000, 0.2745, 0.9235, 0.3400),
+    "word_optimistic_left": (0.2529, 0.3491, 0.4706, 0.4145),
+    "word_optimistic_right": (0.4765, 0.3491, 0.6941, 0.4145),
+    "word_optimistic_upper": (0.7000, 0.3491, 0.9235, 0.4145),
+    "word_disconnected_left": (0.2529, 0.4236, 0.4706, 0.4891),
+    "word_disconnected_right": (0.4765, 0.4236, 0.6941, 0.4891),
+    "word_disconnected_upper": (0.7000, 0.4236, 0.9235, 0.4891),
+    "word_vibrant_left": (0.2529, 0.4982, 0.4706, 0.5636),
+    "word_vibrant_right": (0.4765, 0.4982, 0.6941, 0.5636),
+    "word_vibrant_upper": (0.7000, 0.4982, 0.9235, 0.5636),
 }
 
 # page_writing (page index 3), section 2: 5 cursive sentence rows.
@@ -179,15 +179,16 @@ if __name__ == "__main__":
     print("INSIDE-OUT Configuration")
     print("=" * 40)
     print(f"\nProject: {config.project_name} v{config.version}")
-    print(f"\nData Config:")
+    print("\nData Config:")
     print(f"  Raw (READ-ONLY): {config.data.raw_data_dir}")
     print(f"  Crops:           {config.data.crops_dir}")
     print(f"  Processed:       {config.data.processed_dir}")
-    print(f"\nCNN Config:")
+    print("\nCNN Config:")
     print(f"  use_pretrained: {config.cnn.use_pretrained}  (ResNet18)")
     print(f"  num_features:   {config.cnn.num_features}")
-    print(f"\nHMM Config:")
+    print("\nHMM Config:")
     print(f"  n_states: {config.hmm.n_states}")
-    print(f"\nLabeling (Section A):")
-    print(f"  threshold (adjusted_total >= {config.labeling.adjusted_total_threshold} -> HAPPY)")
-    print(f"  NO NEUTRAL class")
+    print("\nLabeling (Section A):")
+    threshold = config.labeling.adjusted_total_threshold
+    print(f"  threshold (adjusted_total >= {threshold} -> HAPPY)")
+    print("  NO NEUTRAL class")

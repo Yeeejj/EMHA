@@ -19,7 +19,6 @@ import csv
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from src.utils.config import config
@@ -78,25 +77,29 @@ def run_psychometrics(scores_path: Path, report_path: Path) -> None:
     print(f"Cronbach alpha (overall 24-item) : {alpha_overall:.4f}")
     print(f"Cronbach alpha (happiness 12-item): {alpha_happiness:.4f}")
     print(f"Cronbach alpha (sadness  12-item) : {alpha_sadness:.4f}")
-    print(f"\nadjusted_total: mean={adj_totals.mean():.2f} "
-          f"sd={adj_totals.std():.2f} "
-          f"min={adj_totals.min():.0f} max={adj_totals.max():.0f}")
+    print(
+        f"\nadjusted_total: mean={adj_totals.mean():.2f} "
+        f"sd={adj_totals.std():.2f} "
+        f"min={adj_totals.min():.0f} max={adj_totals.max():.0f}"
+    )
 
     report_rows = [
-        {"metric": "n_valid",              "value": len(df_items)},
-        {"metric": "alpha_overall",        "value": round(alpha_overall, 4)},
-        {"metric": "alpha_happiness",      "value": round(alpha_happiness, 4)},
-        {"metric": "alpha_sadness",        "value": round(alpha_sadness, 4)},
-        {"metric": "adj_total_mean",       "value": round(float(adj_totals.mean()), 4)},
-        {"metric": "adj_total_sd",         "value": round(float(adj_totals.std()), 4)},
-        {"metric": "adj_total_min",        "value": int(adj_totals.min())},
-        {"metric": "adj_total_max",        "value": int(adj_totals.max())},
+        {"metric": "n_valid", "value": len(df_items)},
+        {"metric": "alpha_overall", "value": round(alpha_overall, 4)},
+        {"metric": "alpha_happiness", "value": round(alpha_happiness, 4)},
+        {"metric": "alpha_sadness", "value": round(alpha_sadness, 4)},
+        {"metric": "adj_total_mean", "value": round(float(adj_totals.mean()), 4)},
+        {"metric": "adj_total_sd", "value": round(float(adj_totals.std()), 4)},
+        {"metric": "adj_total_min", "value": int(adj_totals.min())},
+        {"metric": "adj_total_max", "value": int(adj_totals.max())},
     ]
     for item_col in ITEM_COLS:
-        report_rows.append({
-            "metric": f"itc_{item_col}",
-            "value":  round(float(itc[item_col]), 4),
-        })
+        report_rows.append(
+            {
+                "metric": f"itc_{item_col}",
+                "value": round(float(itc[item_col]), 4),
+            }
+        )
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with report_path.open("w", newline="", encoding="utf-8") as fh:

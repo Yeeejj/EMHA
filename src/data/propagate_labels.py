@@ -37,8 +37,14 @@ INCLUDED_LABELS = {"HAPPY", "SAD"}
 UNKNOWN_LABEL = "UNKNOWN"
 
 CROP_INDEX_FIELDS = [
-    "crop_path", "participant_id", "task_code", "task_type",
-    "label", "p_happy", "excluded", "exclusion_reason",
+    "crop_path",
+    "participant_id",
+    "task_code",
+    "task_type",
+    "label",
+    "p_happy",
+    "excluded",
+    "exclusion_reason",
 ]
 
 
@@ -60,7 +66,7 @@ def load_labels(labels_path: Path) -> dict[str, dict]:
             pid = (row.get("participant_id") or "").strip()
             if pid:
                 label_map[pid] = {
-                    "label":   (row.get("label") or "").strip().upper(),
+                    "label": (row.get("label") or "").strip().upper(),
                     "p_happy": row.get("p_happy", ""),
                 }
     return label_map
@@ -95,16 +101,18 @@ def build_crop_index(
                 exclusion_reason = "participant not in labels.csv"
                 unknown_pids.add(pid)
 
-            rows.append({
-                "crop_path":        crop_path,
-                "participant_id":   pid,
-                "task_code":        task_code,
-                "task_type":        _task_type(task_code),
-                "label":            label,
-                "p_happy":          p_happy,
-                "excluded":         excluded,
-                "exclusion_reason": exclusion_reason,
-            })
+            rows.append(
+                {
+                    "crop_path": crop_path,
+                    "participant_id": pid,
+                    "task_code": task_code,
+                    "task_type": _task_type(task_code),
+                    "label": label,
+                    "p_happy": p_happy,
+                    "excluded": excluded,
+                    "exclusion_reason": exclusion_reason,
+                }
+            )
 
     return rows, unknown_pids
 
@@ -119,6 +127,7 @@ def write_crop_index(index_path: Path, rows: list[dict]) -> None:
 
 def print_summary(rows: list[dict]) -> None:
     from collections import Counter
+
     included = [r for r in rows if not r["excluded"]]
     label_counts = Counter(r["label"] for r in included)
     unknown = sum(1 for r in rows if r["label"] == UNKNOWN_LABEL)

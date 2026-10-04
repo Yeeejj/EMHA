@@ -36,8 +36,14 @@ from PIL import Image, UnidentifiedImageError
 from src.utils.config import config
 
 CROP_INDEX_FIELDS = [
-    "crop_path", "participant_id", "task_code", "task_type",
-    "label", "p_happy", "excluded", "exclusion_reason",
+    "crop_path",
+    "participant_id",
+    "task_code",
+    "task_type",
+    "label",
+    "p_happy",
+    "excluded",
+    "exclusion_reason",
 ]
 REPORT_FIELDS = ["metric", "value"]
 EXCLUSIONS_FIELDS = CROP_INDEX_FIELDS

@@ -35,9 +35,7 @@ from src.utils.config import (  # noqa: E402
 )
 
 # All 24 task codes in extraction order: drawing, word table, cursive.
-TASK_CODES = (
-    list(DRAWING_CROPS) + list(WORD_CROPS) + list(CURSIVE_CROPS)
-)
+TASK_CODES = list(DRAWING_CROPS) + list(WORD_CROPS) + list(CURSIVE_CROPS)
 
 N_COLS = 6
 N_ROWS = 4  # 6 x 4 = 24 panels
@@ -82,7 +80,7 @@ def build_preview(pid: str, extracted_dir: Path, out_path: Path) -> int:
             ax.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
     # Hide any unused panels (none for 24, but defensive).
-    for ax in axes[len(TASK_CODES):]:
+    for ax in axes[len(TASK_CODES) :]:
         ax.axis("off")
 
     fig.suptitle(f"Crop preview — {pid}", fontsize=14)

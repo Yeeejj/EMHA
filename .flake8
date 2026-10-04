@@ -1,19 +1,15 @@
 [flake8]
-max-line-length = 100
+# Align flake8 with black's formatting (black uses an 88-char line length).
+max-line-length = 88
+# E203 (whitespace before ':') and W503 (line break before binary operator)
+# conflict with black's style; the black project recommends ignoring both.
+extend-ignore = E203, W503
 exclude =
     .git,
     __pycache__,
-    venv,
-    env,
-    .venv,
-    notebooks,
     DATASET,
-    DATA,
-    FIGURES,
-    models,
-    results,
-    DOCS,
-    CITATIONS
+    notebooks,
+    src/cropping
 per-file-ignores =
     # Allow star imports in __init__ files
     src/*/__init__.py: F401

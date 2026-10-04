@@ -22,11 +22,11 @@ import json
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")  # headless rendering
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
-from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc  # noqa: E402
 
 FIGURES_DIR = Path("FIGURES")
 DPI = 300
@@ -99,8 +99,11 @@ def plot_fold_metrics(
     _savefig(fig, filename)
 
 
-def plot_dataset_composition(labels_csv: Path, filename: str = "dataset_composition.png") -> None:
+def plot_dataset_composition(
+    labels_csv: Path, filename: str = "dataset_composition.png"
+) -> None:
     import csv
+
     rows = []
     if not labels_csv.is_file():
         print(f"  WARNING: {labels_csv} not found, skipping composition plot.")
@@ -120,7 +123,9 @@ def plot_dataset_composition(labels_csv: Path, filename: str = "dataset_composit
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
-    axes[0].bar(label_counts.keys(), label_counts.values(), color=["#4CAF50", "#F44336"])
+    axes[0].bar(
+        label_counts.keys(), label_counts.values(), color=["#4CAF50", "#F44336"]
+    )
     axes[0].set_title("Label Distribution")
     axes[0].set_ylabel("Participants")
     for k, v in label_counts.items():
@@ -135,7 +140,9 @@ def plot_dataset_composition(labels_csv: Path, filename: str = "dataset_composit
     _savefig(fig, filename)
 
 
-def generate_all(cv_results_path: Path, labels_csv: Path, include_gradcam: bool = False) -> None:
+def generate_all(
+    cv_results_path: Path, labels_csv: Path, include_gradcam: bool = False
+) -> None:
     print("Phase 12 - ARTIFACT GENERATION")
     print("=" * 60)
     print(f"Output dir: {FIGURES_DIR.resolve()} @ {DPI} DPI")
@@ -149,7 +156,9 @@ def generate_all(cv_results_path: Path, labels_csv: Path, include_gradcam: bool 
 
         if "confusion_matrix" in cv_data:
             cm = np.array(cv_data["confusion_matrix"])
-            plot_confusion_matrix(cm, "Aggregated Confusion Matrix", "confusion_matrix.png")
+            plot_confusion_matrix(
+                cm, "Aggregated Confusion Matrix", "confusion_matrix.png"
+            )
 
         if "y_true" in cv_data and "y_score" in cv_data:
             plot_roc_curve(cv_data["y_true"], cv_data["y_score"], "roc_curve.png")
@@ -179,4 +188,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

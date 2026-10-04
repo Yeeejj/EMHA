@@ -46,7 +46,11 @@ DRAWING_ROLE = "page_drawing"
 WRITING_ROLE = "page_writing"
 
 REPORT_FIELDS = [
-    "participant_id", "task_code", "output_path", "status", "reason",
+    "participant_id",
+    "task_code",
+    "output_path",
+    "status",
+    "reason",
 ]
 
 
@@ -149,13 +153,15 @@ class WritingCellExtractor:
                     ok, reason = self._crop_and_save(image, frac_box, out_path)
                     status = "SUCCESS" if ok else "FAIL"
 
-                log_rows.append({
-                    "participant_id": pid,
-                    "task_code":      task_code,
-                    "output_path":    str(out_path),
-                    "status":         status,
-                    "reason":         reason,
-                })
+                log_rows.append(
+                    {
+                        "participant_id": pid,
+                        "task_code": task_code,
+                        "output_path": str(out_path),
+                        "status": status,
+                        "reason": reason,
+                    }
+                )
 
         return log_rows
 
@@ -228,8 +234,12 @@ def extract_content(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Extract 24 task crops per participant.")
-    parser.add_argument("participant_ids", nargs="*", help="Optional subset (default: all)")
+    parser = argparse.ArgumentParser(
+        description="Extract 24 task crops per participant."
+    )
+    parser.add_argument(
+        "participant_ids", nargs="*", help="Optional subset (default: all)"
+    )
     args = parser.parse_args()
 
     meta = Path(config.data.metadata_dir)

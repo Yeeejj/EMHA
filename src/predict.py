@@ -122,9 +122,7 @@ def main() -> int:
     parser.add_argument(
         "--cnn", default="models/cnn_best.pth", help="CNN checkpoint path"
     )
-    parser.add_argument(
-        "--hmm", default="models/hmm.pkl", help="HMM checkpoint path"
-    )
+    parser.add_argument("--hmm", default="models/hmm.pkl", help="HMM checkpoint path")
     args = parser.parse_args()
 
     input_path = Path(args.input)

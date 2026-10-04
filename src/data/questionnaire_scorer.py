@@ -38,9 +38,15 @@ from src.utils.config import config
 ITEM_COLUMNS = [f"item_{i:02d}" for i in range(1, 25)]
 
 LABELS_FIELDS = [
-    "participant_id", "age", "gender",
-    "happiness_sum", "sadness_sum", "adjusted_total",
-    "mean_adjusted", "p_happy", "label",
+    "participant_id",
+    "age",
+    "gender",
+    "happiness_sum",
+    "sadness_sum",
+    "adjusted_total",
+    "mean_adjusted",
+    "p_happy",
+    "label",
 ]
 
 
@@ -86,7 +92,9 @@ def score(items: dict[int, int]) -> tuple[int, int, int, float, float]:
 
 def assign_label(adjusted_total: int) -> str:
     """Binary label: HAPPY if adjusted_total >= 72, SAD otherwise."""
-    return "HAPPY" if adjusted_total >= config.labeling.adjusted_total_threshold else "SAD"
+    return (
+        "HAPPY" if adjusted_total >= config.labeling.adjusted_total_threshold else "SAD"
+    )
 
 
 def score_questionnaire(scores_path: Path, labels_path: Path) -> None:
@@ -118,17 +126,19 @@ def score_questionnaire(scores_path: Path, labels_path: Path) -> None:
             h_sum, s_sum, adj, mean_adj, p_happy = score(items)
             label = assign_label(adj)
 
-            rows_out.append({
-                "participant_id": pid,
-                "age":            (row.get("age") or "").strip(),
-                "gender":         (row.get("gender") or "").strip(),
-                "happiness_sum":  h_sum,
-                "sadness_sum":    s_sum,
-                "adjusted_total": adj,
-                "mean_adjusted":  mean_adj,
-                "p_happy":        p_happy,
-                "label":          label,
-            })
+            rows_out.append(
+                {
+                    "participant_id": pid,
+                    "age": (row.get("age") or "").strip(),
+                    "gender": (row.get("gender") or "").strip(),
+                    "happiness_sum": h_sum,
+                    "sadness_sum": s_sum,
+                    "adjusted_total": adj,
+                    "mean_adjusted": mean_adj,
+                    "p_happy": p_happy,
+                    "label": label,
+                }
+            )
 
     labels_path.parent.mkdir(parents=True, exist_ok=True)
     with labels_path.open("w", newline="", encoding="utf-8") as fh:

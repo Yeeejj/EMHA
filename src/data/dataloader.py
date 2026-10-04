@@ -6,7 +6,6 @@ Handles loading and batching of preprocessed handwriting images for training.
 from pathlib import Path
 from typing import Tuple, List
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
@@ -31,9 +30,7 @@ class HandwritingDataset(Dataset):
     LABEL_TO_EMOTION = {0: "HAPPY", 1: "SAD"}
 
     def __init__(
-        self,
-        data_dir: str = "DATA/PROCESSED",
-        transform: transforms.Compose = None
+        self, data_dir: str = "DATA/PROCESSED", transform: transforms.Compose = None
     ):
         self.data_dir = Path(data_dir)
         self.transform = transform
@@ -85,27 +82,31 @@ class HandwritingDataset(Dataset):
 
 def get_train_transform(image_size: Tuple[int, int] = (224, 224)):
     """Training transforms with handwriting-safe augmentations."""
-    return transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.RandomRotation(degrees=5),
-        transforms.RandomAffine(
-            degrees=0,
-            translate=(0.05, 0.05),
-            scale=(0.95, 1.05),
-        ),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.RandomRotation(degrees=5),
+            transforms.RandomAffine(
+                degrees=0,
+                translate=(0.05, 0.05),
+                scale=(0.95, 1.05),
+            ),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5]),
+        ]
+    )
 
 
 def get_val_transform(image_size: Tuple[int, int] = (224, 224)):
     """Validation/test transforms (no augmentation)."""
-    return transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5]),
+        ]
+    )
 
 
 class TransformSubset(Dataset):
@@ -135,7 +136,7 @@ def create_data_loaders(
     data_dir: str = "DATA/SPLITS",
     batch_size: int = 32,
     image_size: Tuple[int, int] = (224, 224),
-    num_workers: int = 0
+    num_workers: int = 0,
 ) -> dict:
     """Create train, validation, and test data loaders."""
     train_transform = get_train_transform(image_size)

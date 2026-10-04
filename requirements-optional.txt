@@ -1,0 +1,9 @@
+# Optional dependencies for INSIDE-OUT / EMHA.
+# Not required for the core pipeline — install only for the specific task
+# that needs them.
+
+# transformers: only needed by the optional/exploratory D6 handwriting-
+# embedding task (src/features/embeddings_handwriting.py). Version could not
+# be confirmed against the live PyPI index in this session (network access to
+# pypi.org was unavailable); re-check before pinning harder when D6 is built.
+transformers>=4.46.0

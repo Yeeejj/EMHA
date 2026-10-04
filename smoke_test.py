@@ -40,6 +40,7 @@ def stage_a_config() -> None:
     """A: Config import and directory setup."""
     try:
         from src.utils.config import config, DRAWING_CROPS, WORD_CROPS, CURSIVE_CROPS
+
         assert len(DRAWING_CROPS) == 4
         assert len(WORD_CROPS) == 15
         assert len(CURSIVE_CROPS) == 5
@@ -54,6 +55,7 @@ def stage_b_register(n: int) -> list[str]:
     """B: Register first n respondents from DATASET/raw."""
     try:
         from src.utils.config import config
+
         raw_dir = Path(config.data.raw_data_dir)
         folders = sorted(f for f in raw_dir.iterdir() if f.is_dir())[:n]
         if not folders:
@@ -82,12 +84,12 @@ def stage_c_manifest() -> None:
 def stage_d_scoring() -> None:
     """D: Validate questionnaire_scorer.py logic with synthetic data."""
     try:
-        from src.data.questionnaire_scorer import score, assign_label, validate_items
+        from src.data.questionnaire_scorer import score, assign_label
 
         # Max happiness, min sadness -> HAPPY
-        items_happy = {i: 5 for i in range(1, 13)} | {i: 1 for i in range(13, 25)}
-        # Build proper item dict: 12 happiness items (value 5) + 12 sadness items (value 1)
+        # 12 happiness items at value 5 + 12 sadness items at value 1
         from src.utils.config import config as cfg
+
         items_h = {i: 5 for i in cfg.labeling.happiness_items}
         items_s = {i: 1 for i in cfg.labeling.sadness_items}
         all_items = {**items_h, **items_s}
@@ -133,6 +135,7 @@ def stage_f_propagate() -> None:
     """F: Verify crop_index or propagation imports work."""
     try:
         from src.data.propagate_labels import _task_type
+
         assert _task_type("draw_circles") == "drawing"
         assert _task_type("word_content_left") == "word"
         assert _task_type("cursive_01") == "cursive"
@@ -146,6 +149,7 @@ def stage_g_preprocessing() -> None:
     try:
         from src.preprocessing.pipeline import PreprocessingPipeline
         import numpy as np
+
         pp = PreprocessingPipeline(target_size=(224, 224), skip_skew=False)
         dummy = np.ones((100, 100, 3), dtype=np.uint8) * 128
         out = pp.process(dummy)

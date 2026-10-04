@@ -71,13 +71,15 @@ def stratified_split(
     val_of_remainder = cfg_d.val_ratio / (1.0 - cfg_d.test_ratio)
 
     pids_tv, pids_test, labels_tv, _ = train_test_split(
-        pids, labels,
+        pids,
+        labels,
         test_size=cfg_d.test_ratio,
         stratify=labels,
         random_state=cfg_t.random_state,
     )
     pids_train, pids_val = train_test_split(
-        pids_tv, labels_tv,
+        pids_tv,
+        labels_tv,
         test_size=val_of_remainder,
         stratify=labels_tv,
         random_state=cfg_t.random_state,
@@ -98,10 +100,12 @@ def build_folds(pids_train: list[str], label_of: dict[str, str]) -> list[dict]:
     )
     folds = []
     for train_idx, val_idx in skf.split(pids, labels):
-        folds.append({
-            "train": [pids[i] for i in train_idx],
-            "val":   [pids[i] for i in val_idx],
-        })
+        folds.append(
+            {
+                "train": [pids[i] for i in train_idx],
+                "val": [pids[i] for i in val_idx],
+            }
+        )
     return folds
 
 
@@ -114,7 +118,7 @@ def verify_no_leakage(
     names = list(sets.keys())
     passed = True
     for i, n1 in enumerate(names):
-        for n2 in names[i + 1:]:
+        for n2 in names[i + 1 :]:
             overlap = sets[n1] & sets[n2]
             if overlap:
                 print(f"  LEAKAGE: {len(overlap)} participant(s) in both {n1} and {n2}")
@@ -159,12 +163,12 @@ def split_participants(index_path: Path, splits_path: Path) -> None:
         print("FAILED")
 
     payload = {
-        "train":        sorted(pids_train),
-        "val":          sorted(pids_val),
-        "test":         sorted(pids_test),
-        "folds":        folds,
-        "label_map":    {p: label_of[p] for p in sorted(label_of)},
-        "n_folds":      config.training.n_folds,
+        "train": sorted(pids_train),
+        "val": sorted(pids_val),
+        "test": sorted(pids_test),
+        "folds": folds,
+        "label_map": {p: label_of[p] for p in sorted(label_of)},
+        "n_folds": config.training.n_folds,
         "random_state": config.training.random_state,
     }
 

@@ -1,45 +1,35 @@
 # INSIDE-OUT / EMHA — Emotion Recognition through Handwriting Analysis
-# PyTorch only. No TensorFlow. (ProcessPipeline.txt Section A Rule 5)
+# Deep-learning framework policy: see CLAUDE.md Non-Negotiable 4.
+#
+# Dev tooling (pytest, black, flake8, pre-commit) lives in requirements-dev.txt.
+# Optional, task-specific deps (e.g. transformers for the exploratory D6
+# handwriting-embedding task) live in requirements-optional.txt.
 
-# Core
-numpy>=1.21.0
-pandas>=1.3.0
-scipy>=1.7.0
-
-# Image Processing
-opencv-python>=4.5.0
-Pillow>=8.0.0
-scikit-image>=0.18.0
-
-# Barcode decoding (Phase 1 participant registration)
-pyzbar>=0.1.9
-
-# Excel parsing (Phase 3 questionnaire scoring from xlsx)
-openpyxl>=3.0.0
-
-# Deep Learning — PyTorch only
-torch>=1.9.0
-torchvision>=0.10.0
+# Deep learning — PyTorch only
+torch>=2.9.0
+torchvision>=0.29.1
 
 # Hidden Markov Models
-hmmlearn>=0.2.6
+hmmlearn>=0.3.3
 
-# Machine Learning
-scikit-learn>=0.24.0
+# Image processing
+opencv-python-headless>=5.0.0.93
+scikit-image>=0.26.0
+Pillow>=12.3.0
 
-# Visualization (Phase 12 artifact generation, 300 DPI)
-matplotlib>=3.4.0
-seaborn>=0.11.0
+# Machine learning
+scikit-learn>=1.9.1
 
-# Jupyter Notebooks (Colab pipeline)
-jupyter>=1.0.0
-ipykernel>=6.0.0
+# Core
+numpy>=2.4.6
+pandas>=3.0.6
+scipy>=1.18.1
+
+# Visualization
+matplotlib>=3.11.2
 
 # Utilities
-tqdm>=4.62.0
-pyyaml>=5.4.0
-
-# Development
-pytest>=6.2.0
-black>=21.9b0
-flake8>=3.9.0
+tqdm>=4.70.1
+joblib>=1.6.0
+pyyaml>=6.0.3
+python-dotenv>=1.2.2
