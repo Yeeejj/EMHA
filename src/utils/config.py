@@ -133,21 +133,24 @@ class TrainingConfig:
 
 @dataclass
 class LabelingConfig:
-    """FINALE 24-item self-report scoring (CLAUDE.md Non-Negotiable 3: labels
-    are read from the export, never recomputed; this scheme is reference-only).
+    """Labels are read verbatim from the tabulation export, never recomputed
+    (CLAUDE.md Non-Negotiable 3) — see src/data/labeler.py.
 
-    Happiness items kept raw; sadness items reverse-scored (6 - raw).
-    adjusted_total = happiness_sum + (72 - sadness_sum)   range 24-120
-    label = HAPPY if adjusted_total >= 72 else SAD        integer math only
-    soft P_happy = (adjusted_total/24 - 1) / 4            stored, not used
-    for the binary decision.  NO NEUTRAL class anywhere.
+    source_csv/output_csv default to None, meaning "derive from
+    Config.paths.metadata_dir" (questionnaire_export.csv / labels.csv);
+    set them explicitly to override.
     """
 
-    happiness_items: Tuple[int, ...] = (2, 4, 6, 8, 10, 12, 13, 16, 19, 20, 21, 23)
-    sadness_items: Tuple[int, ...] = (1, 3, 5, 7, 9, 11, 14, 15, 17, 18, 22, 24)
-    likert_min: int = 1
-    likert_max: int = 5
-    adjusted_total_threshold: int = 72  # HAPPY if >= 72, SAD otherwise
+    source_csv: Optional[Path] = None
+    output_csv: Optional[Path] = None
+    id_column: str = "re"
+    score_column: str = "adjusted_total"
+    label_column: str = "label"
+    label_map: dict = field(default_factory=lambda: {"HAPPY": "HAPPY", "SAD": "SAD"})
+    cutoff: float = 72.0
+    analysis_design: str = "extreme_groups"  # "extreme_groups" | "full_sample"
+    middle_band_fraction: float = 0.30
+    min_per_class: int = 100
 
 
 def _try_mkdir(path: Path) -> bool:
@@ -305,11 +308,14 @@ if __name__ == "__main__":
     print(f"  save_best_only: {config.training.save_best_only}")
 
     print("\nLabeling Config:")
-    print(f"  happiness_items: {config.labeling.happiness_items}")
-    print(f"  sadness_items:   {config.labeling.sadness_items}")
-    print(
-        f"  likert_min/max:  {config.labeling.likert_min}/{config.labeling.likert_max}"
-    )
-    threshold = config.labeling.adjusted_total_threshold
-    print(f"  threshold (adjusted_total >= {threshold} -> HAPPY)")
-    print("  NO NEUTRAL class")
+    derived = "(derived from metadata_dir)"
+    print(f"  source_csv:           {config.labeling.source_csv or derived}")
+    print(f"  output_csv:           {config.labeling.output_csv or derived}")
+    print(f"  id_column:            {config.labeling.id_column}")
+    print(f"  score_column:         {config.labeling.score_column}")
+    print(f"  label_column:         {config.labeling.label_column}")
+    print(f"  label_map:            {config.labeling.label_map}")
+    print(f"  cutoff:               {config.labeling.cutoff}")
+    print(f"  analysis_design:      {config.labeling.analysis_design}")
+    print(f"  middle_band_fraction: {config.labeling.middle_band_fraction}")
+    print(f"  min_per_class:        {config.labeling.min_per_class}")
