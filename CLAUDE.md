@@ -1,175 +1,73 @@
-# CLAUDE.md
+EMHA THESIS — MASTER BUILD BRIEF
 
-This file provides guidance to Claude Code when working in this repository.
-Supersedes all prior versions. Authoritative source: ProcessPipeline.txt.
+PROJECT
+Binary emotion classification (HAPPY vs SAD) from offline scanned handwriting and drawings. ~400 right-handed USC students aged 18–25 completed the FINALE assessment, designed with 4 registered psychometricians. Each participant has one label from a 24-item Likert self-report, scored in Google Sheets. Every one of a participant's 24 crops inherits that label. Models: logistic-regression baselines, frozen ResNet18 embeddings, fine-tuned ResNet18, a CNN-HMM hybrid (the titled method), and a fixed equal-weight ensemble. Evaluation is participant-level 5-fold cross-validation.
 
-## Project
+DATA LAYOUT (repo root D:\EMHA_Thesis\EMHA-1; data root DATASET/)
+- Drawing scans: DATASET/raw-3Page/EMHA-P3_DrawingExercise_<code>.png
+- Drawing crops: DATASET/raw-3Page/D1..D4/EMHA-P3_DrawingExercise_<code>_D<k>.png
+- Writing scans: DATASET/raw-4Page/ (ask me to confirm scan names)
+- Word crops: DATASET/raw-4Page/<cell>/EMHA-P4_WritingExercise_<code>_<cell>.png, cell in W1..W5 x {LH, RH, UC}
+- Cursive crops: DATASET/raw-4Page/CS1..CS5/EMHA-P4_WritingExercise_<code>_CS<k>.png
+- 24 crops per participant, one fixed pixel size per exercise, all boxes answered.
+- participant_id = the 3-digit <code> (e.g. 001); it must match the tabulation export ID column (ask me to confirm).
+- Labels: DATASET/metadata/questionnaire_export.csv (authoritative).
+- Derived outputs: DATASET/metadata/, DATASET/processed/, results/, models/.
+- Existing crop script src/cropping/p3 stays untouched. Write no new cropping code.
 
-INSIDE-OUT — Emotion recognition (HAPPY or SAD) from offline scanned handwriting
-and drawing samples using a hybrid CNN-HMM architecture.
-Author: Cyrel Jane A. Edano | University of San Carlos, DCISM
-Adviser: Christian V. Maderazo, M.Eng.
-Target: 70-85% accuracy. Primary contribution = FINALE dataset + pipeline.
+NON-NEGOTIABLES
+1. Participant-level splitting only. A participant's crops are never split across train and validation/test. Call assert_no_leakage in every fold.
+2. raw-3Page and raw-4Page (scans and crops) are read-only. Never modify, move, or rename anything in them.
+3. Labels are read from the export, never recomputed. Counts must match the sheet exactly.
+4. PyTorch only. No TensorFlow or Keras anywhere.
+5. All hyperparameters live in dataclasses in src/utils/config.py. No magic numbers in modules.
+6. Run modules from the repo root as python -m src.<package>.<module>.
+7. black and flake8 must pass. Tests are in tests/ and use the synthetic fixture.
+8. The analysis design (extreme-groups band) and EVALUATION_PROTOCOL.md are fixed before any real result. Nothing is tuned on outer test folds. Any change after the pilot is a logged Deviation.
+9. Ask me before deleting, moving, or overwriting any existing file, and before any git rm, force push, or history rewrite.
 
-## Non-Negotiable Rules (Section A)
+ACCURACY STRATEGY (target: >= 70% participant-level accuracy and macro-F1 on the primary set, measured honestly)
+- Extreme-groups primary set: exclude the middle_band_fraction (default 0.30) of participants closest to the label cutoff. The full sample is secondary.
+- Preserve the signal: grayscale with background flattening only. No binarization, no deskew, no stretch-resize: one fixed scale factor plus white padding. Augment with translation, brightness/contrast, and light blur only. Never rotation, scaling, shear, or flips.
+- Measure baseline_angle_deg per word and cursive crop without rotating it.
+- Aggregate per participant: mean of crop probabilities is the primary rule.
+- Features: handcrafted graphological, drawing-specific, and stroke-level (stroke width and darkness variation along the skeleton, tremor).
+- Models: majority class; LR on handcrafted features; LR on frozen ResNet18 embeddings; fine-tuned ResNet18 (1-channel conv1 from summed pretrained weights; train layer3 and layer4; AdamW, lr_head 1e-3, lr_backbone 1e-4, cosine schedule, early stopping on inner-validation participant macro-F1); CNN-HMM on layer3 column sequences for word and cursive crops (scaler + PCA, per-class GaussianHMM with restarts, Platt calibration on inner validation); equal-weight ensemble of LR-handcrafted, LR-embeddings, and CNN-HMM-fused.
+- Report accuracy, macro-F1, balanced accuracy, and ROC-AUC with bootstrap CIs, the majority baseline, a paired comparison against LR-handcrafted, and a permutation test.
 
-1. **Binary labels only: HAPPY or SAD.** No NEUTRAL class anywhere — not in
-   code, docs, or comments. All 400 respondents contribute to training.
-2. **Scoring scheme (FINALE 24-item, Likert 1-5):**
-   ```
-   happiness_items = (2,4,6,8,10,12,13,16,19,20,21,23)  kept raw
-   sadness_items   = (1,3,5,7,9,11,14,15,17,18,22,24)   kept raw
-   adjusted_total  = happiness_sum + (72 - sadness_sum)   range 24-120
-   label           = HAPPY if adjusted_total >= 72 else SAD
-   p_happy         = (adjusted_total/24 - 1) / 4          stored only
-   ```
-   Integer comparisons only at the >= 72 boundary.
-3. **Participant-level splitting only.** All 24 crops of one respondent must
-   stay in the same split. File-level splitting = data leakage.
-4. `skip_skew = True` for all `draw_*` task codes.
-   `skip_skew = False` for all `word_*` and `cursive_*` task codes.
-5. **PyTorch only.** No TensorFlow anywhere.
-6. **ResNet18 pretrained backbone.** `use_pretrained = True` in CNNConfig.
-7. All hyperparameters live in dataclasses in `src/utils/config.py`.
-   Modules run as `python -m src.*` from the project root.
-8. **`DATASET/raw` is READ-ONLY.** Never write, rename, or modify anything inside it.
-9. Self-report circularity is acknowledged openly in Chapter 6, not hidden.
+MODULE MAP
+src/utils: config.py, seed.py, synthetic.py, run_log.py, package_dataset.py
+src/data: labeler.py, ingest.py, crop_manifest.py, dataloader.py, transforms.py, collector.py
+src/preprocessing: pipeline.py
+src/features: handcrafted.py, embeddings.py, embeddings_handwriting.py (exploratory)
+src/models: cnn.py (EmotionCNN, CNNFeatureExtractor), hmm.py (HMMClassifier), hybrid.py (HybridCNNHMM)
+src/training: splits.py, aggregate.py, trainer.py, run_baselines.py, run_cnn.py, run_hybrid.py, run_ensemble.py, evaluator.py
+src/analysis: questionnaire_report.py, permutation.py, secondary.py, gradcam.py, report.py
+Root: smoke_test.py, EVALUATION_PROTOCOL.md, REPRODUCE.md, notebooks/ (thin bootstrap only)
+Prediction schema for every model: analysis, model, feature_set, fold, participant_id, label, prob_sad, pred, in_middle_band.
 
-## Raw Dataset Structure
+BUILD ORDER (stop at each gate and wait for my confirmation)
+A Foundation: env, .gitignore (DATASET/ excluded), config + data root, seed, synthetic fixture mirroring the real layout, docs cleanup.
+B Labels: labeler, questionnaire report (alpha, balance), analysis-design decision file.
+C Data indexing: scan validator and checksums, crop manifest and verifier, contact sheets.
+D Preprocessing and features: pipeline, transforms, handcrafted features, ResNet18 embeddings.
+E Evaluation setup: dataset, folds.csv for all labeled participants, aggregation, protocol frozen and tagged protocol-frozen.
+F Models: baselines, CNN, CNN-HMM, ensemble (optional exploratory handwriting backbone).
+G Runs: smoke test (local, then Colab) -> pilot on the first ~100 participants (Kaggle) -> full run.
+H Results: evaluator, permutation test, secondary analyses, Grad-CAM, RESULTS.txt, reproducibility bundle.
 
-```
-E:\EMHA_Thesis\DATASET\raw\        (READ-ONLY)
-  respondent_001\
-    PNG\    (exactly 4 PNG files, alphabetical = chronological order)
-    PDF\    (4 PDF files, archival backup only)
-  respondent_002\
-  ...
-```
+HOW TO WORK ON EVERY TASK
+1. Restate the task in two lines and list the files you will create or change.
+2. Ask me for any missing fact (column names, sizes, IDs) instead of guessing.
+3. Search the web for the current docs of any library API you use (torchvision weights, hmmlearn, scikit-learn, Kaggle CLI).
+4. Write or update tests with the code.
+5. Run pytest -q, black --check ., and flake8, and show me the output.
+6. Show the acceptance-criteria results, then stop.
 
-File naming: `EMHA{YYYYMMDD}_{HHMMSSff}.ext`  
-Page roles (0-indexed): 0=questionnaire, 1=drawing, 2-3=writing  
-Barcode rule: `respondent_001` → `P001`
-
-## Assessment Structure (FINALE)
-
-- **Page 0** (questionnaire): 24-item Likert grid — ground-truth label source only.
-- **Page 1** (drawing): 2x2 grid — Overlapping Circles (top-left), Connect the
-  Dots (top-right), Person in the Rain (bottom-left), House and Tree (bottom-right).
-- **Pages 2-3** (writing): 5x3 word table (Content, Melancholic, Optimistic,
-  Disconnected, Vibrant × left/right/uppercase) + 5 cursive sentence rows.
-
-24 crops per participant: 4 drawings + 15 word cells + 5 cursive cells.
-
-## Task Codes
-
-```
-draw_circles, draw_dots, draw_person, draw_house
-word_content_left, word_content_right, word_content_upper
-word_melancholic_left, word_melancholic_right, word_melancholic_upper
-word_optimistic_left, word_optimistic_right, word_optimistic_upper
-word_disconnected_left, word_disconnected_right, word_disconnected_upper
-word_vibrant_left, word_vibrant_right, word_vibrant_upper
-cursive_01, cursive_02, cursive_03, cursive_04, cursive_05
-```
-
-Output filename: `{participant_id}_{task_code}.png`
-
-## Data Pipeline (19 phases — P0-P18)
-
-```
-DATASET/raw (READ-ONLY)
-  P1: register_participants    -> DATA/METADATA/participants.csv
-  P2: assign_pages             -> DATA/METADATA/page_manifest.csv
-  P3: questionnaire_scorer     -> DATA/METADATA/labels.csv
-  P4: content_extractor        -> DATA/CROPS/{P###}/  (24 crops each)
-                                  DATA/METADATA/extraction_report.csv
-  P5: propagate_labels         -> DATA/METADATA/crop_index.csv
-  P6: qc                       -> DATA/METADATA/qc_report.csv
-                                  DATA/METADATA/exclusions.csv
-  P7: run_preprocessing        -> DATA/PROCESSED/{P###}/  (mirrors CROPS)
-                                  DATA/METADATA/preprocessing_log.csv
-  P8: participant_aware_splitter -> DATA/METADATA/splits.json
-  P9: trainer (Colab)          -> models/ + results/training_log.csv
-  P10: evaluator (Colab)       -> results/ (first and only test-split touch)
-  P11: predict                 -> HAPPY/SAD + confidence (demo)
-  P12: artifact_generator      -> FIGURES/ (300 DPI)
-  P13: psychometrics           -> DATA/METADATA/psychometrics_report.csv
-  P14: smoke_test.py           -> smoke test before any full run
-```
-
-## Commands
-
-```bash
-pip install -r requirements.txt
-
-python -m src.data.register_participants       # Phase 1
-python -m src.data.assign_pages               # Phase 2
-python -m src.data.questionnaire_scorer       # Phase 3
-python -m src.data.content_extractor          # Phase 4
-python -m src.data.propagate_labels           # Phase 5
-python -m src.data.qc                         # Phase 6
-python -m src.preprocessing.run_preprocessing # Phase 7
-python -m src.data.participant_aware_splitter # Phase 8
-python -m src.training.trainer                # Phase 9 (Colab)
-python -m src.training.evaluator              # Phase 10 (Colab)
-python -m src.predict <path>                  # Phase 11
-python -m src.utils.artifact_generator        # Phase 12
-python -m src.analysis.psychometrics          # Phase 13
-python smoke_test.py                          # Phase 14 (run first)
-
-black .
-flake8
-pytest
-```
-
-## Architecture
-
-**CNN** (`src/models/cnn.py`): `PretrainedCNNExtractor` — ResNet18 backbone,
-1-channel grayscale input (conv1 weights averaged from RGB), 256-dim spatial
-features. Custom 4-block `CNNFeatureExtractor` kept for reference only.
-
-**HMM** (`src/models/hmm.py`): One `GaussianHMM` per class (4 states, diagonal
-covariance). Classification by log-likelihood comparison.
-
-**Hybrid** (`src/models/hybrid.py`): `HybridCNNHMM` — CNN → spatial sequence
-(batch, seq_len, 256) → per-class HMM → HAPPY/SAD + confidence.
-
-**Baseline**: Logistic regression on handcrafted graphological features for
-thesis comparison (mean intensity, pixel density, slant angle).
-
-## Configuration
-
-All hyperparameters in `src/utils/config.py`. Import with:
-```python
-from src.utils.config import config
-```
-
-Key entries:
-- `config.data.raw_data_dir = "E:\\EMHA_Thesis\\DATASET\\raw"` (READ-ONLY)
-- `config.data.crops_dir = "DATA/CROPS"` (Phase 4 output)
-- `config.data.processed_dir = "DATA/PROCESSED"` (Phase 7 output)
-- `config.cnn.use_pretrained = True` (ResNet18)
-- `config.labeling.adjusted_total_threshold = 72`
-- Crop coords: `DRAWING_CROPS`, `WORD_CROPS`, `CURSIVE_CROPS` (fractional 0.0-1.0)
-
-## Key Files
-
-```
-DATA/METADATA/          - all pipeline CSVs
-FIGURES/                - thesis figures (300 DPI, Phase 12)
-notebooks/EMHA_Colab_Pipeline.ipynb  - Colab training pipeline
-ProcessPipeline.txt     - authoritative 19-phase pipeline (supersedes all)
-smoke_test.py           - run before any full data processing
-```
-
-## Git Rules
-
-Never commit image data. `.gitignore` excludes:
-`DATASET/`, `DATA/CROPS/*`, `DATA/PROCESSED/*`, `DATA/STAGING/`, `DATA/SPLITS/`,
-`FIGURES/*`, `models/*.pth`, `models/*.pkl`.
-Only source code and `DATA/METADATA/*.csv` go to GitHub.
-
-## Dependencies
-
-PyTorch, hmmlearn, OpenCV, scikit-learn, pandas, numpy, matplotlib, seaborn,
-Pillow, pyzbar, openpyxl. See `requirements.txt`.
+NEVER
+- Split a participant's crops across train and test, or fit any scaler, PCA, or model on test-fold participants.
+- Change thresholds, the middle band, seeds, or model choices after seeing test-fold results.
+- Report only the best fold, seed, or model.
+- Drop participants based on their predictions.
+- Report accuracy without the majority baseline and macro-F1.
+- Put pipeline logic, model code, or hyperparameters inside notebooks.
