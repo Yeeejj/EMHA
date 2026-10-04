@@ -1,0 +1,54 @@
+ANALYSIS DESIGN DECISION — Extreme-Groups Band
+================================================================================
+
+Date            : 2026-10-04
+Design          : extreme_groups
+Middle-band fraction : 0.20
+
+--------------------------------------------------------------------------------
+How this was chosen
+--------------------------------------------------------------------------------
+Computed from DATASET/metadata/labels.csv only (participant_id, total_score,
+label) — never an image, feature, or model output — via
+`python -m src.analysis.design_table`, previewing fractions
+[0.20, 0.25, 0.30, 0.35, 0.40]:
+
+fraction  n_middle_band  HAPPY_kept  SAD_kept  total_kept  HAPPY_range  SAD_range  meets_min_per_class(100)
+0.20      57             126         102       228         [75, 114]    [42, 69]   yes
+0.25      71             118         96        214         [76, 114]    [42, 68]   no (SAD=96)
+0.30      86             110         89        199         [76, 114]    [42, 67]   no (SAD=89)
+0.35      100            104         81        185         [77, 114]    [42, 67]   no (SAD=81)
+0.40      114            100         71        171         [78, 114]    [42, 66]   no (SAD=71)
+
+--------------------------------------------------------------------------------
+Decision
+--------------------------------------------------------------------------------
+Fraction chosen : 0.20
+
+Kept counts (primary analysis set, after applying 0.20):
+  HAPPY : 126
+  SAD   : 102
+  Total : 228
+Middle-band count (excluded): 57
+
+Score range kept per class (primary set):
+  HAPPY : [75, 114]
+  SAD   : [42, 69]
+
+Reason: clearer contrast (widest available HAPPY/SAD score-range separation
+among the candidates that still clear the floor) at the smallest fraction
+that keeps both classes above min_per_class=100 — 0.25 through 0.40 all put
+SAD below 100. Decided before any model result exists, from labels.csv
+score data only, per CLAUDE.md's requirement that the analysis design be
+frozen before any real result.
+
+--------------------------------------------------------------------------------
+Sign-off
+--------------------------------------------------------------------------------
+Adviser approval : ____________________________________   Date: ____________
+
+--------------------------------------------------------------------------------
+Provenance
+--------------------------------------------------------------------------------
+Git commit (codebase state when this decision was made, prior to the
+decision commit itself) : cec44f9ea13a561b16232fc08b11f14826699e3c

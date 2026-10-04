@@ -149,7 +149,12 @@ class LabelingConfig:
     label_map: dict = field(default_factory=lambda: {"HAPPY": "HAPPY", "SAD": "SAD"})
     cutoff: float = 72.0
     analysis_design: str = "extreme_groups"  # "extreme_groups" | "full_sample"
-    middle_band_fraction: float = 0.30
+    # Set 2026-10-04 per DOCS/decisions/analysis_design.txt: 0.30 (the prior
+    # default) left SAD's primary count below min_per_class; 0.20 is the
+    # only candidate fraction in the preview table that clears it for both
+    # classes. Decided from labels.csv score data only, before any model
+    # result existed.
+    middle_band_fraction: float = 0.20
     min_per_class: int = 100
 
 
