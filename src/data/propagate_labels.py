@@ -174,7 +174,7 @@ def propagate_labels(
 
 
 def main() -> int:
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     propagate_labels(
         report_path=meta / "extraction_report.csv",
         labels_path=meta / "labels.csv",

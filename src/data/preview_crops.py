@@ -107,7 +107,7 @@ def main() -> int:
         )
         return 1
 
-    out_path = Path(config.data.metadata_dir) / f"crop_preview_{pid}.png"
+    out_path = config.paths.metadata_dir / f"crop_preview_{pid}.png"
     missing = build_preview(pid, extracted_dir, out_path)
 
     print(f"Preview written : {out_path}")

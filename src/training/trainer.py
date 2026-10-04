@@ -412,12 +412,12 @@ def run_training(epochs: int | None = None) -> None:
         weight_decay=cfg.training.weight_decay,
         epochs=n_epochs,
         patience=cfg.training.patience,
-        checkpoint_dir=cfg.training.checkpoint_dir,
+        checkpoint_dir=cfg.paths.models_dir,
         device=device,
     )
     history = trainer.train(train_loader, val_loader)
 
-    cnn_path = Path(cfg.training.checkpoint_dir) / f"cnn_{run_ts}_best.pth"
+    cnn_path = cfg.paths.models_dir / f"cnn_{run_ts}_best.pth"
     trainer.save_checkpoint(cnn_path)
     print(f"  CNN saved : {cnn_path}")
 
@@ -438,7 +438,7 @@ def run_training(epochs: int | None = None) -> None:
     hmm_f1 = float(f1_score(va_seq_labels, hmm_preds, average="macro", zero_division=0))
     print(f"  HMM val F1 macro: {hmm_f1:.4f}")
 
-    hmm_path = Path(cfg.training.checkpoint_dir) / f"hmm_{run_ts}.pkl"
+    hmm_path = cfg.paths.models_dir / f"hmm_{run_ts}.pkl"
     hmm_clf.save(str(hmm_path))
     print(f"  HMM saved : {hmm_path}")
 
@@ -458,7 +458,7 @@ def run_training(epochs: int | None = None) -> None:
     lr_f1 = float(f1_score(va_lr_labels, lr_preds, average="macro", zero_division=0))
     print(f"  LR baseline val F1 macro: {lr_f1:.4f}")
 
-    lr_path = Path(cfg.training.checkpoint_dir) / f"lr_baseline_{run_ts}.pkl"
+    lr_path = cfg.paths.models_dir / f"lr_baseline_{run_ts}.pkl"
     joblib.dump(lr_clf, str(lr_path))
     print(f"  LR saved  : {lr_path}")
 
@@ -476,7 +476,7 @@ def run_training(epochs: int | None = None) -> None:
     log_rows.append(_log_row(run_ts, "final", "cnn_hmm", val_f1=hmm_f1))
     log_rows.append(_log_row(run_ts, "final", "lr_baseline", val_f1=lr_f1))
 
-    log_path = Path("results") / "training_log.csv"
+    log_path = cfg.paths.results_dir / "training_log.csv"
     _write_log(log_path, log_rows)
     print(f"\n  Training log : {log_path}")
 

@@ -242,7 +242,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     extract_content(
         manifest_path=meta / "page_manifest.csv",
         crops_dir=Path(config.data.crops_dir),

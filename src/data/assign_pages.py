@@ -148,7 +148,7 @@ def assign_pages(
 
 
 def main() -> int:
-    metadata_dir = Path(config.data.metadata_dir)
+    metadata_dir = config.paths.metadata_dir
     participants_path = metadata_dir / "participants.csv"
     manifest_path = metadata_dir / "page_manifest.csv"
     staging_dir = Path(config.data.staging_dir)

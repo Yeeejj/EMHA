@@ -217,7 +217,7 @@ def validate_quality(
 
 
 def main() -> int:
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     validate_quality(
         index_path=meta / "crop_index.csv",
         report_path=meta / "qc_report.csv",

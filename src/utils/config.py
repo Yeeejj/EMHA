@@ -1,22 +1,75 @@
 """
 Configuration Module — INSIDE-OUT / EMHA
 All hyperparameters live here in dataclasses. Modules run as python -m src.*
-from the project root. See ProcessPipeline.txt Section A for labeling rules.
+from the project root. See CLAUDE.md for the data layout and labeling rules.
+
+Every filesystem path derives from Config.paths (PathsConfig), which in turn
+derives everything from two roots: data_root (inputs — scans, crops, labels;
+may be read-only, e.g. Kaggle's /kaggle/input) and output_root (everything
+the pipeline writes — results, model checkpoints; must be writable). Override
+either root with the EMHA_DATA_ROOT / EMHA_OUTPUT_ROOT environment variables
+so the same code runs unchanged locally, on Colab, and on Kaggle.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 from pathlib import Path
 
+# src/utils/config.py -> src/utils -> src -> repo root
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass
+class PathsConfig:
+    """Two roots; every other path is derived from one of them.
+
+    data_root holds inputs: raw-3Page/raw-4Page scans and crops (read-only,
+    never created or written to by this config) plus metadata/processed.
+    output_root holds everything the pipeline writes: results and model
+    checkpoints. Kept separate from data_root so a read-only data mount
+    (e.g. Kaggle's /kaggle/input) never blocks writing outputs.
+    """
+
+    data_root: Path = field(
+        default_factory=lambda: Path(os.environ.get("EMHA_DATA_ROOT", "DATASET"))
+    )
+    output_root: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get("EMHA_OUTPUT_ROOT", str(_REPO_ROOT))
+        )
+    )
+
+    @property
+    def raw3_dir(self) -> Path:
+        """Drawing-exercise scans and crops. READ-ONLY — never created here."""
+        return self.data_root / "raw-3Page"
+
+    @property
+    def raw4_dir(self) -> Path:
+        """Writing-exercise scans and crops. READ-ONLY — never created here."""
+        return self.data_root / "raw-4Page"
+
+    @property
+    def metadata_dir(self) -> Path:
+        return self.data_root / "metadata"
+
+    @property
+    def processed_dir(self) -> Path:
+        return self.data_root / "processed"
+
+    @property
+    def results_dir(self) -> Path:
+        return self.output_root / "results"
+
+    @property
+    def models_dir(self) -> Path:
+        return self.output_root / "models"
+
 
 @dataclass
 class DataConfig:
-    """Data-related configuration."""
-
-    raw_data_dir: str = "E:\\EMHA_Thesis\\DATASET\\raw"  # READ-ONLY
-    metadata_dir: str = "DATA/METADATA"
-    crops_dir: str = "DATA/CROPS"  # Phase 4 output
-    processed_dir: str = "DATA/PROCESSED"  # Phase 7 output (mirrors CROPS)
+    """Non-path dataset configuration. See Config.paths for filesystem roots."""
 
     image_size: Tuple[int, int] = (224, 224)
     train_ratio: float = 0.70
@@ -61,7 +114,7 @@ class HMMConfig:
 
 @dataclass
 class TrainingConfig:
-    """Training configuration."""
+    """Training configuration. Checkpoints are written under Config.paths.models_dir."""
 
     batch_size: int = 32
     epochs: int = 100
@@ -71,13 +124,17 @@ class TrainingConfig:
     min_delta: float = 0.001
     n_folds: int = 5
     random_state: int = 42
-    checkpoint_dir: str = "models"
+    # Global reproducibility seed for src.utils.seed.set_seed() (random, numpy,
+    # torch). Distinct from random_state, which is passed directly into
+    # individual sklearn calls (StratifiedKFold, train_test_split, etc.).
+    seed: int = 42
     save_best_only: bool = True
 
 
 @dataclass
 class LabelingConfig:
-    """FINALE 24-item self-report scoring per ProcessPipeline.txt Section A.
+    """FINALE 24-item self-report scoring (CLAUDE.md Non-Negotiable 3: labels
+    are read from the export, never recomputed; this scheme is reference-only).
 
     Happiness items kept raw; sadness items reverse-scored (6 - raw).
     adjusted_total = happiness_sum + (72 - sadness_sum)   range 24-120
@@ -93,10 +150,20 @@ class LabelingConfig:
     adjusted_total_threshold: int = 72  # HAPPY if >= 72, SAD otherwise
 
 
+def _try_mkdir(path: Path) -> bool:
+    """Create path (with parents). Return False instead of raising on failure."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 @dataclass
 class Config:
     """Master configuration class."""
 
+    paths: PathsConfig = field(default_factory=PathsConfig)
     data: DataConfig = field(default_factory=DataConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     cnn: CNNConfig = field(default_factory=CNNConfig)
@@ -107,20 +174,26 @@ class Config:
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
 
-    def __post_init__(self):
-        """Create writable pipeline directories.
+    def ensure_output_dirs(self) -> None:
+        """Create only the directories the pipeline is allowed to write to.
 
-        DATASET/raw is READ-ONLY and deliberately excluded here.
+        Never creates anything under raw-3Page or raw-4Page (read-only,
+        CLAUDE.md Non-Negotiable 2). metadata/processed live under data_root,
+        which may itself be read-only (e.g. Kaggle's /kaggle/input); if so,
+        this logs a note and skips them instead of raising. results/models
+        live under output_root, which is assumed writable.
         """
-        for dir_path in [
-            self.data.metadata_dir,
-            self.data.crops_dir,
-            self.data.processed_dir,
-            self.training.checkpoint_dir,
-            "FIGURES",
-            "results",
-        ]:
-            Path(dir_path).mkdir(parents=True, exist_ok=True)
+        metadata_ok = _try_mkdir(self.paths.metadata_dir)
+        processed_ok = _try_mkdir(self.paths.processed_dir)
+        if not (metadata_ok and processed_ok):
+            print(
+                f"  NOTE: data_root ({self.paths.data_root}) appears read-only; "
+                "metadata/processed were not created — assuming they already "
+                "exist or are supplied externally."
+            )
+
+        self.paths.results_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.models_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Default configuration instance
@@ -179,16 +252,64 @@ if __name__ == "__main__":
     print("INSIDE-OUT Configuration")
     print("=" * 40)
     print(f"\nProject: {config.project_name} v{config.version}")
+
+    print("\nPaths:")
+    print(f"  data_root:     {config.paths.data_root}")
+    print(f"  output_root:   {config.paths.output_root}")
+    print(f"  raw3_dir:      {config.paths.raw3_dir}  (READ-ONLY)")
+    print(f"  raw4_dir:      {config.paths.raw4_dir}  (READ-ONLY)")
+    print(f"  metadata_dir:  {config.paths.metadata_dir}")
+    print(f"  processed_dir: {config.paths.processed_dir}")
+    print(f"  results_dir:   {config.paths.results_dir}")
+    print(f"  models_dir:    {config.paths.models_dir}")
+
     print("\nData Config:")
-    print(f"  Raw (READ-ONLY): {config.data.raw_data_dir}")
-    print(f"  Crops:           {config.data.crops_dir}")
-    print(f"  Processed:       {config.data.processed_dir}")
+    print(f"  image_size: {config.data.image_size}")
+    print(
+        f"  train/val/test ratio: "
+        f"{config.data.train_ratio}/{config.data.val_ratio}/{config.data.test_ratio}"
+    )
+
+    print("\nPreprocessing Config:")
+    print(f"  target_size:         {config.preprocessing.target_size}")
+    print(f"  binarize_threshold:  {config.preprocessing.binarize_threshold}")
+    print(f"  denoise_kernel_size: {config.preprocessing.denoise_kernel_size}")
+    print(f"  normalize:           {config.preprocessing.normalize}")
+    print(f"  min_crop_size:       {config.preprocessing.min_crop_size}")
+    print(f"  blank_threshold:     {config.preprocessing.blank_threshold}")
+    print(f"  skip_skew_prefixes:  {config.preprocessing.skip_skew_prefixes}")
+
     print("\nCNN Config:")
-    print(f"  use_pretrained: {config.cnn.use_pretrained}  (ResNet18)")
-    print(f"  num_features:   {config.cnn.num_features}")
+    print(f"  input_channels:      {config.cnn.input_channels}")
+    print(f"  num_features:        {config.cnn.num_features}")
+    print(f"  dropout_rate:        {config.cnn.dropout_rate}")
+    print(f"  use_pretrained:      {config.cnn.use_pretrained}  (ResNet18)")
+    print(f"  pretrained_backbone: {config.cnn.pretrained_backbone}")
+    print(f"  freeze_backbone:     {config.cnn.freeze_backbone}")
+
     print("\nHMM Config:")
-    print(f"  n_states: {config.hmm.n_states}")
-    print("\nLabeling (Section A):")
+    print(f"  n_states:         {config.hmm.n_states}")
+    print(f"  n_iter:           {config.hmm.n_iter}")
+    print(f"  covariance_type:  {config.hmm.covariance_type}")
+
+    print("\nTraining Config:")
+    print(f"  batch_size:     {config.training.batch_size}")
+    print(f"  epochs:         {config.training.epochs}")
+    print(f"  learning_rate:  {config.training.learning_rate}")
+    print(f"  weight_decay:   {config.training.weight_decay}")
+    print(f"  patience:       {config.training.patience}")
+    print(f"  min_delta:      {config.training.min_delta}")
+    print(f"  n_folds:        {config.training.n_folds}")
+    print(f"  random_state:   {config.training.random_state}")
+    print(f"  seed:           {config.training.seed}")
+    print(f"  save_best_only: {config.training.save_best_only}")
+
+    print("\nLabeling Config:")
+    print(f"  happiness_items: {config.labeling.happiness_items}")
+    print(f"  sadness_items:   {config.labeling.sadness_items}")
+    print(
+        f"  likert_min/max:  {config.labeling.likert_min}/{config.labeling.likert_max}"
+    )
     threshold = config.labeling.adjusted_total_threshold
     print(f"  threshold (adjusted_total >= {threshold} -> HAPPY)")
     print("  NO NEUTRAL class")

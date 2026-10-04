@@ -112,8 +112,8 @@ def register_participants(report_path: Path, output_path: Path) -> None:
 
 
 def main() -> int:
-    report_path = Path(config.data.metadata_dir) / "validation_report.csv"
-    output_path = Path(config.data.metadata_dir) / "participants.csv"
+    report_path = config.paths.metadata_dir / "validation_report.csv"
+    output_path = config.paths.metadata_dir / "participants.csv"
     register_participants(report_path, output_path)
     return 0
 

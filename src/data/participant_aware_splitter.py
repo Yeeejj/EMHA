@@ -181,7 +181,7 @@ def split_participants(index_path: Path, splits_path: Path) -> None:
 
 
 def main() -> int:
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     split_participants(
         index_path=meta / "crop_index.csv",
         splits_path=meta / "splits.json",

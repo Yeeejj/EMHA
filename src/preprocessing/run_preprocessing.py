@@ -218,10 +218,10 @@ def _print_example_pairs(log_rows: list[dict]) -> None:
 
 
 def main() -> int:
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     run_preprocessing(
         manifest_path=meta / "crop_index.csv",
-        processed_dir=Path(config.data.processed_dir),
+        processed_dir=config.paths.processed_dir,
         log_path=meta / "preprocessing_log.csv",
     )
     return 0

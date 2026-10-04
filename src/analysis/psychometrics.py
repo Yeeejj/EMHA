@@ -111,7 +111,7 @@ def run_psychometrics(scores_path: Path, report_path: Path) -> None:
 
 
 def main() -> int:
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     run_psychometrics(
         scores_path=meta / "questionnaire_scores.csv",
         report_path=meta / "psychometrics_report.csv",

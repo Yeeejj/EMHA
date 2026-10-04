@@ -50,8 +50,8 @@ from src.utils.config import config
 
 plt.switch_backend("Agg")
 
-_RESULTS = Path("results")
-_MODELS = Path("models")
+_RESULTS = config.paths.results_dir
+_MODELS = config.paths.models_dir
 _LABELS = ["HAPPY", "SAD"]
 _THRESHOLD = 0.70  # minimum F1 macro (thesis target: 70–85%)
 

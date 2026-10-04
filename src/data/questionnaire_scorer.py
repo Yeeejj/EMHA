@@ -156,7 +156,7 @@ def score_questionnaire(scores_path: Path, labels_path: Path) -> None:
 
 
 def main() -> int:
-    meta = Path(config.data.metadata_dir)
+    meta = config.paths.metadata_dir
     score_questionnaire(
         scores_path=meta / "questionnaire_scores.csv",
         labels_path=meta / "labels.csv",

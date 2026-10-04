@@ -136,7 +136,7 @@ if __name__ == "__main__":
         input_dir = Path(config.data.labeled_dir) / emotion
         if input_dir.exists():
             count = pipeline.process_directory(
-                str(input_dir), config.data.processed_dir, emotion
+                str(input_dir), config.paths.processed_dir, emotion
             )
             print(f"{emotion}: {count} images processed")
         else:
