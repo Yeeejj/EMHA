@@ -1,9 +1,9 @@
 """
-Phase 1 — Register participants: assign barcode IDs to validated folders.
+Phase 1 — Register participants: assign participant IDs to validated folders.
 
 Reads DATA/METADATA/validation_report.csv and processes only rows whose
 status is PASS. Each passing folder is assigned a participant ID via the
-barcode rule (CLAUDE.md): strip the ``respondent_`` prefix, zero-pad the
+folder-name rule (CLAUDE.md): strip the ``respondent_`` prefix, zero-pad the
 number to 3 digits, and prepend ``P`` (respondent_1 -> P001,
 respondent_42 -> P042).
 
