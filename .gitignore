@@ -3,10 +3,9 @@ BACKUP/
 .claude/
 
 # ── Raw participant dataset (never commit — read-only, human-subject data) ────
+# Includes DATASET/metadata/questionnaire_export.csv, the authoritative
+# self-report export (participants' data; never commit).
 DATASET/
-
-# ── Self-report data mirror (participants' data; never commit) ────────────────
-src/tabulation/*.csv
 
 # ── Pipeline data outputs (never commit image data) ───────────────────────────
 DATA/STAGING/
