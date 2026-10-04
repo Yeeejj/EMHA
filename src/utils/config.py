@@ -159,6 +159,33 @@ class LabelingConfig:
 
 
 @dataclass
+class ReportConfig:
+    """src/analysis/questionnaire_report.py — reliability/balance reporting.
+
+    item_columns/reverse_items describe the raw 24-item export columns
+    (lowercase q1..q24, as they actually appear in the sheet), independent
+    of LabelingConfig.score_column (the already-computed composite).
+    """
+
+    n_bootstrap: int = 1000
+    item_columns: Tuple[str, ...] = tuple(f"q{i}" for i in range(1, 25))
+    reverse_items: Tuple[str, ...] = (
+        "q1",
+        "q3",
+        "q5",
+        "q7",
+        "q9",
+        "q11",
+        "q14",
+        "q15",
+        "q17",
+        "q18",
+        "q22",
+        "q24",
+    )
+
+
+@dataclass
 class IngestConfig:
     """src/data/ingest.py — raw scan validation and checksums.
 
@@ -191,6 +218,7 @@ class Config:
     hmm: HMMConfig = field(default_factory=HMMConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
 
     project_name: str = "INSIDE-OUT"
@@ -338,6 +366,11 @@ if __name__ == "__main__":
     print(f"  analysis_design:      {config.labeling.analysis_design}")
     print(f"  middle_band_fraction: {config.labeling.middle_band_fraction}")
     print(f"  min_per_class:        {config.labeling.min_per_class}")
+
+    print("\nReport Config:")
+    print(f"  n_bootstrap:   {config.report.n_bootstrap}")
+    print(f"  item_columns:  {config.report.item_columns}")
+    print(f"  reverse_items: {config.report.reverse_items}")
 
     print("\nIngest Config:")
     print(f"  expected_dpi:   {config.ingest.expected_dpi}")
