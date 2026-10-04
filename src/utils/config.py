@@ -79,16 +79,39 @@ class DataConfig:
 
 @dataclass
 class PreprocessingConfig:
-    """Preprocessing configuration."""
+    """Model-input preprocessing (Stage D) -- see src/preprocessing/pipeline.py.
 
-    target_size: Tuple[int, int] = (224, 224)
-    binarize_threshold: Optional[int] = None  # None = Otsu's method
-    denoise_kernel_size: int = 3
-    normalize: bool = True
+    No Otsu binarization, no deskew, no square/stretch resize in the model
+    path (CLAUDE.md Accuracy Strategy) -- ink_mask_for_stats() is the only
+    place Otsu may appear, and only for descriptive statistics, never the
+    model-input image.
+
+    scale_factor/canvas_size are computed from real measured crop pixel
+    sizes, not the project's nominal 300 dpi (which doesn't match the
+    confirmed real ~200 dpi): drawing's largest crop (675x1016) and
+    cursive's (1342x174) both land near 448px on their long side; word
+    (368x118, already smaller than 448) is kept at native resolution
+    rather than upscaled.
+
+    min_crop_size/blank_threshold are QC thresholds (src/data/qc.py), not
+    used by pipeline.py -- kept here since qc.py already depends on them.
+    """
+
+    background_blur_ksize: int = 51
+    denoise: str = "median3"  # "median3" | "none"
+    scale_factor: dict = field(
+        default_factory=lambda: {"drawing": 0.44, "word": 1.0, "cursive": 0.33}
+    )
+    canvas_size: dict = field(
+        default_factory=lambda: {
+            "drawing": (297, 448),
+            "word": (368, 118),
+            "cursive": (443, 58),
+        }
+    )
+    invert: bool = True
     min_crop_size: Tuple[int, int] = (80, 80)
     blank_threshold: float = 245.0  # grayscale mean above this = blank
-    # Task-code prefixes whose crops skip deskew (drawings have no text baseline).
-    skip_skew_prefixes: Tuple[str, ...] = ("draw_",)
 
 
 @dataclass
@@ -350,13 +373,13 @@ if __name__ == "__main__":
     )
 
     print("\nPreprocessing Config:")
-    print(f"  target_size:         {config.preprocessing.target_size}")
-    print(f"  binarize_threshold:  {config.preprocessing.binarize_threshold}")
-    print(f"  denoise_kernel_size: {config.preprocessing.denoise_kernel_size}")
-    print(f"  normalize:           {config.preprocessing.normalize}")
-    print(f"  min_crop_size:       {config.preprocessing.min_crop_size}")
-    print(f"  blank_threshold:     {config.preprocessing.blank_threshold}")
-    print(f"  skip_skew_prefixes:  {config.preprocessing.skip_skew_prefixes}")
+    print(f"  background_blur_ksize: {config.preprocessing.background_blur_ksize}")
+    print(f"  denoise:               {config.preprocessing.denoise}")
+    print(f"  scale_factor:          {config.preprocessing.scale_factor}")
+    print(f"  canvas_size:           {config.preprocessing.canvas_size}")
+    print(f"  invert:                {config.preprocessing.invert}")
+    print(f"  min_crop_size:         {config.preprocessing.min_crop_size}")
+    print(f"  blank_threshold:       {config.preprocessing.blank_threshold}")
 
     print("\nCNN Config:")
     print(f"  input_channels:      {config.cnn.input_channels}")
