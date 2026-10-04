@@ -198,6 +198,34 @@ class IngestConfig:
     size_tolerance: float = 0.02
 
 
+@dataclass
+class CropConfig:
+    """src/data/crop_manifest.py — crop indexing, verification, QC.
+
+    expected_size_px measured directly from real files (confirmed matching
+    the hardcoded boxes in src/cropping/p3/crop_pictures.py and
+    p4/crop_p4.py exactly, consistent across participants). D1-D4 differ
+    from each other because the drawing page's top row (D1, D2) is shorter
+    than the bottom row (D3, D4). crops_dirs is not stored here -- it's
+    derived at use time from Config.paths.raw3_dir/raw4_dir, consistent
+    with "every path derives from one data root."
+    """
+
+    expected_size_px: dict = field(
+        default_factory=lambda: {
+            "D1": (674, 669),
+            "D2": (662, 674),
+            "D3": (675, 1016),
+            "D4": (664, 1016),
+            **{
+                f"W{n}_{s}": (368, 118) for n in range(1, 6) for s in ("LH", "RH", "UC")
+            },
+            **{f"CS{k}": (1342, 174) for k in range(1, 6)},
+        }
+    )
+    ink_threshold: int = 128  # for statistics only; never used to binarize a crop
+
+
 def _try_mkdir(path: Path) -> bool:
     """Create path (with parents). Return False instead of raising on failure."""
     try:
@@ -220,6 +248,7 @@ class Config:
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
+    crop: CropConfig = field(default_factory=CropConfig)
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
@@ -375,3 +404,7 @@ if __name__ == "__main__":
     print("\nIngest Config:")
     print(f"  expected_dpi:   {config.ingest.expected_dpi}")
     print(f"  size_tolerance: {config.ingest.size_tolerance}")
+
+    print("\nCrop Config:")
+    print(f"  expected_size_px: {config.crop.expected_size_px}")
+    print(f"  ink_threshold:    {config.crop.ink_threshold}")
