@@ -6,7 +6,7 @@ import inspect
 import pandas as pd
 import pytest
 
-from src.training import run_baselines, run_cnn, run_hybrid
+from src.training import run_baselines, run_cnn, run_ensemble, run_hybrid
 from src.utils import run_log
 from src.utils.config import config
 from src.utils.run_log import COLUMNS, RunLogError, log_predictions, log_run
@@ -124,7 +124,7 @@ def test_evaluator_rows_can_fill_ci(out_root):
     assert float(row["macro_f1_ci_high"]) == 0.77
 
 
-@pytest.mark.parametrize("module", [run_baselines, run_cnn, run_hybrid])
+@pytest.mark.parametrize("module", [run_baselines, run_cnn, run_hybrid, run_ensemble])
 def test_runners_never_compute_or_pass_a_ci(module):
     source = inspect.getsource(module)
     for word in ("ci_low", "ci_high", "bootstrap", "log_run("):
