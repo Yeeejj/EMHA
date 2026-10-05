@@ -159,6 +159,26 @@ class TrainingConfig:
 
 
 @dataclass
+class SplitConfig:
+    """Participant-level CV folds (Stage E) -- see src/training/splits.py.
+
+    Decided with the thesis author on 2026-10-05, before any model result:
+    outer folds (TrainingConfig.n_folds, seeded by TrainingConfig.seed) over
+    ALL labeled participants, stratified on label x in_primary_analysis so
+    both the primary (extreme-groups) and full-sample analyses get balanced
+    folds from one assignment. Within each outer fold, one stratified
+    inner_val_fraction of the training participants is held out as inner
+    validation (early stopping, Platt calibration). folds.csv is long format:
+    one row per (participant, outer fold) with role train|inner_val|test.
+    """
+
+    inner_val_fraction: float = 0.20
+    stratify_columns: Tuple[str, ...] = ("label", "in_primary_analysis")
+    primary_column: str = "in_primary_analysis"
+    folds_filename: str = "folds.csv"
+
+
+@dataclass
 class LabelingConfig:
     """Labels are read verbatim from the tabulation export, never recomputed
     (CLAUDE.md Non-Negotiable 3) — see src/data/labeler.py.
@@ -402,6 +422,7 @@ class Config:
     cnn: CNNConfig = field(default_factory=CNNConfig)
     hmm: HMMConfig = field(default_factory=HMMConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    splits: SplitConfig = field(default_factory=SplitConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)

@@ -7,6 +7,7 @@ import torch
 from PIL import Image
 
 from src.data.dataloader import CropDataset, build_loaders
+from src.training.splits import LeakageError
 from src.utils.config import config
 
 PIDS = ("001", "002", "003", "004")
@@ -137,7 +138,7 @@ def test_build_loaders_disjoint_participants_one_family(tmp_path, monkeypatch):
 
 def test_build_loaders_rejects_overlapping_ids(tmp_path, monkeypatch):
     _write_metadata(tmp_path, monkeypatch)
-    with pytest.raises(ValueError, match="both train and val"):
+    with pytest.raises(LeakageError, match="both train and val"):
         build_loaders(["001", "002"], ["002", "003"], "word", config)
 
 

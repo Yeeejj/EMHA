@@ -25,6 +25,7 @@ from torchvision import transforms
 
 from src.data.transforms import get_eval_transform, get_train_transform
 from src.preprocessing.pipeline import _load_qc_dropped
+from src.training.splits import assert_no_leakage
 from src.utils.config import config
 
 MANIFEST_COLUMNS = ("participant_id", "cell", "task_family", "processed_path")
@@ -156,13 +157,11 @@ def load_tables(cfg) -> tuple:
 def build_loaders(train_ids: list, val_ids: list, task_family: str, cfg) -> tuple:
     """(train DataLoader, validation DataLoader) for one task family.
 
-    Raises ValueError if any participant is in both ID lists. Train uses the
-    augmenting transform and a seeded shuffle; validation uses the eval
-    transform, unshuffled.
+    Calls assert_no_leakage, so a participant in both ID lists raises
+    LeakageError. Train uses the augmenting transform and a seeded shuffle;
+    validation uses the eval transform, unshuffled.
     """
-    overlap = {str(p) for p in train_ids} & {str(p) for p in val_ids}
-    if overlap:
-        raise ValueError(f"participants in both train and val: {sorted(overlap)}")
+    assert_no_leakage(train_ids, test_ids=[], val_ids=val_ids)
 
     manifest, labels, dropped = load_tables(cfg)
     families = [task_family]
