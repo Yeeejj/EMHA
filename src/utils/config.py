@@ -509,6 +509,50 @@ class HandwritingEmbeddingConfig:
     output_subdir: str = "embeddings"
 
 
+@dataclass
+class RunnerConfig:
+    """One resumable command for pilot and full runs (src/pipeline_runner.py).
+
+    default_steps run in this order for each analysis set (primary first);
+    embeddings and handcrafted do not depend on the analysis set and run
+    once per subset. A finished step writes a JSON marker under
+    results/<state_subdir>/<subset>/; a rerun skips it while its outputs
+    exist and its settings match, and refuses on a mismatch (a Deviation,
+    never silently rerun). The settings fingerprint hashes the whole Config
+    except fingerprint_exclude (machine paths and run-irrelevant sections).
+    predict_middle: primary-set runs also score the middle band
+    (EVALUATION_PROTOCOL.md section 6.2). decision_file is relative to the
+    repo root and must exist, like the protocol-frozen tag, before any run.
+    """
+
+    default_steps: Tuple[str, ...] = (
+        "embeddings",
+        "handcrafted",
+        "baselines",
+        "cnn",
+        "cnn_shuffled",
+        "hybrid",
+        "ensemble",
+        "evaluate",
+        "permutation",
+        "secondary",
+        "gradcam",
+        "report",
+    )
+    default_analyses: Tuple[str, ...] = ("primary", "full")
+    predict_middle: bool = True
+    decision_file: str = "DOCS/decisions/analysis_design.txt"
+    state_subdir: str = "pipeline"
+    device: str = "auto"
+    fingerprint_exclude: Tuple[str, ...] = (
+        "paths",
+        "runner",
+        "demo",
+        "smoke",
+        "package",
+    )
+
+
 def _try_mkdir(path: Path) -> bool:
     """Create path (with parents). Return False instead of raising on failure."""
     try:
@@ -545,6 +589,7 @@ class Config:
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
+    runner: RunnerConfig = field(default_factory=RunnerConfig)
 
     def ensure_output_dirs(self) -> None:
         """Create only the directories the pipeline is allowed to write to.
