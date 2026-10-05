@@ -266,6 +266,94 @@ class AugmentConfig:
     blur_sigma: Tuple[float, float] = (0.1, 0.6)
 
 
+@dataclass
+class FeaturesConfig:
+    """Handcrafted features (Stage D) -- see src/features/handcrafted.py.
+
+    px_to_mm derives from IngestConfig.expected_dpi (200, confirmed on the
+    real scans), not the nominal 300 dpi in the original brief. Crops are
+    unscaled cuts of the scans, so the scan dpi applies to them directly.
+
+    ink_threshold is applied to the background-flattened crop (paper ~255).
+    170 rather than CropConfig's 128: on a 60-crop sample of real
+    word/cursive crops, 128 fragmented light-ink writers (p90 component
+    count 44 vs 21 at 170). Chosen from crop images only, before any model
+    result. border_* remove the pre-printed box rules, which sit within
+    14 px of the crop edge on the sampled crops; only near-full rows/columns
+    inside the edge band are cleared, so drawn lines in the interior survive.
+
+    imputation: "task_family_median" = a crop's missing value is filled with
+    the median of the SAME participant's other crops in the same task family
+    (never pooled across participants, so no cross-fold leakage). If all of
+    that participant's crops in the family are missing, fallback_value is
+    used. Every fill is counted in handcrafted_imputation_log.csv.
+    """
+
+    px_to_mm: float = 25.4 / IngestConfig.expected_dpi
+    ink_threshold: int = 170
+    min_component_px: int = 8
+    border_band_px: int = 16
+    border_line_frac: float = 0.5
+    slant_grad_sigma: float = 1.0
+    slant_min_grad_frac: float = 0.2
+    slant_max_deg: float = 45.0
+    slant_bin_deg: float = 1.0
+    slant_smooth_bins: int = 5
+    slant_refine_deg: float = 5.0
+    slant_min_pixels: int = 50
+    xheight_profile_frac: float = 0.5
+    xheight_merge_gap_px: int = 3
+    xheight_min_band_px: int = 3
+    # Stroke-level features (src/features/strokes.py). Skeleton paths shorter
+    # than skeleton_min_path_px (~1.3 mm) are treated as spurs and ignored.
+    # tremor_window_px is the coarse Gaussian scale (px of arc length) that
+    # defines the smooth "intended" trajectory; tremor_fine_sigma_px only
+    # removes pixel-staircase quantization. Tremor needs paths of at least
+    # 4 * tremor_window_px so the edge-trimmed core is non-empty.
+    skeleton_min_path_px: int = 10
+    tremor_window_px: int = 6
+    tremor_fine_sigma_px: float = 1.5
+    # Drawing features. faint_gray_range is [lo, hi) on the flattened crop:
+    # lighter than ink (ink_threshold) but darker than paper (~255). Faint
+    # pixels within erasure_ink_margin_px of ink (antialiased stroke edges)
+    # are excluded, and only regions surviving an erasure_open_px square
+    # opening count -- smudges are areal; faint thin strokes (seen as light
+    # hatching on real drawings) are removed by the opening. Erasure is read
+    # from the crop flattened at erasure_background_ksize (~25 mm): the
+    # model-path kernel (51 px, ~6.5 mm) flattens smudges of its own size
+    # back to paper white.
+    # erasure_open_px = 9 (~1.1 mm) and excluding the border band: with 5 px
+    # and no band, 22/400 real drawings scored > 0, all from scan-blurred
+    # light strokes ~5-6 px wide or the scan-edge shadow; with 9 px + band,
+    # 1/400 (checked on crop images only, no labels).
+    faint_gray_range: Tuple[int, int] = (170, 240)
+    erasure_background_ksize: int = 201
+    erasure_ink_margin_px: int = 2
+    erasure_open_px: int = 9
+    empty_space_grid: int = 8
+    imputation: str = "task_family_median"
+    fallback_value: float = 0.0
+    output_subdir: str = "features"
+
+
+@dataclass
+class EmbeddingConfig:
+    """Frozen ResNet18 embeddings (Stage D) -- see src/features/embeddings.py.
+
+    device "auto" = "cuda" if torch.cuda.is_available() else "cpu" (resolved
+    at run time so importing config never imports torch). weights names a
+    torchvision ResNet18_Weights member; None = random init (tests only).
+    pca_components is NOT used here: PCA/scalers are fit inside CV folds
+    (Stage F) on training participants only.
+    """
+
+    batch_size: int = 32
+    device: str = "auto"
+    weights: Optional[str] = "IMAGENET1K_V1"
+    pca_components: int = 64
+    output_subdir: str = "embeddings"
+
+
 def _try_mkdir(path: Path) -> bool:
     """Create path (with parents). Return False instead of raising on failure."""
     try:
@@ -290,6 +378,8 @@ class Config:
     ingest: IngestConfig = field(default_factory=IngestConfig)
     crop: CropConfig = field(default_factory=CropConfig)
     augment: AugmentConfig = field(default_factory=AugmentConfig)
+    features: FeaturesConfig = field(default_factory=FeaturesConfig)
+    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
@@ -457,3 +547,9 @@ if __name__ == "__main__":
     print(f"  contrast:         {config.augment.contrast}")
     print(f"  blur_prob:        {config.augment.blur_prob}")
     print(f"  blur_sigma:       {config.augment.blur_sigma}")
+
+    print("\nFeatures Config:")
+    print(f"  px_to_mm:         {config.features.px_to_mm:.5f}")
+    print(f"  ink_threshold:    {config.features.ink_threshold}")
+    print(f"  min_component_px: {config.features.min_component_px}")
+    print(f"  imputation:       {config.features.imputation}")
