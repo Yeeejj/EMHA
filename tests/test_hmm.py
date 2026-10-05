@@ -181,3 +181,17 @@ def test_input_validation():
         HMMClassifier(replace(config.hmm, n_restarts=1)).fit(
             seqs, labels
         ).fit_calibrator([0.1, 0.2], [HAPPY, HAPPY])
+
+
+def test_left_right_survives_states_without_exits():
+    """2-frame sequences never leave the last state; the fit must not fail."""
+    rng = np.random.default_rng(0)
+    seqs = [rng.normal(size=(2, N_FEATURES)) for _ in range(30)]
+    labels = np.array([HAPPY, SAD] * 15)
+    cfg = replace(config.hmm, n_states=2, topology="left_right", n_restarts=1)
+    clf = HMMClassifier(cfg, seed=0).fit(seqs, labels)
+    _, banded = left_right_params(2)
+    for model in clf.models.values():
+        assert np.allclose(model.transmat_.sum(axis=1), 1.0)
+        assert np.all(model.transmat_[banded == 0] == 0)
+    assert np.isfinite(clf.decision_scores(seqs[:3])).all()

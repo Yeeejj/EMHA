@@ -145,7 +145,7 @@ def _run_config(analysis, subset, backbone, shuffle_labels, predict_middle, cnn_
     }
 
 
-def _check_resume(out_dir: Path, settings: dict) -> None:
+def check_resume(out_dir: Path, settings: dict) -> None:
     path = out_dir / "run_config.json"
     if path.is_file():
         previous = json.loads(path.read_text())
@@ -219,7 +219,19 @@ def _fit_fold(
     model = EmotionCNN(cnn_cfg)
     trainer = Trainer(model, config, device)
     trainer.fit(train_loader, val_loader)
-    trainer.save(ckpt_path, {"family": family, "fold": fold, "cnn": asdict(cnn_cfg)})
+    trainer.save(
+        ckpt_path,
+        {
+            "family": family,
+            "fold": fold,
+            "cnn": asdict(cnn_cfg),
+            # recorded so run_hybrid can assert it rebuilds the same split
+            "inner_train_ids": list(inner_train),
+            "inner_val_ids": list(inner_val),
+            "test_ids": list(test),
+            "middle_ids": list(middle),
+        },
+    )
 
     crops = trainer.predict_crops(
         _eval_loader(manifest, labels, test + middle, family, dropped)
@@ -293,7 +305,7 @@ def run(
     cnn_cfg = replace(config.cnn, backbone=backbone)
     name = run_name(analysis, subset, backbone)
     out_dir, model_dir = _dirs(name, shuffle_labels)
-    _check_resume(
+    check_resume(
         out_dir,
         _run_config(
             analysis, subset, backbone, shuffle_labels, predict_middle, cnn_cfg

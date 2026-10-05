@@ -170,6 +170,29 @@ class HMMConfig:
 
 
 @dataclass
+class HybridConfig:
+    """CNN-HMM (titled method, Stage F) -- see src/training/run_hybrid.py.
+
+    Per family and outer fold, the HMM setting (n_states x pca x topology)
+    is chosen by inner-validation participant macro-F1 with
+    selection_restarts restarts per class (decided with the thesis author
+    2026-10-05), then the winner is refit on inner-train with
+    HMMConfig.n_restarts and Platt-calibrated on inner-validation.
+    families enter the fused prediction; secondary_family is only run with
+    --include-drawing and is reported separately.
+    """
+
+    n_states_grid: Tuple[int, ...] = (2, 3, 4, 6)
+    pca_grid: Tuple[int, ...] = (8, 16, 32)
+    topology_grid: Tuple[str, ...] = ("ergodic", "left_right")
+    selection_restarts: int = 2
+    families: Tuple[str, ...] = ("word", "cursive")
+    secondary_family: str = "drawing"
+    output_subdir: str = "hybrid"
+    model_subdir: str = "hmm"
+
+
+@dataclass
 class TrainingConfig:
     """Training configuration. Checkpoints are written under Config.paths.models_dir."""
 
@@ -504,6 +527,7 @@ class Config:
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     cnn: CNNConfig = field(default_factory=CNNConfig)
     hmm: HMMConfig = field(default_factory=HMMConfig)
+    hybrid: HybridConfig = field(default_factory=HybridConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)

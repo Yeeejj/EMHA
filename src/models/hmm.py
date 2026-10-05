@@ -74,6 +74,24 @@ def left_right_params(n_states: int) -> tuple:
     return startprob, transmat
 
 
+class LeftRightGaussianHMM(hmm.GaussianHMM):
+    """GaussianHMM whose banded transmat survives states with no exits.
+
+    With short sequences the last states can be entered only on a final
+    frame, so EM sees no transition out of them; hmmlearn then leaves an
+    all-zero row and rejects the model. After every M-step such rows are
+    restored to their previous (banded) values, keeping the structural
+    zeros of the left-right topology.
+    """
+
+    def _do_mstep(self, stats):
+        previous = self.transmat_.copy()
+        super()._do_mstep(stats)
+        dead = ~np.isclose(self.transmat_.sum(axis=1), 1.0)
+        if dead.any():
+            self.transmat_[dead] = previous[dead]
+
+
 class HMMClassifier:
     """Two GaussianHMMs (HAPPY, SAD) on scaled + PCA-reduced frame sequences."""
 
@@ -129,7 +147,7 @@ class HMMClassifier:
             random_state=random_state,
         )
         if self.cfg.topology == "left_right":
-            model = hmm.GaussianHMM(init_params="cm", params="cmt", **kwargs)
+            model = LeftRightGaussianHMM(init_params="cm", params="cmt", **kwargs)
             model.startprob_, model.transmat_ = left_right_params(n_states)
             return model
         return hmm.GaussianHMM(**kwargs)

@@ -161,8 +161,9 @@ def test_parameter_counts_reflect_freezing():
 def test_hybrid_still_builds_with_the_cnn():
     from src.models.hybrid import HybridCNNHMM
 
-    hybrid = HybridCNNHMM(device=torch.device("cpu"))
-    assert isinstance(hybrid.cnn, EmotionCNN)
+    hybrid = HybridCNNHMM({"word": EmotionCNN(_cfg())}, {}, device="cpu")
+    assert isinstance(hybrid.cnns["word"], EmotionCNN)
+    assert not hybrid.cnns["word"].training
 
 
 @pytest.mark.network
