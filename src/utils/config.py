@@ -249,6 +249,23 @@ class CropConfig:
     ink_threshold: int = 128  # for statistics only; never used to binarize a crop
 
 
+@dataclass
+class AugmentConfig:
+    """Train-time augmentation (Stage D) -- see src/data/transforms.py.
+
+    Translation, brightness/contrast, and light blur only (CLAUDE.md
+    Accuracy Strategy): never rotation, affine scale/shear, flips,
+    RandomResizedCrop, or elastic transforms.
+    """
+
+    enabled: bool = True
+    max_translate_px: int = 8
+    brightness: float = 0.15
+    contrast: float = 0.15
+    blur_prob: float = 0.2
+    blur_sigma: Tuple[float, float] = (0.1, 0.6)
+
+
 def _try_mkdir(path: Path) -> bool:
     """Create path (with parents). Return False instead of raising on failure."""
     try:
@@ -272,6 +289,7 @@ class Config:
     report: ReportConfig = field(default_factory=ReportConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
     crop: CropConfig = field(default_factory=CropConfig)
+    augment: AugmentConfig = field(default_factory=AugmentConfig)
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
@@ -431,3 +449,11 @@ if __name__ == "__main__":
     print("\nCrop Config:")
     print(f"  expected_size_px: {config.crop.expected_size_px}")
     print(f"  ink_threshold:    {config.crop.ink_threshold}")
+
+    print("\nAugment Config:")
+    print(f"  enabled:          {config.augment.enabled}")
+    print(f"  max_translate_px: {config.augment.max_translate_px}")
+    print(f"  brightness:       {config.augment.brightness}")
+    print(f"  contrast:         {config.augment.contrast}")
+    print(f"  blur_prob:        {config.augment.blur_prob}")
+    print(f"  blur_sigma:       {config.augment.blur_sigma}")
