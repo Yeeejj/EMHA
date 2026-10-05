@@ -1,25 +1,19 @@
 """
-Cross-Validation Module
-Implements stratified k-fold cross-validation for the hybrid CNN-HMM model.
+Cross-Validation Module — LEGACY, QUARANTINED.
+
+Crop-level StratifiedKFold for the hybrid CNN-HMM model. It does not group
+crops by participant, so CrossValidator.cross_validate raises
+LegacyPipelineError. Not in the CLAUDE.md module map: participant-level
+folds belong to src/training/splits.py (Stage E). Kept until Stage F has
+taken over the reusable parts; delete then (with the thesis author's OK).
 """
 
 from typing import Dict
 import numpy as np
 
 import torch
-from torch.utils.data import DataLoader
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-from ..models.cnn import EmotionCNN
-from ..models.hmm import HMMClassifier
-from ..data.dataloader import (
-    HandwritingDataset,
-    TransformSubset,
-    get_train_transform,
-    get_val_transform,
-)
-from .trainer import Trainer
+from ..data.dataloader import CropDataset, legacy_pipeline_error
 
 
 class CrossValidator:
@@ -61,126 +55,18 @@ class CrossValidator:
 
     def cross_validate(
         self,
-        dataset: HandwritingDataset,
+        dataset: CropDataset,
     ) -> Dict[str, Dict[str, float]]:
         """
         Perform k-fold cross-validation on the full hybrid pipeline.
 
         Args:
-            dataset: HandwritingDataset (should use val_transform or None;
-                     train augmentation is applied per-fold via TransformSubset)
+            dataset: crops to cross-validate (legacy: split crop-wise)
 
         Returns:
             Summary dict with mean/std of metrics across folds.
         """
-        labels = np.array(dataset.get_labels())
-        indices = np.arange(len(labels))
-
-        skf = StratifiedKFold(
-            n_splits=self.n_splits,
-            shuffle=True,
-            random_state=self.random_state,
-        )
-
-        train_transform = get_train_transform(self.image_size)
-        val_transform = get_val_transform(self.image_size)
-
-        self.fold_results = []
-        all_y_true = []
-        all_y_pred = []
-
-        print(f"\nStarting {self.n_splits}-Fold Cross-Validation")
-        print(
-            f"Total samples: {len(labels)} "
-            f"(HAPPY: {(labels == 0).sum()}, SAD: {(labels == 1).sum()})"
-        )
-        print("=" * 60)
-
-        for fold, (train_idx, val_idx) in enumerate(skf.split(indices, labels)):
-            print(f"\n--- Fold {fold + 1}/{self.n_splits} ---")
-            print(f"Train: {len(train_idx)}, Val: {len(val_idx)}")
-
-            # Create subsets with proper transforms
-            train_subset = TransformSubset(
-                dataset, train_idx, transform=train_transform
-            )
-            val_subset = TransformSubset(dataset, val_idx, transform=val_transform)
-
-            train_loader = DataLoader(
-                train_subset, batch_size=self.batch_size, shuffle=True
-            )
-            val_loader = DataLoader(
-                val_subset, batch_size=self.batch_size, shuffle=False
-            )
-
-            # Step 1: Train CNN
-            print("\n  Step 1: Training CNN...")
-            cnn_model = EmotionCNN(
-                input_channels=1,
-                num_features=self.cnn_features,
-                use_pretrained=self.use_pretrained,
-            ).to(self.device)
-
-            trainer = Trainer(
-                model=cnn_model,
-                learning_rate=self.learning_rate,
-                epochs=self.epochs,
-                patience=self.patience,
-                device=self.device,
-            )
-            trainer.train(train_loader, val_loader)
-
-            # Step 2: Extract sequence features
-            print("\n  Step 2: Extracting sequence features...")
-            train_features, train_labels, train_lengths = self._extract_sequences(
-                cnn_model, train_loader
-            )
-            val_features, val_labels, val_lengths = self._extract_sequences(
-                cnn_model, val_loader
-            )
-            print(f"  Train: {train_features.shape}, " f"Val: {val_features.shape}")
-
-            # Step 3: Train HMM
-            print("\n  Step 3: Training HMM...")
-            hmm_clf = HMMClassifier(n_states=self.hmm_states)
-            hmm_clf.fit(train_features, train_labels, lengths=train_lengths)
-
-            # Step 4: Evaluate
-            y_pred, confidences = hmm_clf.predict(val_features, lengths=val_lengths)
-
-            acc = accuracy_score(val_labels, y_pred)
-            prec = precision_score(val_labels, y_pred, average="macro", zero_division=0)
-            rec = recall_score(val_labels, y_pred, average="macro", zero_division=0)
-            f1 = f1_score(val_labels, y_pred, average="macro", zero_division=0)
-
-            fold_metrics = {
-                "accuracy": acc,
-                "precision": prec,
-                "recall": rec,
-                "f1": f1,
-            }
-            self.fold_results.append(fold_metrics)
-            all_y_true.extend(val_labels)
-            all_y_pred.extend(y_pred)
-
-            print(
-                f"\n  Fold {fold + 1} Results: "
-                f"Acc={acc:.4f}, Prec={prec:.4f}, "
-                f"Rec={rec:.4f}, F1={f1:.4f}"
-            )
-
-        summary = self._aggregate_results()
-
-        print("\n" + "=" * 60)
-        print("CROSS-VALIDATION SUMMARY")
-        print("=" * 60)
-        for metric, stats in summary.items():
-            print(
-                f"{metric.capitalize():>10}: "
-                f"{stats['mean']:.4f} (+/- {stats['std']:.4f})"
-            )
-
-        return summary
+        raise legacy_pipeline_error("CrossValidator.cross_validate")
 
     def _extract_sequences(self, cnn_model, data_loader):
         """Extract spatial sequence features from CNN."""
@@ -190,8 +76,9 @@ class CrossValidator:
         all_lengths = []
 
         with torch.no_grad():
-            for images, labels in data_loader:
-                images = images.to(self.device)
+            for batch in data_loader:
+                images = batch["image"].to(self.device)
+                labels = batch["label"]
                 seq_feats = cnn_model.extractor.extract_spatial_features(images)
 
                 for i in range(seq_feats.shape[0]):

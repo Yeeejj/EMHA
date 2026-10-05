@@ -71,6 +71,10 @@ class PathsConfig:
 class DataConfig:
     """Non-path dataset configuration. See Config.paths for filesystem roots."""
 
+    # CropDataset (src/data/dataloader.py): label string -> class index, and
+    # DataLoader worker processes.
+    label_to_index: dict = field(default_factory=lambda: {"HAPPY": 0, "SAD": 1})
+    num_workers: int = 2
     image_size: Tuple[int, int] = (224, 224)
     train_ratio: float = 0.70
     val_ratio: float = 0.15

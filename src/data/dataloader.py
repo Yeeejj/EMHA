@@ -1,168 +1,199 @@
 """
-Data Loading Module
-Handles loading and batching of preprocessed handwriting images for training.
+Crop dataset and loaders built from the processed manifest and labels — Stage E.
+
+CropDataset joins DATASET/metadata/processed_manifest.csv with labels.csv
+on participant_id, keeps only the requested participants and task families,
+and excludes crops marked dropped in qc_log.csv. Participant IDs, never crop
+indices, decide membership, so a participant's crops always land on one side
+of a split. Images are read as grayscale (RGB files converted in memory).
+
+build_loaders makes one train and one validation DataLoader for a single
+task family (canvas sizes differ by family, so families never share a
+batch), with the compliant transforms from src/data/transforms.py.
+
+LegacyPipelineError is raised by the quarantined legacy training entry
+points in src/training (crop-level splits); see legacy_pipeline_error.
 """
 
-from pathlib import Path
-from typing import Tuple, List
+from __future__ import annotations
 
+import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+
+from src.data.transforms import get_eval_transform, get_train_transform
+from src.preprocessing.pipeline import _load_qc_dropped
+from src.utils.config import config
+
+MANIFEST_COLUMNS = ("participant_id", "cell", "task_family", "processed_path")
 
 
-class HandwritingDataset(Dataset):
+class LegacyPipelineError(RuntimeError):
+    """Raised by entry points of the legacy, non-compliant training stack."""
+
+
+def legacy_pipeline_error(entry: str) -> LegacyPipelineError:
+    """The error every quarantined legacy entry point raises."""
+    return LegacyPipelineError(
+        f"{entry} is part of the legacy pipeline and is disabled: it splits "
+        "crops (not participants), with no participant grouping or "
+        "assert_no_leakage (CLAUDE.md Non-Negotiable 1). Use the Stage E/F "
+        "replacement (folds.csv, src/training/splits.py, run_*.py)."
+    )
+
+
+class CropDataset(Dataset):
+    """Processed crops of the given participants, with their labels.
+
+    manifest: processed_manifest.csv rows (participant_id, cell, task_family,
+        processed_path). labels: labels.csv rows (participant_id and the
+        config.labeling.label_column). participant_ids: who to include; every
+        ID must have crops and a label. task_families: families to keep, or
+        None for all. transform: applied to the grayscale PIL image (default
+        ToTensor). dropped: {(participant_id, cell)} to exclude (qc_log.csv).
+
+    Items are dicts: image (tensor), label (int via label_to_index),
+    participant_id, task_family, cell. The joined rows are in self.table,
+    sorted by participant_id then cell.
     """
-    PyTorch Dataset for loading handwriting samples.
-
-    Expects folder structure:
-        data_dir/
-        ├── HAPPY/
-        │   ├── sample1.png
-        │   └── ...
-        └── SAD/
-            ├── sample1.png
-            └── ...
-    """
-
-    EMOTION_TO_LABEL = {"HAPPY": 0, "SAD": 1}
-    LABEL_TO_EMOTION = {0: "HAPPY", 1: "SAD"}
 
     def __init__(
-        self, data_dir: str = "DATA/PROCESSED", transform: transforms.Compose = None
+        self,
+        manifest: pd.DataFrame,
+        labels: pd.DataFrame,
+        participant_ids: list,
+        task_families: list | None,
+        transform=None,
+        dropped: set | None = None,
+        label_column: str | None = None,
+        label_to_index: dict | None = None,
     ):
-        self.data_dir = Path(data_dir)
+        label_column = label_column or config.labeling.label_column
+        self.label_to_index = label_to_index or config.data.label_to_index
         self.transform = transform
-        self.samples: List[Tuple[str, int]] = []
-        self._load_samples()
 
-    def _load_samples(self):
-        """Scan directories and load sample paths with labels."""
-        for emotion, label in self.EMOTION_TO_LABEL.items():
-            emotion_dir = self.data_dir / emotion
-            if emotion_dir.exists():
-                for ext in ("*.png", "*.jpg", "*.jpeg"):
-                    for img_path in emotion_dir.glob(ext):
-                        self.samples.append((str(img_path), label))
+        missing_cols = set(MANIFEST_COLUMNS) - set(manifest.columns)
+        if missing_cols:
+            raise ValueError(f"manifest lacks columns: {sorted(missing_cols)}")
+        if {"participant_id", label_column} - set(labels.columns):
+            raise ValueError(f"labels need participant_id and {label_column!r}")
 
-        print(
-            f"Loaded {len(self.samples)} samples "
-            f"(HAPPY: {sum(1 for _, l in self.samples if l == 0)}, "
-            f"SAD: {sum(1 for _, l in self.samples if l == 1)})"
+        ids = {str(pid) for pid in participant_ids}
+        crops = manifest.loc[:, list(MANIFEST_COLUMNS)].copy()
+        crops["participant_id"] = crops["participant_id"].astype(str)
+        unknown = ids - set(crops["participant_id"])
+        if unknown:
+            raise ValueError(f"participants with no crops: {sorted(unknown)}")
+
+        crops = crops[crops["participant_id"].isin(ids)]
+        if task_families is not None:
+            crops = crops[crops["task_family"].isin(task_families)]
+        if dropped:
+            keep = [
+                (pid, cell) not in dropped
+                for pid, cell in zip(crops["participant_id"], crops["cell"])
+            ]
+            crops = crops[keep]
+
+        lab = labels.loc[:, ["participant_id", label_column]].copy()
+        lab["participant_id"] = lab["participant_id"].astype(str)
+        if lab["participant_id"].duplicated().any():
+            raise ValueError("labels has duplicate participant_id rows")
+        unlabelled = ids - set(lab["participant_id"])
+        if unlabelled:
+            raise ValueError(f"participants with no label: {sorted(unlabelled)}")
+
+        table = crops.merge(lab, on="participant_id", how="left")
+        bad = set(table[label_column]) - set(self.label_to_index)
+        if bad:
+            raise ValueError(f"labels not in label_to_index: {sorted(map(str, bad))}")
+        table["label"] = table[label_column]
+        table["label_index"] = table[label_column].map(self.label_to_index)
+        self.table = table.sort_values(["participant_id", "cell"]).reset_index(
+            drop=True
         )
 
+    @property
+    def participant_ids(self) -> set:
+        return set(self.table["participant_id"])
+
     def __len__(self) -> int:
-        return len(self.samples)
+        return len(self.table)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        """Load and return a sample."""
-        img_path, label = self.samples[idx]
-        image = Image.open(img_path).convert("L")  # Grayscale
-
-        if self.transform:
-            image = self.transform(image)
-        else:
-            image = transforms.ToTensor()(image)
-
-        return image, label
-
-    def get_labels(self) -> List[int]:
-        """Return list of all labels."""
-        return [label for _, label in self.samples]
-
-    def get_class_distribution(self) -> dict:
-        """Return count of samples per class."""
-        distribution = {"HAPPY": 0, "SAD": 0}
-        for _, label in self.samples:
-            emotion = self.LABEL_TO_EMOTION[label]
-            distribution[emotion] += 1
-        return distribution
+    def __getitem__(self, idx: int) -> dict:
+        row = self.table.iloc[idx]
+        with Image.open(row["processed_path"]) as img:
+            image = img.convert("L")
+        image = (
+            self.transform(image) if self.transform else transforms.ToTensor()(image)
+        )
+        return {
+            "image": image,
+            "label": int(row["label_index"]),
+            "participant_id": row["participant_id"],
+            "task_family": row["task_family"],
+            "cell": row["cell"],
+        }
 
 
-def get_train_transform(image_size: Tuple[int, int] = (224, 224)):
-    """Training transforms with handwriting-safe augmentations."""
-    return transforms.Compose(
-        [
-            transforms.Resize(image_size),
-            transforms.RandomRotation(degrees=5),
-            transforms.RandomAffine(
-                degrees=0,
-                translate=(0.05, 0.05),
-                scale=(0.95, 1.05),
-            ),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5]),
-        ]
+def labels_csv_path(cfg):
+    """labels.csv path: LabelingConfig.output_csv, else metadata_dir/labels.csv."""
+    return cfg.labeling.output_csv or cfg.paths.metadata_dir / "labels.csv"
+
+
+def load_tables(cfg) -> tuple:
+    """(processed manifest, labels, dropped set) read from the data root."""
+    meta = cfg.paths.metadata_dir
+    manifest = pd.read_csv(
+        meta / "processed_manifest.csv", dtype={"participant_id": str}
     )
+    labels = pd.read_csv(labels_csv_path(cfg), dtype={"participant_id": str})
+    return manifest, labels, _load_qc_dropped(meta)
 
 
-def get_val_transform(image_size: Tuple[int, int] = (224, 224)):
-    """Validation/test transforms (no augmentation)."""
-    return transforms.Compose(
-        [
-            transforms.Resize(image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5]),
-        ]
+def build_loaders(train_ids: list, val_ids: list, task_family: str, cfg) -> tuple:
+    """(train DataLoader, validation DataLoader) for one task family.
+
+    Raises ValueError if any participant is in both ID lists. Train uses the
+    augmenting transform and a seeded shuffle; validation uses the eval
+    transform, unshuffled.
+    """
+    overlap = {str(p) for p in train_ids} & {str(p) for p in val_ids}
+    if overlap:
+        raise ValueError(f"participants in both train and val: {sorted(overlap)}")
+
+    manifest, labels, dropped = load_tables(cfg)
+    families = [task_family]
+    train_ds = CropDataset(
+        manifest,
+        labels,
+        train_ids,
+        families,
+        transform=get_train_transform(cfg, task_family),
+        dropped=dropped,
     )
-
-
-class TransformSubset(Dataset):
-    """Subset of a dataset with a custom transform override."""
-
-    def __init__(self, dataset: HandwritingDataset, indices, transform=None):
-        self.dataset = dataset
-        self.indices = indices
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        img_path, label = self.dataset.samples[self.indices[idx]]
-        image = Image.open(img_path).convert("L")
-
-        if self.transform:
-            image = self.transform(image)
-        else:
-            image = transforms.ToTensor()(image)
-
-        return image, label
-
-
-def create_data_loaders(
-    data_dir: str = "DATA/SPLITS",
-    batch_size: int = 32,
-    image_size: Tuple[int, int] = (224, 224),
-    num_workers: int = 0,
-) -> dict:
-    """Create train, validation, and test data loaders."""
-    train_transform = get_train_transform(image_size)
-    val_transform = get_val_transform(image_size)
-
-    loaders = {}
-
-    for split in ["train", "val", "test"]:
-        split_dir = Path(data_dir) / split
-        if split_dir.exists():
-            transform = train_transform if split == "train" else val_transform
-            dataset = HandwritingDataset(
-                data_dir=str(split_dir),
-                transform=transform,
-            )
-            loaders[split] = DataLoader(
-                dataset,
-                batch_size=batch_size,
-                shuffle=(split == "train"),
-                num_workers=num_workers,
-            )
-
-    return loaders
-
-
-if __name__ == "__main__":
-    dataset = HandwritingDataset()
-    print(f"Dataset size: {len(dataset)}")
-    print(f"Class distribution: {dataset.get_class_distribution()}")
+    val_ds = CropDataset(
+        manifest,
+        labels,
+        val_ids,
+        families,
+        transform=get_eval_transform(cfg, task_family),
+        dropped=dropped,
+    )
+    generator = torch.Generator().manual_seed(cfg.training.seed)
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        num_workers=cfg.data.num_workers,
+        generator=generator,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg.training.batch_size,
+        shuffle=False,
+        num_workers=cfg.data.num_workers,
+    )
+    return train_loader, val_loader

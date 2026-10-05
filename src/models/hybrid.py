@@ -69,8 +69,9 @@ class HybridCNNHMM:
         all_lengths = []
 
         with torch.no_grad():
-            for images, labels in data_loader:
-                images = images.to(self.device)
+            for batch in data_loader:
+                images = batch["image"].to(self.device)
+                labels = batch["label"]
                 # (batch, seq_len, 256)
                 seq_feats = self.cnn.extract_sequence_features(images)
 
@@ -94,8 +95,9 @@ class HybridCNNHMM:
         all_labels = []
 
         with torch.no_grad():
-            for images, labels in data_loader:
-                images = images.to(self.device)
+            for batch in data_loader:
+                images = batch["image"].to(self.device)
+                labels = batch["label"]
                 features = self.cnn.extract_features(images)
                 all_features.append(features.cpu().numpy())
                 all_labels.append(labels.numpy())

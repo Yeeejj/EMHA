@@ -1,26 +1,17 @@
 """
-Evaluator — Phase 10
-First and only touch of DATA/SPLITS/test/.
+Evaluator — Phase 10 — LEGACY ENTRY POINTS QUARANTINED.
 
-Outputs
--------
-results/evaluation_report.csv  per-metric rows for CNN-HMM and LR baseline
-results/confusion_matrix.png   confusion matrix figure (CNN-HMM, test split)
-results/cv_results.json        5-fold CV mean ± std on combined train+val pool
-results/model_comparison.csv   side-by-side LR vs CNN-HMM table
-results/gradcam/               4 Grad-CAM overlays for thesis defence
-
-Usage
------
-    python -m src.training.evaluator           # full evaluation
-    python -m src.training.evaluator --smoke   # quick end-to-end check (2 folds)
+run_evaluation and _run_cross_validation (and the CLI) raise
+LegacyPipelineError: they evaluated a fixed crop-level held-out test folder,
+not participant-level CV folds, and their bodies have been removed.
+Prediction (CropDataset batches), metric, confusion-matrix, CSV, and
+Grad-CAM helpers are kept for reuse by the Stage H evaluator.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from pathlib import Path
 
@@ -41,10 +32,13 @@ from sklearn.metrics import (
 )
 from torch.utils.data import DataLoader
 
-from src.data.dataloader import HandwritingDataset, get_val_transform
+from src.data.dataloader import (
+    CropDataset,
+    LegacyPipelineError,
+    legacy_pipeline_error,
+)
 from src.models.cnn import EmotionCNN
 from src.models.hmm import HMMClassifier
-from src.training.cross_validate import CrossValidator
 from src.training.trainer import extract_sequences, gather_lr_features
 from src.utils.config import config
 
@@ -116,8 +110,9 @@ def _cnn_predict(
     all_labels: list[int] = []
     cnn.eval()
     with torch.no_grad():
-        for images, labels in loader:
-            images = images.to(device)
+        for batch in loader:
+            images = batch["image"].to(device)
+            labels = batch["label"]
             logits = cnn(images)
             probs = F.softmax(logits, dim=1)
             preds = logits.argmax(dim=1)
@@ -141,7 +136,7 @@ def _hmm_predict(
 
 def _lr_predict(
     lr_clf,
-    dataset: HandwritingDataset,
+    dataset: CropDataset,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (preds, proba_class1, true_labels) using handcrafted features."""
     feats, labels = gather_lr_features(dataset)
@@ -282,15 +277,19 @@ def _overlay_cam(gray: np.ndarray, cam: np.ndarray) -> np.ndarray:
 
 def _save_gradcam_images(
     cnn: EmotionCNN,
-    test_ds: HandwritingDataset,
+    test_ds: CropDataset,
     hmm_preds: np.ndarray,
     test_labels: np.ndarray,
     device: torch.device,
     out_dir: Path,
+    val_tf,
 ) -> list[str]:
-    """Save 4 Grad-CAM panels (original | overlay) for the thesis defence."""
+    """Save 4 Grad-CAM panels (original | overlay) for the thesis defence.
+
+    val_tf is the eval transform for the crops' task family
+    (src.data.transforms.get_eval_transform).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    val_tf = get_val_transform(config.preprocessing.target_size)
 
     # Bucket sample indices by prediction outcome
     buckets: dict[str, list[int]] = {
@@ -317,7 +316,8 @@ def _save_gradcam_images(
             print(f"  Grad-CAM: no sample for '{cat}' — skipping")
             continue
         idx = indices[0]
-        img_path, label = test_ds.samples[idx]
+        row = test_ds.table.iloc[idx]
+        img_path, label = row["processed_path"], int(row["label_index"])
 
         pil_img = PILImage.open(img_path).convert("L")
         tensor = val_tf(pil_img).unsqueeze(0).to(device)
@@ -414,172 +414,16 @@ def _save_model_comparison(
 
 
 def _run_cross_validation(cfg, n_folds: int, cv_epochs: int) -> dict:
-    """5-fold CV on train+val pool. Returns summary dict from CrossValidator."""
-    splits_dir = Path(cfg.data.splits_dir)
-    train_ds = HandwritingDataset(str(splits_dir / "train"), transform=None)
-    val_ds = HandwritingDataset(str(splits_dir / "val"), transform=None)
-
-    # Merge datasets by combining .samples lists
-    combined: HandwritingDataset = object.__new__(HandwritingDataset)
-    combined.data_dir = splits_dir / "train"
-    combined.transform = None
-    combined.samples = train_ds.samples + val_ds.samples
-    print(f"  Combined pool : {len(combined.samples)} samples")
-
-    cv = CrossValidator(
-        n_splits=n_folds,
-        random_state=cfg.training.random_state,
-        batch_size=cfg.training.batch_size,
-        epochs=cv_epochs,
-        learning_rate=cfg.training.learning_rate,
-        patience=cfg.training.patience,
-        cnn_features=cfg.cnn.num_features,
-        hmm_states=cfg.hmm.n_states,
-        image_size=cfg.preprocessing.target_size,
-        use_pretrained=cfg.cnn.use_pretrained,
-    )
-    return cv.cross_validate(combined)
+    """5-fold CV on train+val pool. LEGACY (disabled): crop-level folds."""
+    raise legacy_pipeline_error("_run_cross_validation")
 
 
 # ─── main orchestration ───────────────────────────────────────────────────────
 
 
 def run_evaluation(smoke: bool = False) -> None:
-    print("=" * 60)
-    print("Phase 10 - FINAL EVALUATION")
-    print("TEST SPLIT: first and only access to DATA/SPLITS/test/")
-    print("=" * 60)
-
-    cfg = config
-    _RESULTS.mkdir(parents=True, exist_ok=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"  device : {device}")
-    if smoke:
-        print("  [smoke mode] — reduced CV folds and epochs")
-
-    # ── locate checkpoints ────────────────────────────────────────────────
-    cnn_path = _latest("cnn_*_best.pth")
-    hmm_path = _latest("hmm_*.pkl")
-    lr_path = _latest("lr_baseline_*.pkl")
-
-    missing = [
-        name
-        for name, p in [("CNN", cnn_path), ("HMM", hmm_path), ("LR", lr_path)]
-        if p is None
-    ]
-    if missing:
-        print(f"ERROR: missing checkpoints: {', '.join(missing)}")
-        print("  Run Phase 9 (trainer) first.")
-        sys.exit(1)
-
-    # ── load models ───────────────────────────────────────────────────────
-    print("\nLoading models...")
-    cnn = _load_cnn(cnn_path, device)
-    hmm_clf = _load_hmm(hmm_path)
-    lr_clf = _load_lr(lr_path)
-
-    # ── load test data ─────────────────────────────────────────────────────
-    test_dir = Path(cfg.data.splits_dir) / "test"
-    if not test_dir.exists():
-        print(f"ERROR: test split not found: {test_dir}")
-        print("  Run Phase 8 (split_dataset) first.")
-        sys.exit(1)
-
-    val_tf = get_val_transform(cfg.preprocessing.target_size)
-    test_ds = HandwritingDataset(str(test_dir), transform=val_tf)
-    if len(test_ds) == 0:
-        print("ERROR: no images found in test split.")
-        sys.exit(1)
-
-    test_loader = DataLoader(
-        test_ds,
-        batch_size=cfg.training.batch_size,
-        shuffle=False,
-        num_workers=0,
-    )
-
-    # ── CNN + HMM predictions on test split ───────────────────────────────
-    print("\nRunning CNN predictions on test split...")
-    cnn_preds, cnn_probs, test_labels = _cnn_predict(cnn, test_loader, device)
-
-    print("Running HMM predictions on test split...")
-    hmm_preds, _hmm_confs, _ = _hmm_predict(hmm_clf, cnn, test_loader, device)
-
-    # CNN-HMM final: HMM label, CNN softmax prob for ROC-AUC
-    cnn_hmm_metrics = _compute_metrics(test_labels, hmm_preds, cnn_probs)
-
-    # ── LR predictions ────────────────────────────────────────────────────
-    print("Running LR predictions on test split...")
-    lr_preds, lr_probs, _ = _lr_predict(lr_clf, test_ds)
-    lr_metrics = _compute_metrics(test_labels, lr_preds, lr_probs)
-
-    # ── save reports ──────────────────────────────────────────────────────
-    _save_evaluation_report(
-        cnn_hmm_metrics, lr_metrics, _RESULTS / "evaluation_report.csv"
-    )
-    _save_confusion_matrix(
-        cnn_hmm_metrics["confusion_matrix"], _RESULTS / "confusion_matrix.png"
-    )
-    _save_model_comparison(
-        cnn_hmm_metrics, lr_metrics, _RESULTS / "model_comparison.csv"
-    )
-
-    # ── Grad-CAM ──────────────────────────────────────────────────────────
-    print("\nGenerating Grad-CAM visualisations...")
-    gradcam_paths = _save_gradcam_images(
-        cnn,
-        test_ds,
-        hmm_preds,
-        test_labels,
-        device,
-        _RESULTS / "gradcam",
-    )
-
-    # ── cross-validation ──────────────────────────────────────────────────
-    n_folds = 2 if smoke else cfg.training.n_folds
-    cv_epochs = 2 if smoke else min(30, cfg.training.epochs)
-    print(f"\nRunning {n_folds}-fold CV on train+val pool ({cv_epochs} epochs/fold)...")
-    cv_results = _run_cross_validation(cfg, n_folds=n_folds, cv_epochs=cv_epochs)
-    cv_path = _RESULTS / "cv_results.json"
-    with cv_path.open("w", encoding="utf-8") as fh:
-        json.dump(cv_results, fh, indent=2)
-    print(f"  CV results : {cv_path}")
-
-    # ── final summary ─────────────────────────────────────────────────────
-    cnn_hmm_f1 = cnn_hmm_metrics["f1_macro"]
-    lr_f1 = lr_metrics["f1_macro"]
-    cnn_hmm_acc = cnn_hmm_metrics["accuracy"]
-    lr_acc = lr_metrics["accuracy"]
-    cnn_hmm_auc = cnn_hmm_metrics.get("roc_auc", float("nan"))
-    lr_auc = lr_metrics.get("roc_auc", float("nan"))
-    cv_f1_mean = cv_results.get("f1", {}).get("mean", float("nan"))
-    cv_f1_std = cv_results.get("f1", {}).get("std", float("nan"))
-    threshold_met = cnn_hmm_f1 >= _THRESHOLD
-
-    print("\n" + "=" * 60)
-    print("EVALUATION COMPLETE")
-    print("=" * 60)
-
-    print(f"\n{'':16s}  {'F1 macro':>10}  {'Accuracy':>10}  {'ROC-AUC':>10}")
-    print(
-        f"{'CNN-HMM':16s}  {cnn_hmm_f1:10.4f}  {cnn_hmm_acc:10.4f}  {cnn_hmm_auc:10.4f}"
-    )
-    print(f"{'LR baseline':16s}  {lr_f1:10.4f}  {lr_acc:10.4f}  {lr_auc:10.4f}")
-
-    print(f"\nCross-Validation ({n_folds}-fold, train+val pool)")
-    print(f"  CNN-HMM F1 macro : {cv_f1_mean:.4f} +/- {cv_f1_std:.4f}")
-
-    status = "MET" if threshold_met else "NOT MET"
-    print(f"\nThreshold F1 macro >= {_THRESHOLD:.0%} : {status}")
-    print("=" * 60)
-
-    print("\nOutput paths:")
-    print("  results/evaluation_report.csv")
-    print("  results/confusion_matrix.png")
-    print("  results/model_comparison.csv")
-    print("  results/cv_results.json")
-    for p in gradcam_paths:
-        print(f"  {p}")
+    """LEGACY (disabled): raises LegacyPipelineError."""
+    raise legacy_pipeline_error("run_evaluation")
 
 
 def main() -> int:
@@ -592,7 +436,11 @@ def main() -> int:
         help="Smoke test: 2 CV folds, 2 epochs — quick end-to-end verification.",
     )
     args = parser.parse_args()
-    run_evaluation(smoke=args.smoke)
+    try:
+        run_evaluation(smoke=args.smoke)
+    except LegacyPipelineError as exc:
+        print(f"ERROR: {exc}")
+        return 1
     return 0
 
 
