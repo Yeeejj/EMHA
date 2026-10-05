@@ -45,6 +45,9 @@ Resume as in run_cnn: finished (family, fold) pairs are skipped.
 
     python -m src.training.run_hybrid [--analysis primary|full]
         [--subset pilot] [--include-drawing] [--predict-middle] [--device cuda]
+        [--stage smoke|pilot|full]
+
+Each run appends point metrics to results/RUN_LOG.csv (src/utils/run_log.py).
 """
 
 from __future__ import annotations
@@ -83,6 +86,7 @@ from src.training.splits import (
 )
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
+from src.utils.run_log import STAGES, command_line, log_predictions, resolve_stage
 from src.utils.seed import set_seed
 
 MODEL = "cnn_hmm"
@@ -308,9 +312,11 @@ def run(
     include_drawing: bool = False,
     predict_middle: bool = False,
     device: str = "auto",
+    stage: str | None = None,
 ) -> Path:
     """CNN-HMM over all folds; return the predictions.csv path."""
     require_frozen_or_synthetic(config, "run_hybrid")
+    stage = resolve_stage(stage, subset)
     if predict_middle and analysis != "primary":
         raise ValueError("--predict-middle applies to the primary analysis only")
     device = resolve_device(device)
@@ -381,6 +387,15 @@ def run(
     pred_path = out_dir / "predictions.csv"
     preds.to_csv(pred_path, index=False)
     print(f"Written: {out_dir} ({len(crop_parts)} family-fold parts)")
+    command = command_line(
+        "src.training.run_hybrid",
+        analysis=analysis,
+        subset=subset,
+        include_drawing=include_drawing,
+        predict_middle=predict_middle,
+        stage=stage,
+    )
+    log_predictions(stage, command, analysis, subset, preds)
     return pred_path
 
 
@@ -391,6 +406,7 @@ def main() -> int:
     parser.add_argument("--include-drawing", action="store_true")
     parser.add_argument("--predict-middle", action="store_true")
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--stage", choices=STAGES, default=None)
     args = parser.parse_args()
     try:
         run(
@@ -399,6 +415,7 @@ def main() -> int:
             args.include_drawing,
             args.predict_middle,
             args.device,
+            args.stage,
         )
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")

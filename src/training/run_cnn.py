@@ -40,7 +40,10 @@ Refuses to run on real data before the protocol-frozen tag.
     python -m src.training.run_cnn [--task-family word]
         [--analysis primary|full] [--subset pilot] [--folds 0,1]
         [--backbone resnet18|simple] [--shuffle-labels] [--predict-middle]
-        [--device cuda]
+        [--device cuda] [--stage smoke|pilot|full]
+
+Each run appends point metrics to results/RUN_LOG.csv (src/utils/run_log.py);
+a family without all folds yet is not logged.
 """
 
 from __future__ import annotations
@@ -81,6 +84,7 @@ from src.training.splits import (
 from src.training.trainer import Trainer
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
+from src.utils.run_log import STAGES, command_line, log_predictions, resolve_stage
 from src.utils.seed import set_seed
 
 FAMILIES = ("drawing", "word", "cursive")
@@ -289,9 +293,11 @@ def run(
     shuffle_labels: bool = False,
     predict_middle: bool = False,
     device: str = "auto",
+    stage: str | None = None,
 ) -> Path:
     """Train/predict every requested (family, fold); return predictions.csv path."""
     require_frozen_or_synthetic(config, "run_cnn")
+    stage = resolve_stage(stage, subset)
     if backbone not in BACKBONES:
         raise ValueError(f"backbone must be one of {BACKBONES}")
     if task_family is not None and task_family not in FAMILIES:
@@ -361,6 +367,22 @@ def run(
     pred_path = out_dir / "predictions.csv"
     preds.to_csv(pred_path, index=False)
     print(f"Written: {out_dir} ({len(parts)} family-fold parts)")
+    command = command_line(
+        "src.training.run_cnn",
+        task_family=task_family,
+        analysis=analysis,
+        subset=subset,
+        folds=folds,
+        backbone=backbone,
+        shuffle_labels=shuffle_labels,
+        predict_middle=predict_middle,
+        stage=stage,
+    )
+    if task_family is not None:  # earlier families were logged by their own runs
+        preds = preds[
+            (preds["feature_set"] == task_family) | (preds["model"] == FUSED_MODEL)
+        ]
+    log_predictions(stage, command, analysis, subset, preds)
     return pred_path
 
 
@@ -380,6 +402,7 @@ def main() -> int:
     parser.add_argument("--shuffle-labels", action="store_true")
     parser.add_argument("--predict-middle", action="store_true")
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--stage", choices=STAGES, default=None)
     args = parser.parse_args()
     try:
         run(
@@ -391,6 +414,7 @@ def main() -> int:
             shuffle_labels=args.shuffle_labels,
             predict_middle=args.predict_middle,
             device=args.device,
+            stage=args.stage,
         )
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")

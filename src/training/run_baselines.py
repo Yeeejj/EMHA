@@ -42,7 +42,9 @@ Outputs, results/baselines/<analysis>[_<subset>]/:
 Run from the project root:
 
     python -m src.training.run_baselines [--analysis primary|full]
-        [--subset pilot] [--predict-middle]
+        [--subset pilot] [--predict-middle] [--stage smoke|pilot|full]
+
+Each run appends point metrics to results/RUN_LOG.csv (src/utils/run_log.py).
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ from src.training.splits import (
 )
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
+from src.utils.run_log import STAGES, command_line, log_predictions, resolve_stage
 
 PRED_COLUMNS = (
     "analysis",
@@ -238,10 +241,14 @@ def _rows(analysis, model, fs, fold, ids, labels, prob, middle) -> pd.DataFrame:
 
 
 def run(
-    analysis: str = "primary", subset: str | None = None, predict_middle: bool = False
+    analysis: str = "primary",
+    subset: str | None = None,
+    predict_middle: bool = False,
+    stage: str | None = None,
 ) -> Path:
     """Evaluate all baselines over the outer folds; return predictions.csv path."""
     require_frozen_or_synthetic(config, "run_baselines")
+    stage = resolve_stage(stage, subset)
     if predict_middle and analysis != "primary":
         raise ValueError("--predict-middle applies to the primary analysis only")
 
@@ -351,6 +358,14 @@ def run(
             f"{'  (exploratory)' if entry['exploratory'] else ''}"
         )
     print(f"Written: {out_dir}")
+    command = command_line(
+        "src.training.run_baselines",
+        analysis=analysis,
+        subset=subset,
+        predict_middle=predict_middle,
+        stage=stage,
+    )
+    log_predictions(stage, command, analysis, subset, predictions)
     return pred_path
 
 
@@ -408,9 +423,10 @@ def main() -> int:
     parser.add_argument("--analysis", choices=("primary", "full"), default="primary")
     parser.add_argument("--subset", choices=SUBSETS, default=None)
     parser.add_argument("--predict-middle", action="store_true")
+    parser.add_argument("--stage", choices=STAGES, default=None)
     args = parser.parse_args()
     try:
-        run(args.analysis, args.subset, args.predict_middle)
+        run(args.analysis, args.subset, args.predict_middle, args.stage)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")
         return 1
