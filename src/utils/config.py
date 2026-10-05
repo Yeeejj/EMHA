@@ -179,6 +179,20 @@ class SplitConfig:
 
 
 @dataclass
+class AggregateConfig:
+    """Crop -> participant aggregation (Stage E) -- see src/training/aggregate.py.
+
+    method "mean_prob" is primary (CLAUDE.md); "mean_logit" and
+    "majority_vote" are secondary only. pred is SAD when prob_sad >=
+    threshold. logit_eps clips probabilities away from 0/1 for mean_logit.
+    """
+
+    method: str = "mean_prob"
+    threshold: float = 0.5
+    logit_eps: float = 1e-6
+
+
+@dataclass
 class LabelingConfig:
     """Labels are read verbatim from the tabulation export, never recomputed
     (CLAUDE.md Non-Negotiable 3) — see src/data/labeler.py.
@@ -423,6 +437,7 @@ class Config:
     hmm: HMMConfig = field(default_factory=HMMConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     splits: SplitConfig = field(default_factory=SplitConfig)
+    aggregate: AggregateConfig = field(default_factory=AggregateConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
