@@ -161,7 +161,7 @@ def build_loaders(train_ids: list, val_ids: list, task_family: str, cfg) -> tupl
     LeakageError. Train uses the augmenting transform and a seeded shuffle;
     validation uses the eval transform, unshuffled.
     """
-    assert_no_leakage(train_ids, test_ids=[], val_ids=val_ids)
+    assert_no_leakage(train_ids, val_ids)
 
     manifest, labels, dropped = load_tables(cfg)
     families = [task_family]

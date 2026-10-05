@@ -138,7 +138,7 @@ def test_build_loaders_disjoint_participants_one_family(tmp_path, monkeypatch):
 
 def test_build_loaders_rejects_overlapping_ids(tmp_path, monkeypatch):
     _write_metadata(tmp_path, monkeypatch)
-    with pytest.raises(LeakageError, match="both train and val"):
+    with pytest.raises(LeakageError, match="both id list 0 and id list 1"):
         build_loaders(["001", "002"], ["002", "003"], "word", config)
 
 

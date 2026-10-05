@@ -1,118 +1,129 @@
 """
-Cross-Validation Module — LEGACY, QUARANTINED.
+Participant-level cross-validation runner — Stage E.
 
-Crop-level StratifiedKFold for the hybrid CNN-HMM model. It does not group
-crops by participant, so CrossValidator.cross_validate raises
-LegacyPipelineError. Not in the CLAUDE.md module map: participant-level
-folds belong to src/training/splits.py (Stage E). Kept until Stage F has
-taken over the reusable parts; delete then (with the thesis author's OK).
+CrossValidator is model-agnostic. It reads the one fold assignment
+(folds.csv via src.training.splits), restricts it to an analysis set
+("primary" = extreme-groups and qc_passed, "full" = all qc_passed), and for
+every outer fold builds a FoldSplit:
+
+    inner_train_ids  fit models / scalers / PCA here only
+    inner_val_ids    early stopping and Platt calibration only
+    test_ids         predict only; never used for any fitting or tuning
+
+assert_no_leakage(inner_train, inner_val, test) is called for every fold.
+The inner split is splits.inner_split(train, labels, inner_val_fraction,
+seed + fold). Model runners (Stage F) pass a fit_predict(split) callable to
+run(); each fold's predictions must cover exactly that fold's test
+participants (none missing, none extra), so no participant is dropped or
+scored outside its test fold.
+
+Fold assignment lives only in src/training/splits.py; nothing here makes
+folds or splits crops.
 """
 
-from typing import Dict
-import numpy as np
+from __future__ import annotations
 
-import torch
+from dataclasses import dataclass
+from typing import Callable, Iterator
 
-from ..data.dataloader import CropDataset, legacy_pipeline_error
+import pandas as pd
+
+from src.data.dataloader import labels_csv_path
+from src.training.splits import (
+    analysis_ids,
+    assert_no_leakage,
+    fold_ids,
+    inner_split,
+    load_folds,
+)
+from src.utils.config import config
+
+
+@dataclass(frozen=True)
+class FoldSplit:
+    """Participant IDs for one outer fold of one analysis."""
+
+    analysis: str
+    fold: int
+    inner_train_ids: tuple
+    inner_val_ids: tuple
+    test_ids: tuple
 
 
 class CrossValidator:
-    """
-    Stratified K-Fold Cross-Validation for the hybrid CNN-HMM pipeline.
+    """Iterate the frozen outer folds for one analysis set.
 
-    Each fold:
-    1. Trains CNN with classification head (early stopping)
-    2. Extracts sequence features from trained CNN
-    3. Trains HMM on sequence features
-    4. Evaluates HMM predictions
+    folds / labels / participants default to folds.csv, labels.csv, and
+    participants.csv under config.paths.metadata_dir; pass DataFrames to
+    override (tests).
     """
 
     def __init__(
         self,
-        n_splits: int = 5,
-        random_state: int = 42,
-        batch_size: int = 32,
-        epochs: int = 50,
-        learning_rate: float = 0.001,
-        patience: int = 10,
-        cnn_features: int = 256,
-        hmm_states: int = 4,
-        image_size=(224, 224),
-        use_pretrained: bool = False,
+        analysis: str,
+        cfg=config,
+        folds: pd.DataFrame | None = None,
+        labels: pd.DataFrame | None = None,
+        participants: pd.DataFrame | None = None,
     ):
-        self.n_splits = n_splits
-        self.random_state = random_state
-        self.batch_size = batch_size
-        self.epochs = epochs
-        self.learning_rate = learning_rate
-        self.patience = patience
-        self.cnn_features = cnn_features
-        self.hmm_states = hmm_states
-        self.image_size = image_size
-        self.use_pretrained = use_pretrained
-        self.fold_results = []
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.analysis = analysis
+        self.cfg = cfg
+        meta = cfg.paths.metadata_dir
+        self.folds = folds if folds is not None else load_folds(cfg)
+        self.labels = (
+            labels
+            if labels is not None
+            else pd.read_csv(labels_csv_path(cfg), dtype={"participant_id": str})
+        )
+        self.participants = (
+            participants
+            if participants is not None
+            else pd.read_csv(meta / "participants.csv", dtype={"participant_id": str})
+        )
+        self.ids = analysis_ids(self.labels, self.participants, analysis)
+        if not self.ids:
+            raise ValueError(
+                f"no participants in the {analysis!r} analysis set; mark "
+                "qc_passed first (python -m src.data.crop_manifest "
+                "--apply-qc-status)."
+            )
 
-    def cross_validate(
-        self,
-        dataset: CropDataset,
-    ) -> Dict[str, Dict[str, float]]:
+    def splits(self) -> Iterator[FoldSplit]:
+        """Yield one leakage-checked FoldSplit per outer fold."""
+        for fold in range(self.cfg.cv.n_splits):
+            train, test = fold_ids(self.folds, fold, self.ids)
+            inner_train, inner_val = inner_split(
+                train,
+                self.labels,
+                self.cfg.cv.inner_val_fraction,
+                self.cfg.training.seed + fold,
+            )
+            assert_no_leakage(inner_train, inner_val, test)
+            yield FoldSplit(
+                analysis=self.analysis,
+                fold=fold,
+                inner_train_ids=tuple(inner_train),
+                inner_val_ids=tuple(inner_val),
+                test_ids=tuple(test),
+            )
+
+    def run(self, fit_predict: Callable[[FoldSplit], pd.DataFrame]) -> pd.DataFrame:
+        """Call fit_predict on every fold; return all folds' predictions.
+
+        fit_predict(split) must return a DataFrame with a participant_id
+        column whose participants are exactly split.test_ids. The returned
+        frame gains analysis and fold columns.
         """
-        Perform k-fold cross-validation on the full hybrid pipeline.
-
-        Args:
-            dataset: crops to cross-validate (legacy: split crop-wise)
-
-        Returns:
-            Summary dict with mean/std of metrics across folds.
-        """
-        raise legacy_pipeline_error("CrossValidator.cross_validate")
-
-    def _extract_sequences(self, cnn_model, data_loader):
-        """Extract spatial sequence features from CNN."""
-        cnn_model.eval()
-        all_features = []
-        all_labels = []
-        all_lengths = []
-
-        with torch.no_grad():
-            for batch in data_loader:
-                images = batch["image"].to(self.device)
-                labels = batch["label"]
-                seq_feats = cnn_model.extractor.extract_spatial_features(images)
-
-                for i in range(seq_feats.shape[0]):
-                    seq = seq_feats[i].cpu().numpy()
-                    all_features.append(seq)
-                    all_lengths.append(seq.shape[0])
-
-                all_labels.append(labels.numpy())
-
-        features = np.concatenate(all_features, axis=0)
-        labels = np.concatenate(all_labels)
-        return features, labels, all_lengths
-
-    def _aggregate_results(self) -> Dict[str, Dict[str, float]]:
-        """Compute mean and std across folds."""
-        summary = {}
-
-        if not self.fold_results:
-            return summary
-
-        metrics = self.fold_results[0].keys()
-
-        for metric in metrics:
-            values = [fold[metric] for fold in self.fold_results]
-            summary[metric] = {
-                "mean": float(np.mean(values)),
-                "std": float(np.std(values)),
-                "min": float(np.min(values)),
-                "max": float(np.max(values)),
-            }
-
-        return summary
-
-
-if __name__ == "__main__":
-    print("Cross-validation module ready")
-    print("Usage: CrossValidator(n_splits=5).cross_validate(dataset)")
+        frames = []
+        for split in self.splits():
+            preds = fit_predict(split)
+            got = set(preds["participant_id"].astype(str))
+            expected = set(split.test_ids)
+            if got != expected:
+                raise ValueError(
+                    f"fold {split.fold}: predictions must cover exactly the test "
+                    f"participants (missing {sorted(expected - got)[:5]}, "
+                    f"extra {sorted(got - expected)[:5]})"
+                )
+            frames.append(preds.assign(analysis=split.analysis, fold=split.fold))
+        return pd.concat(frames, ignore_index=True)

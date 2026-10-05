@@ -1,34 +1,41 @@
 """
-Participant-level cross-validation folds and leakage checks — Stage E.
+The one fold assignment, inner splits, and leakage checks — Stage E.
 
-make_folds assigns every labeled participant (labels.csv) to exactly one of
-TrainingConfig.n_folds outer test folds, stratified on SplitConfig
-.stratify_columns (label x in_primary_analysis). Within each outer fold, a
-stratified SplitConfig.inner_val_fraction of the remaining (training)
-participants becomes the inner validation set, used only for early stopping
-and Platt calibration -- never the outer test fold.
+Every runner gets its participants from here:
 
-folds.csv (DATASET/metadata/) is long format, one row per (participant,
-outer fold):
+    folds  = load_folds(cfg)                                  # folds.csv
+    ids    = analysis_ids(labels, participants, "primary")    # or "full"
+    train, test = fold_ids(folds, k, ids)                     # outer fold k
+    inner_train, inner_val = inner_split(train, labels,
+                                         cfg.cv.inner_val_fraction,
+                                         cfg.training.seed + k)
+    assert_no_leakage(inner_train, inner_val, test)
 
-    participant_id, label, in_primary_analysis, outer_fold, role
+make_outer_folds assigns every labeled participant (labels.csv) to exactly
+one of CVConfig.n_splits outer folds. Splitting a one-row-per-participant
+table with sklearn StratifiedKFold keeps all of a participant's crops on one
+side by construction; strata are label x in_middle_band (CVConfig
+.stratify_columns), so both the primary (extreme-groups) and full-sample
+analyses get balanced folds from the same assignment.
 
-with role in {train, inner_val, test}. Units are participants, never crops,
-so a participant's crops can never straddle train and test. The primary
-(extreme-groups) analysis restricts every role to in_primary_analysis=True;
-the full-sample analysis uses all rows.
+folds.csv (DATASET/metadata/): one row per participant —
+participant_id, label, in_middle_band, in_primary_analysis, outer_fold.
+Runners filter it to analysis_ids at load time; the inner split is derived
+from the filtered training IDs, so it never needs storing.
 
-assert_no_leakage must be called in every fold (CLAUDE.md Non-Negotiable 1);
-fold_ids calls it for you.
+PROVISIONAL: more participants are still being labeled; regenerate with
+--force once labeling is complete, before the protocol freeze.
 
-Run from the project root (refuses to change an existing, different
-folds.csv -- folds are fixed before any result):
+Run from the project root:
 
-    python -m src.training.splits
+    python -m src.training.splits            # write, or verify unchanged
+    python -m src.training.splits --force    # overwrite a different folds.csv
 """
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import sys
 from pathlib import Path
 
@@ -38,188 +45,239 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from src.utils.config import config
 
-ROLES = ("train", "inner_val", "test")
-FOLD_COLUMNS = ("participant_id", "label", "in_primary_analysis", "outer_fold", "role")
+FOLD_COLUMNS = (
+    "participant_id",
+    "label",
+    "in_middle_band",
+    "in_primary_analysis",
+    "outer_fold",
+)
+ANALYSES = ("primary", "full")
+QC_PASSED = "qc_passed"
 
 
 class LeakageError(AssertionError):
-    """A participant appears in more than one of train / validation / test."""
+    """A participant appears in more than one of the given ID lists."""
 
 
-def assert_no_leakage(train_ids, test_ids, val_ids=None) -> None:
-    """Raise LeakageError if any participant is in more than one set.
+def assert_no_leakage(*id_lists) -> None:
+    """Raise LeakageError if any participant ID is in more than one list.
 
-    Works on participant IDs (strings); pass crop tables' participant_id
-    columns, not crop indices. Raises (not `assert`) so it survives -O.
+    IDs are compared as strings. Raises explicitly (not `assert`) so the
+    check survives python -O. Call it in every fold, e.g.
+    assert_no_leakage(inner_train, inner_val, test).
     """
-    sets = {
-        "train": {str(p) for p in train_ids},
-        "test": {str(p) for p in test_ids},
-    }
-    if val_ids is not None:
-        sets["val"] = {str(p) for p in val_ids}
-    names = list(sets)
-    for i, a in enumerate(names):
-        for b in names[i + 1 :]:
-            shared = sets[a] & sets[b]
+    sets = [{str(p) for p in ids} for ids in id_lists]
+    for i in range(len(sets)):
+        for j in range(i + 1, len(sets)):
+            shared = sets[i] & sets[j]
             if shared:
+                shown = sorted(shared)[:10]
                 raise LeakageError(
-                    f"participants in both {a} and {b}: {sorted(shared)[:10]}"
+                    f"participants in both id list {i} and id list {j}: {shown}"
                     f"{' ...' if len(shared) > 10 else ''} ({len(shared)} total)"
                 )
 
 
-def _strata(df: pd.DataFrame, columns) -> np.ndarray:
-    return df[list(columns)].astype(str).agg("|".join, axis=1).to_numpy()
-
-
-def make_folds(labels: pd.DataFrame, cfg) -> pd.DataFrame:
-    """Long-format fold table for every participant in labels.
-
-    labels needs participant_id, the label column, and the primary column.
-    Deterministic for a given cfg.training.seed.
-    """
-    scfg = cfg.splits
+def _participant_table(labels: pd.DataFrame, cfg=config) -> pd.DataFrame:
     label_col = cfg.labeling.label_column
-    base = labels[["participant_id", label_col, scfg.primary_column]].copy()
-    base = base.rename(columns={label_col: "label"})
-    base["participant_id"] = base["participant_id"].astype(str)
-    if base["participant_id"].duplicated().any():
+    needed = {"participant_id", label_col, "in_middle_band", "in_primary_analysis"}
+    missing = needed - set(labels.columns)
+    if missing:
+        raise ValueError(f"labels lacks columns: {sorted(missing)}")
+    table = labels[list(needed)].rename(columns={label_col: "label"}).copy()
+    table["participant_id"] = table["participant_id"].astype(str)
+    if table["participant_id"].duplicated().any():
         raise ValueError("labels has duplicate participant_id rows")
-    if base[["label", scfg.primary_column]].isna().any().any():
-        raise ValueError("labels has missing label or primary-set values")
-    base[scfg.primary_column] = base[scfg.primary_column].astype(bool)
-    base = base.sort_values("participant_id").reset_index(drop=True)
+    if table.isna().any().any():
+        raise ValueError("labels has missing label / band values")
+    for col in ("in_middle_band", "in_primary_analysis"):
+        table[col] = table[col].astype(bool)
+    return table.sort_values("participant_id").reset_index(drop=True)
 
-    strata = _strata(base, scfg.stratify_columns)
-    seed = cfg.training.seed
-    outer = StratifiedKFold(
-        n_splits=cfg.training.n_folds, shuffle=True, random_state=seed
-    )
 
-    rows = []
-    for fold, (train_idx, test_idx) in enumerate(outer.split(base, strata)):
-        inner_train_idx, inner_val_idx = train_test_split(
-            train_idx,
-            test_size=scfg.inner_val_fraction,
-            stratify=strata[train_idx],
-            random_state=seed + fold,
-        )
-        for role, idx in (
-            ("train", inner_train_idx),
-            ("inner_val", inner_val_idx),
-            ("test", test_idx),
-        ):
-            part = base.iloc[np.sort(idx)].copy()
-            part["outer_fold"] = fold
-            part["role"] = role
-            rows.append(part)
+def _strata(table: pd.DataFrame, columns) -> np.ndarray:
+    return table[list(columns)].astype(str).agg("|".join, axis=1).to_numpy()
 
-    folds = pd.concat(rows, ignore_index=True)
-    folds = folds.rename(columns={scfg.primary_column: "in_primary_analysis"})
-    folds = folds[list(FOLD_COLUMNS)].sort_values(["outer_fold", "participant_id"])
-    folds = folds.reset_index(drop=True)
-    validate_folds(folds, cfg.training.n_folds)
+
+def make_outer_folds(labels: pd.DataFrame, n_splits: int, seed: int) -> pd.DataFrame:
+    """One row per labeled participant with its outer_fold (0..n_splits-1).
+
+    Stratified on CVConfig.stratify_columns; independent of the row order
+    of labels; identical for the same seed.
+    """
+    table = _participant_table(labels)
+    strata = _strata(table, config.cv.stratify_columns)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    table["outer_fold"] = -1
+    for fold, (_, test_idx) in enumerate(skf.split(table, strata)):
+        table.loc[test_idx, "outer_fold"] = fold
+    folds = table[list(FOLD_COLUMNS)]
+    validate_folds(folds, n_splits)
     return folds
 
 
-def validate_folds(folds: pd.DataFrame, n_folds: int) -> None:
-    """Raise if folds.csv is not a valid participant-level partition.
+def inner_split(
+    train_ids: list, labels: pd.DataFrame, val_fraction: float, seed: int
+) -> tuple:
+    """(inner_train_ids, inner_val_ids) from an outer fold's training IDs.
 
-    Checks: every participant has exactly one row per outer fold, roles are
-    valid, each participant is the test set of exactly one outer fold, and
-    train / inner_val / test are disjoint within every fold.
+    Stratified on CVConfig.stratify_columns; if a stratum has fewer than 2
+    participants (possible after qc_passed / primary filtering), falls back
+    to stratifying on label alone. Deterministic for the same inputs.
     """
+    ids = sorted({str(p) for p in train_ids})
+    table = _participant_table(labels).set_index("participant_id")
+    unknown = set(ids) - set(table.index)
+    if unknown:
+        raise ValueError(f"train_ids without labels: {sorted(unknown)[:10]}")
+    sub = table.loc[ids].reset_index()
+
+    strata = _strata(sub, config.cv.stratify_columns)
+    if pd.Series(strata).value_counts().min() < 2:
+        strata = sub["label"].astype(str).to_numpy()
+    inner_train, inner_val = train_test_split(
+        ids, test_size=val_fraction, stratify=strata, random_state=seed
+    )
+    inner_train, inner_val = sorted(inner_train), sorted(inner_val)
+    assert_no_leakage(inner_train, inner_val)
+    return inner_train, inner_val
+
+
+def analysis_ids(
+    labels: pd.DataFrame, participants: pd.DataFrame, analysis: str
+) -> list:
+    """Participant IDs in an analysis set.
+
+    "primary" = in_primary_analysis and status qc_passed;
+    "full"    = every qc_passed participant with a label.
+    """
+    if analysis not in ANALYSES:
+        raise ValueError(f"analysis must be one of {ANALYSES}, got {analysis!r}")
+    table = _participant_table(labels)
+    status = participants.assign(
+        participant_id=participants["participant_id"].astype(str)
+    )
+    passed = set(status.loc[status["status"] == QC_PASSED, "participant_id"])
+    keep = table["participant_id"].isin(passed)
+    if analysis == "primary":
+        keep &= table["in_primary_analysis"]
+    return sorted(table.loc[keep, "participant_id"])
+
+
+def fold_ids(folds: pd.DataFrame, fold: int, ids: list) -> tuple:
+    """(train_ids, test_ids) for outer fold `fold`, restricted to `ids`.
+
+    test = participants of `ids` assigned to `fold`; train = the rest of
+    `ids`. IDs absent from folds.csv raise. Calls assert_no_leakage.
+    """
+    wanted = {str(p) for p in ids}
+    known = set(folds["participant_id"].astype(str))
+    if wanted - known:
+        raise ValueError(f"ids not in folds.csv: {sorted(wanted - known)[:10]}")
+    part = folds[folds["participant_id"].astype(str).isin(wanted)]
+    in_fold = part["outer_fold"] == fold
+    test = sorted(part.loc[in_fold, "participant_id"].astype(str))
+    train = sorted(part.loc[~in_fold, "participant_id"].astype(str))
+    assert_no_leakage(train, test)
+    return train, test
+
+
+def validate_folds(folds: pd.DataFrame, n_splits: int) -> None:
+    """Raise unless every participant has exactly one fold in 0..n_splits-1."""
     missing = set(FOLD_COLUMNS) - set(folds.columns)
     if missing:
         raise ValueError(f"folds lacks columns: {sorted(missing)}")
-    if not set(folds["role"]) <= set(ROLES):
-        raise ValueError(f"unknown roles: {sorted(set(folds['role']) - set(ROLES))}")
-    if sorted(folds["outer_fold"].unique()) != list(range(n_folds)):
-        raise ValueError(f"outer_fold must be 0..{n_folds - 1}")
-
-    per_fold = folds.groupby("participant_id")["outer_fold"].agg(["count", "nunique"])
-    if not ((per_fold["count"] == n_folds) & (per_fold["nunique"] == n_folds)).all():
-        raise ValueError("every participant needs exactly one row per outer fold")
-    test_count = folds[folds["role"] == "test"].groupby("participant_id").size()
-    if len(test_count) != len(per_fold) or not (test_count == 1).all():
-        raise ValueError("every participant must be tested in exactly one fold")
-
-    for fold in range(n_folds):
-        ids = fold_ids(folds, fold)
-        assert_no_leakage(ids["train"], ids["test"], ids["inner_val"])
+    if folds["participant_id"].astype(str).duplicated().any():
+        raise ValueError("a participant appears in more than one fold row")
+    if not folds["outer_fold"].isin(range(n_splits)).all():
+        raise ValueError(f"outer_fold must be in 0..{n_splits - 1}")
+    if folds["outer_fold"].nunique() != n_splits:
+        raise ValueError("every outer fold must contain participants")
 
 
-def fold_ids(folds: pd.DataFrame, outer_fold: int, primary_only: bool = False) -> dict:
-    """{'train', 'inner_val', 'test'} -> participant ID lists for one outer fold.
-
-    primary_only=True restricts every role to the extreme-groups primary set.
-    Calls assert_no_leakage before returning.
-    """
-    part = folds[folds["outer_fold"] == outer_fold]
-    if primary_only:
-        part = part[part["in_primary_analysis"].astype(bool)]
-    ids = {
-        role: sorted(part.loc[part["role"] == role, "participant_id"]) for role in ROLES
-    }
-    assert_no_leakage(ids["train"], ids["test"], ids["inner_val"])
-    return ids
+def folds_path(cfg=config) -> Path:
+    return cfg.paths.metadata_dir / cfg.cv.folds_filename
 
 
-def folds_path(cfg) -> Path:
-    return cfg.paths.metadata_dir / cfg.splits.folds_filename
-
-
-def load_folds(cfg) -> pd.DataFrame:
+def load_folds(cfg=config) -> pd.DataFrame:
     """Read and validate folds.csv."""
     folds = pd.read_csv(folds_path(cfg), dtype={"participant_id": str})
-    validate_folds(folds, cfg.training.n_folds)
+    validate_folds(folds, cfg.cv.n_splits)
     return folds
 
 
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def _summary(folds: pd.DataFrame) -> pd.DataFrame:
-    test = folds[folds["role"] == "test"]
-    table = pd.crosstab(
-        test["outer_fold"], [test["in_primary_analysis"], test["label"]]
-    )
-    table.columns = [
-        f"{'primary' if p else 'middle'}_{lab}" for p, lab in table.columns
-    ]
-    roles = folds.groupby(["outer_fold", "role"]).size().unstack()[list(ROLES)]
-    return pd.concat([roles.add_prefix("n_"), table], axis=1)
+    rows = []
+    for fold, part in folds.groupby("outer_fold"):
+        primary = part[part["in_primary_analysis"]]
+        rows.append(
+            {
+                "outer_fold": fold,
+                "n_full": len(part),
+                "sad_pct_full": round(100 * (part["label"] == "SAD").mean(), 1),
+                "n_primary": len(primary),
+                "sad_pct_primary": round(100 * (primary["label"] == "SAD").mean(), 1),
+            }
+        )
+    return pd.DataFrame(rows).set_index("outer_fold")
 
 
-def run() -> Path:
-    """Write folds.csv from labels.csv; refuse to change an existing different one."""
+def run(force: bool = False) -> Path:
+    """Write folds.csv from labels.csv and print its SHA-256.
+
+    An identical existing file is left as is. A different existing file is
+    only replaced with force=True (CLI --force), which needs the thesis
+    author's confirmation: changing folds after any result is a Deviation.
+    """
     from src.data.dataloader import labels_csv_path
 
     labels = pd.read_csv(labels_csv_path(config), dtype={"participant_id": str})
-    folds = make_folds(labels, config)
+    folds = make_outer_folds(labels, config.cv.n_splits, config.training.seed)
     out = folds_path(config)
 
     if out.is_file():
         existing = pd.read_csv(out, dtype={"participant_id": str})
-        if existing.equals(folds.astype(existing.dtypes.to_dict())):
-            print(f"folds.csv unchanged: {out}")
-            return out
-        raise RuntimeError(
-            f"{out} exists and differs from the folds this code would write. "
-            "Folds are fixed before any result; changing them is a logged "
-            "Deviation. Remove the file yourself only if that is intended."
+        same = list(existing.columns) == list(folds.columns) and existing.equals(
+            folds.reset_index(drop=True).astype(existing.dtypes.to_dict())
         )
+        if same:
+            print(f"folds.csv unchanged : {out}")
+            print(f"SHA-256             : {sha256_of(out)}")
+            return out
+        if not force:
+            raise RuntimeError(
+                f"{out} exists (SHA-256 {sha256_of(out)}) and differs from the "
+                "folds this code would write. Re-run with --force only with the "
+                "thesis author's confirmation; after any result this is a "
+                "logged Deviation."
+            )
+        print(f"Overwriting (--force): {out} (old SHA-256 {sha256_of(out)})")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     folds.to_csv(out, index=False)
-    print(f"Participants : {folds['participant_id'].nunique()}")
-    print(f"Folds        : {config.training.n_folds} (seed {config.training.seed})")
+    print(f"Participants : {len(folds)} (PROVISIONAL until labeling is complete)")
+    print(f"Folds        : {config.cv.n_splits} (seed {config.training.seed})")
     print(_summary(folds).to_string())
     print(f"Written      : {out}")
+    print(f"SHA-256      : {sha256_of(out)}")
     return out
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Write the participant fold file.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite a different existing folds.csv (needs author confirmation).",
+    )
+    args = parser.parse_args()
     try:
-        run()
+        run(force=args.force)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")
         return 1

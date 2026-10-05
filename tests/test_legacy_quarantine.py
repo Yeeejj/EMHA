@@ -12,20 +12,13 @@ import pytest
 
 from src.data import dataloader
 from src.data.dataloader import LegacyPipelineError
-from src.training import cross_validate, evaluator, trainer
+from src.training import evaluator, trainer
 
 SRC = Path(dataloader.__file__).resolve().parents[1]
 LEGACY_FILES = (
-    SRC / "training" / "cross_validate.py",
     SRC / "training" / "trainer.py",
     SRC / "training" / "evaluator.py",
 )
-
-
-def test_cross_validator_is_disabled():
-    cv = cross_validate.CrossValidator.__new__(cross_validate.CrossValidator)
-    with pytest.raises(LegacyPipelineError, match="CrossValidator"):
-        cv.cross_validate(dataset=None)
 
 
 def test_run_training_is_disabled():

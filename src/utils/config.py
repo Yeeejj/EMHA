@@ -159,22 +159,27 @@ class TrainingConfig:
 
 
 @dataclass
-class SplitConfig:
-    """Participant-level CV folds (Stage E) -- see src/training/splits.py.
+class CVConfig:
+    """Participant-level cross-validation (Stage E) -- see src/training/splits.py.
 
-    Decided with the thesis author on 2026-10-05, before any model result:
-    outer folds (TrainingConfig.n_folds, seeded by TrainingConfig.seed) over
-    ALL labeled participants, stratified on label x in_primary_analysis so
-    both the primary (extreme-groups) and full-sample analyses get balanced
-    folds from one assignment. Within each outer fold, one stratified
-    inner_val_fraction of the training participants is held out as inner
-    validation (early stopping, Platt calibration). folds.csv is long format:
-    one row per (participant, outer fold) with role train|inner_val|test.
+    Revised with the thesis author on 2026-10-05, before any model result
+    (supersedes the stored-inner-split design of commit 863bc9a):
+    n_splits outer folds over ALL labeled participants, one row per
+    participant in folds.csv, stratified on label x in_middle_band
+    (equivalent to label x in_primary_analysis, its complement) and seeded by
+    TrainingConfig.seed. The inner validation split (early stopping, Platt
+    calibration) is computed at run time by splits.inner_split from each
+    fold's filtered training IDs (inner_val_fraction, seed + fold), so it
+    adapts when runners restrict to qc_passed / primary participants.
+
+    PROVISIONAL until labeling is complete: more participants are still
+    being collected, so folds.csv must be regenerated (--force) once all are
+    labeled, before the protocol is frozen.
     """
 
-    inner_val_fraction: float = 0.20
-    stratify_columns: Tuple[str, ...] = ("label", "in_primary_analysis")
-    primary_column: str = "in_primary_analysis"
+    n_splits: int = 5
+    inner_val_fraction: float = 0.15
+    stratify_columns: Tuple[str, ...] = ("label", "in_middle_band")
     folds_filename: str = "folds.csv"
 
 
@@ -436,7 +441,7 @@ class Config:
     cnn: CNNConfig = field(default_factory=CNNConfig)
     hmm: HMMConfig = field(default_factory=HMMConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    splits: SplitConfig = field(default_factory=SplitConfig)
+    cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
