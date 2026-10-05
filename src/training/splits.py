@@ -53,6 +53,7 @@ FOLD_COLUMNS = (
     "outer_fold",
 )
 ANALYSES = ("primary", "full")
+SUBSETS = ("pilot",)
 QC_PASSED = "qc_passed"
 
 
@@ -177,6 +178,26 @@ def analysis_ids(
     if analysis == "primary":
         keep &= table["in_primary_analysis"]
     return sorted(table.loc[keep, "participant_id"])
+
+
+def restrict_to_subset(ids: list, subset: str | None, cfg=config) -> list:
+    """Keep only the IDs of a named subset ("pilot" = CVConfig.pilot_id_range)."""
+    if subset is None:
+        return list(ids)
+    if subset not in SUBSETS:
+        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
+    lo, hi = cfg.cv.pilot_id_range
+    return [p for p in ids if lo <= int(p) <= hi]
+
+
+def middle_band_ids(
+    labels: pd.DataFrame, participants: pd.DataFrame, subset: str | None = None
+) -> list:
+    """qc_passed participants in the middle band (never in the primary set)."""
+    table = _participant_table(labels)
+    full = set(analysis_ids(labels, participants, "full"))
+    band = table.loc[table["in_middle_band"], "participant_id"]
+    return restrict_to_subset(sorted(full & set(band)), subset)
 
 
 def fold_ids(folds: pd.DataFrame, fold: int, ids: list) -> tuple:

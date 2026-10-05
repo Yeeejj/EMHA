@@ -3,8 +3,8 @@ Training Module — Phase 9 — LEGACY ENTRY POINT QUARANTINED.
 
 run_training (and the CLI) raise LegacyPipelineError: it trained on a
 crop-level folder split, not participant-level folds, and its body has been
-removed. The Trainer class (CropDataset dict batches) and feature helpers
-are kept for reuse by the Stage F run_*.py scripts.
+removed. Trainer.fit is the protocol-exact CNN fine-tuning loop used by
+src/training/run_cnn.py; the feature helpers are kept for reuse.
 
 Trains CNN (ResNet18 backbone), CNN→HMM pipeline, and LR baseline.
 
@@ -22,6 +22,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -34,6 +35,7 @@ from src.data.dataloader import (
     legacy_pipeline_error,
 )
 from src.models.cnn import EmotionCNN
+from src.training.aggregate import aggregate_crops
 
 LOG_FIELDS = [
     "run_ts",
@@ -127,176 +129,147 @@ def extract_sequences(
 
 
 class Trainer:
+    """Fine-tunes an EmotionCNN as specified in EVALUATION_PROTOCOL.md section 5.
+
+    fit(train_loader, val_loader):
+      * AdamW with two parameter groups: trainable backbone parameters at
+        TrainingConfig.lr_backbone, head (extractor.fc + classifier) at
+        lr_head; weight_decay from TrainingConfig. The "simple" backbone is
+        trained from scratch, so its parameters use lr_head.
+      * Cosine annealing over TrainingConfig.epochs.
+      * Class-balanced cross-entropy (class_weight="balanced": inverse
+        frequency of the training crops' labels), else unweighted.
+      * After every epoch, the validation crops are aggregated per
+        participant (aggregate_crops, mean_prob) and scored by participant
+        macro-F1; the best epoch (improvement > min_delta) is kept, and
+        training stops after `patience` epochs without improvement. The best
+        state is restored at the end.
+
+    Loaders yield CropDataset dict batches (image, label, participant_id,
+    task_family, cell). The validation loader must hold inner-validation
+    participants only.
     """
-    Trains the CNN component of the hybrid model.
 
-    Early stopping and checkpointing are driven by val F1 macro
-    (higher is better).  Accuracy is tracked but is secondary.
-    """
+    def __init__(self, model: EmotionCNN, cfg=None, device: str | None = None):
+        from src.features.embeddings import resolve_device
+        from src.utils.config import config
 
-    def __init__(
-        self,
-        model: nn.Module,
-        learning_rate: float = 0.001,
-        weight_decay: float = 1e-4,
-        epochs: int = 100,
-        patience: int = 10,
-        checkpoint_dir: str = "models",
-        device: torch.device | None = None,
-    ):
-        self.model = model
-        self.epochs = epochs
-        self.patience = patience
-        self.checkpoint_dir = Path(checkpoint_dir)
-        self.checkpoint_dir.mkdir(exist_ok=True)
-        self.device = device or torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
+        self.cfg = cfg or config
+        self.device = torch.device(resolve_device(device))
+        self.model = model.to(self.device)
+        self.history: list[dict] = []
+        self.best_epoch: int | None = None
+        self.best_score: float | None = None
+
+    def _optimizer(self) -> optim.Optimizer:
+        tcfg = self.cfg.training
+        extractor = self.model.extractor
+        head = list(extractor.fc.parameters()) + list(
+            self.model.classifier.parameters()
+        )
+        backbone = [p for p in extractor.backbone.parameters() if p.requires_grad]
+        lr_backbone = (
+            tcfg.lr_head if self.cfg.cnn.backbone == "simple" else tcfg.lr_backbone
+        )
+        groups = [{"params": head, "lr": tcfg.lr_head}]
+        if backbone:
+            groups.append({"params": backbone, "lr": lr_backbone})
+        return optim.AdamW(groups, weight_decay=tcfg.weight_decay)
+
+    def _criterion(self, loader: DataLoader) -> nn.Module:
+        if self.cfg.training.class_weight != "balanced":
+            return nn.CrossEntropyLoss()
+        labels = loader.dataset.table["label_index"].to_numpy()
+        counts = np.bincount(labels, minlength=self.cfg.cnn.num_classes).astype(float)
+        weights = len(labels) / (len(counts) * np.maximum(counts, 1.0))
+        return nn.CrossEntropyLoss(
+            weight=torch.tensor(weights, dtype=torch.float32, device=self.device)
         )
 
-        self.model = self.model.to(self.device)
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay
-        )
-        # ReduceLROnPlateau in max mode: plateau on F1 macro
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode="max", patience=5, factor=0.5
-        )
-        self.history: dict[str, list] = {
-            "train_loss": [],
-            "val_loss": [],
-            "train_f1_macro": [],
-            "val_f1_macro": [],
-            "train_acc": [],
-            "val_acc": [],
-        }
-
-    def train_epoch(self, loader: DataLoader) -> dict[str, float]:
+    def train_epoch(self, loader, optimizer, criterion) -> float:
         self.model.train()
-        total_loss = 0.0
-        all_preds: list[int] = []
-        all_labels: list[int] = []
-
+        total, n = 0.0, 0
         for batch in loader:
             images = batch["image"].to(self.device)
-            labels = batch["label"]
-            labels_dev = labels.to(self.device)
-
-            self.optimizer.zero_grad()
-            outputs = self.model(images)
-            loss = self.criterion(outputs, labels_dev)
+            labels = batch["label"].to(self.device)
+            optimizer.zero_grad()
+            loss = criterion(self.model(images), labels)
             loss.backward()
-            self.optimizer.step()
+            optimizer.step()
+            total += loss.item() * images.size(0)
+            n += images.size(0)
+        return total / max(n, 1)
 
-            total_loss += loss.item() * images.size(0)
-            _, predicted = outputs.max(1)
-            all_preds.extend(predicted.cpu().tolist())
-            all_labels.extend(labels.tolist())
-
-        n = len(all_labels)
-        return {
-            "loss": total_loss / n,
-            "f1_macro": f1_score(
-                all_labels, all_preds, average="macro", zero_division=0
-            ),
-            "accuracy": sum(p == t for p, t in zip(all_preds, all_labels)) / n,
-        }
-
-    def validate(self, loader: DataLoader) -> dict[str, float]:
+    def predict_crops(self, loader: DataLoader) -> pd.DataFrame:
+        """Crop-level prob_sad for every crop in loader (eval mode, no grad)."""
+        sad = self.cfg.data.label_to_index["SAD"]
+        index_to_label = {v: k for k, v in self.cfg.data.label_to_index.items()}
         self.model.eval()
-        total_loss = 0.0
-        all_preds: list[int] = []
-        all_labels: list[int] = []
-
+        rows = []
         with torch.no_grad():
             for batch in loader:
-                images = batch["image"].to(self.device)
-                labels = batch["label"]
-                labels_dev = labels.to(self.device)
+                probs = torch.softmax(self.model(batch["image"].to(self.device)), dim=1)
+                for i, prob in enumerate(probs[:, sad].cpu().tolist()):
+                    rows.append(
+                        {
+                            "participant_id": batch["participant_id"][i],
+                            "task_family": batch["task_family"][i],
+                            "cell": batch["cell"][i],
+                            "label": index_to_label[int(batch["label"][i])],
+                            "prob_sad": prob,
+                        }
+                    )
+        return pd.DataFrame(rows)
 
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels_dev)
+    def participant_macro_f1(self, loader: DataLoader) -> float:
+        crops = self.predict_crops(loader)
+        people = aggregate_crops(crops, self.cfg.aggregate.method)
+        return float(
+            f1_score(people["label"], people["pred"], average="macro", zero_division=0)
+        )
 
-                total_loss += loss.item() * images.size(0)
-                _, predicted = outputs.max(1)
-                all_preds.extend(predicted.cpu().tolist())
-                all_labels.extend(labels.tolist())
-
-        n = len(all_labels)
-        return {
-            "loss": total_loss / n,
-            "f1_macro": f1_score(
-                all_labels, all_preds, average="macro", zero_division=0
-            ),
-            "accuracy": sum(p == t for p, t in zip(all_preds, all_labels)) / n,
-        }
-
-    def train(
-        self,
-        train_loader: DataLoader,
-        val_loader: DataLoader,
-    ) -> dict[str, list]:
-        """Full training loop. Early stopping on val F1 macro."""
-        best_val_f1 = -1.0
-        patience_counter = 0
-        best_state: dict | None = None
-
-        print(f"  Training for up to {self.epochs} epochs...")
-
-        for epoch in range(self.epochs):
-            train_m = self.train_epoch(train_loader)
-            val_m = self.validate(val_loader)
-
-            self.history["train_loss"].append(train_m["loss"])
-            self.history["val_loss"].append(val_m["loss"])
-            self.history["train_f1_macro"].append(train_m["f1_macro"])
-            self.history["val_f1_macro"].append(val_m["f1_macro"])
-            self.history["train_acc"].append(train_m["accuracy"])
-            self.history["val_acc"].append(val_m["accuracy"])
-
-            self.scheduler.step(val_m["f1_macro"])
-
-            print(
-                f"    epoch {epoch + 1:3d}/{self.epochs}"
-                f"  train loss={train_m['loss']:.4f}"
-                f" f1={train_m['f1_macro']:.4f}"
-                f"  val loss={val_m['loss']:.4f}"
-                f" f1={val_m['f1_macro']:.4f}"
+    def fit(self, train_loader: DataLoader, val_loader: DataLoader) -> list[dict]:
+        """Train with early stopping on inner-val participant macro-F1."""
+        tcfg = self.cfg.training
+        optimizer = self._optimizer()
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(tcfg.epochs, 1)
+        )
+        criterion = self._criterion(train_loader)
+        best_state, waited = None, 0
+        for epoch in range(1, tcfg.epochs + 1):
+            loss = self.train_epoch(train_loader, optimizer, criterion)
+            scheduler.step()
+            score = self.participant_macro_f1(val_loader)
+            self.history.append(
+                {"epoch": epoch, "train_loss": loss, "val_participant_macro_f1": score}
             )
-
-            if val_m["f1_macro"] > best_val_f1:
-                best_val_f1 = val_m["f1_macro"]
-                patience_counter = 0
-                best_state = {k: v.clone() for k, v in self.model.state_dict().items()}
+            if self.best_score is None or score > self.best_score + tcfg.min_delta:
+                self.best_score, self.best_epoch, waited = score, epoch, 0
+                best_state = {
+                    k: v.detach().clone() for k, v in self.model.state_dict().items()
+                }
             else:
-                patience_counter += 1
-                if patience_counter >= self.patience:
-                    print(f"  Early stopping at epoch {epoch + 1}.")
+                waited += 1
+                if waited >= tcfg.patience:
                     break
-
-        if best_state:
+        if best_state is not None:
             self.model.load_state_dict(best_state)
-
-        print(f"  Best val F1 macro: {best_val_f1:.4f}")
         return self.history
 
-    def save_checkpoint(self, path: Path) -> None:
+    def save(self, path: Path, extra: dict | None = None) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
                 "model_state_dict": self.model.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
+                "best_epoch": self.best_epoch,
+                "best_val_participant_macro_f1": self.best_score,
                 "history": self.history,
+                **(extra or {}),
             },
             path,
         )
-
-    def load_checkpoint(self, filename: str) -> None:
-        path = self.checkpoint_dir / filename
-        ckpt = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(ckpt["model_state_dict"])
-        self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        self.history = ckpt["history"]
-        print(f"Checkpoint loaded: {path}")
 
 
 # ─── log helpers ─────────────────────────────────────────────────────────────

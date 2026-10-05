@@ -14,12 +14,17 @@ the real data and output roots (both point at `root`):
     root/results/features/handcrafted_participant.csv
     root/results/embeddings/resnet18_<family>.npz    per-crop, 512-d
     root/results/embeddings/handwriting_<family>.npz (optional, exploratory)
+    root/processed/<pid>/<cell>.png              (optional, images=True)
+    root/metadata/processed_manifest.csv         (optional, images=True)
 
 signal=False: features and embeddings are pure noise, independent of the
 label (any model should score near chance). signal=True: SAD participants'
 first `n_signal` handcrafted columns and first `n_signal` embedding
 dimensions are shifted by `shift` standard deviations, so a correct model
-scores clearly above chance. No images are written.
+scores clearly above chance. images=True also writes processed-style crops
+(inverted canvases: dark paper, bright strokes) at
+PreprocessingConfig.canvas_size per family -- tests shrink canvas_size to
+keep CNN runs fast; with signal, SAD crops get thicker, brighter strokes.
 """
 
 from __future__ import annotations
@@ -94,6 +99,34 @@ def _embeddings(labels, rng, family, dim, signal, n_signal, shift) -> dict:
     }
 
 
+def _images(labels, rng, root: Path, signal: bool, cfg) -> pd.DataFrame:
+    import cv2
+
+    rows = []
+    for pid, label in zip(labels["participant_id"], labels["label"]):
+        sad = signal and label == "SAD"
+        for family, cells in CELLS.items():
+            w, h = cfg.preprocessing.canvas_size[family]
+            for cell in cells:
+                img = np.zeros((h, w), dtype=np.uint8)
+                for _ in range(4):
+                    p1 = (int(rng.integers(0, w)), int(rng.integers(0, h)))
+                    p2 = (int(rng.integers(0, w)), int(rng.integers(0, h)))
+                    cv2.line(img, p1, p2, 255 if sad else 180, 3 if sad else 1)
+                path = root / "processed" / pid / f"{cell}.png"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(path), img)
+                rows.append(
+                    {
+                        "participant_id": pid,
+                        "cell": cell,
+                        "task_family": family,
+                        "processed_path": str(path),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 def make_synthetic_root(
     root,
     n_participants: int = 200,
@@ -102,6 +135,7 @@ def make_synthetic_root(
     n_signal: int = 3,
     shift: float = 1.0,
     handwriting: bool = False,
+    images: bool = False,
     cfg=None,
 ) -> Path:
     """Write a synthetic data root at `root` and return it."""
@@ -147,4 +181,8 @@ def make_synthetic_root(
                 ),
                 exploratory=np.array(True),
             )
+    if images:
+        _images(labels, rng, root, signal, cfg).to_csv(
+            meta / "processed_manifest.csv", index=False
+        )
     return root

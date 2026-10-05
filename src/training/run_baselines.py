@@ -70,10 +70,13 @@ from sklearn.preprocessing import StandardScaler
 from src.data.dataloader import labels_csv_path
 from src.features.handcrafted import FAMILIES
 from src.training.splits import (
+    SUBSETS,
     analysis_ids,
     assert_no_leakage,
     fold_ids,
     load_folds,
+    middle_band_ids,
+    restrict_to_subset,
 )
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
@@ -89,7 +92,6 @@ PRED_COLUMNS = (
     "pred",
     "in_middle_band",
 )
-SUBSETS = ("pilot",)
 EXPLORATORY_MODELS = ("lr_handwriting",)
 HANDWRITING_FAMILIES = ("word", "cursive")
 
@@ -217,15 +219,6 @@ def _metrics(df: pd.DataFrame) -> dict:
 # ── run ──────────────────────────────────────────────────────────────────────
 
 
-def _restrict(ids: list, subset: str | None) -> list:
-    if subset is None:
-        return ids
-    if subset not in SUBSETS:
-        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
-    lo, hi = config.cv.pilot_id_range
-    return [p for p in ids if lo <= int(p) <= hi]
-
-
 def _rows(analysis, model, fs, fold, ids, labels, prob, middle) -> pd.DataFrame:
     thr = config.aggregate.threshold
     prob = np.asarray(prob, dtype=float)
@@ -256,14 +249,12 @@ def run(
     labels = pd.read_csv(labels_csv_path(config), dtype={"participant_id": str})
     participants = pd.read_csv(meta / "participants.csv", dtype={"participant_id": str})
     folds = load_folds(config)
-    ids = _restrict(analysis_ids(labels, participants, analysis), subset)
+    ids = restrict_to_subset(analysis_ids(labels, participants, analysis), subset)
     if not ids:
         raise ValueError(f"no participants in analysis {analysis!r} / {subset}")
     middle_ids = []
     if predict_middle:
-        full = set(analysis_ids(labels, participants, "full"))
-        band = labels.loc[labels["in_middle_band"].astype(bool), "participant_id"]
-        middle_ids = _restrict(sorted(full & set(band.astype(str))), subset)
+        middle_ids = middle_band_ids(labels, participants, subset)
 
     label_of = labels.assign(participant_id=labels["participant_id"].astype(str))
     label_of = label_of.set_index("participant_id")[config.labeling.label_column]

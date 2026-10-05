@@ -161,6 +161,13 @@ class TrainingConfig:
     batch_size: int = 32
     epochs: int = 100
     learning_rate: float = 0.001
+    # CNN fine-tuning (Trainer.fit, protocol section 5): AdamW with separate
+    # learning rates for the trainable backbone blocks and the head, cosine
+    # schedule over `epochs`, early stopping on inner-validation participant
+    # macro-F1 (patience / min_delta), class-balanced cross-entropy.
+    lr_head: float = 1e-3
+    lr_backbone: float = 1e-4
+    class_weight: Optional[str] = "balanced"  # "balanced" | None
     weight_decay: float = 1e-4
     patience: int = 10
     min_delta: float = 0.001

@@ -5,3 +5,11 @@ extend-exclude = '''
     ^/src/cropping/
 )
 '''
+
+[tool.pytest.ini_options]
+# Temp dirs (synthetic roots, CNN checkpoints) go to the repo's drive, not the
+# system temp folder; pytest wipes this directory at the start of each run.
+addopts = "--basetemp=.pytest_tmp"
+markers = [
+    "network: needs pretrained weights (download or local torch cache); skipped when they cannot be loaded. Deselect with -m 'not network'.",
+]

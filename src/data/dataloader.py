@@ -154,16 +154,24 @@ def load_tables(cfg) -> tuple:
     return manifest, labels, _load_qc_dropped(meta)
 
 
-def build_loaders(train_ids: list, val_ids: list, task_family: str, cfg) -> tuple:
+def build_loaders(
+    train_ids: list,
+    val_ids: list,
+    task_family: str,
+    cfg,
+    labels: pd.DataFrame | None = None,
+) -> tuple:
     """(train DataLoader, validation DataLoader) for one task family.
 
     Calls assert_no_leakage, so a participant in both ID lists raises
     LeakageError. Train uses the augmenting transform and a seeded shuffle;
-    validation uses the eval transform, unshuffled.
+    validation uses the eval transform, unshuffled. labels overrides
+    labels.csv (e.g. participant-level shuffled labels for a null run).
     """
     assert_no_leakage(train_ids, val_ids)
 
-    manifest, labels, dropped = load_tables(cfg)
+    manifest, file_labels, dropped = load_tables(cfg)
+    labels = file_labels if labels is None else labels
     families = [task_family]
     train_ds = CropDataset(
         manifest,
