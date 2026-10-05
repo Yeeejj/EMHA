@@ -64,8 +64,35 @@ def _ids(root):
     return labels, analysis_ids(labels, parts, "primary")
 
 
+def _log(root):
+    path = root / "results" / "RUN_LOG.csv"
+    return pd.read_csv(path, dtype=str) if path.is_file() else pd.DataFrame()
+
+
+def test_run_cnn_logs_each_family_once_and_fused_when_complete(hybrid_root):
+    log = _log(hybrid_root)
+    cnn = log[log["command"].str.startswith("python -m src.training.run_cnn")]
+    assert sorted(zip(cnn["model"], cnn["feature_set"])) == [
+        ("cnn_head", "cursive"),
+        ("cnn_head", "drawing"),
+        ("cnn_head", "word"),
+        ("cnn_head_fused", "fused"),
+    ]
+    assert (cnn["stage"] == "smoke").all()
+    assert cnn["macro_f1_ci_low"].isna().all()
+
+
 def test_end_to_end_word_and_cursive(fresh):
+    before = len(_log(fresh))
     pred_path = run_hybrid.run(predict_middle=True, device="cpu")
+    new = _log(fresh).iloc[before:]
+    assert sorted(zip(new["model"], new["feature_set"])) == [
+        ("cnn_hmm", "cursive"),
+        ("cnn_hmm", "word"),
+        ("cnn_hmm_fused", "fused"),
+    ]
+    assert new["macro_f1_ci_low"].isna().all()
+    assert new["macro_f1_ci_high"].isna().all()
     out = pred_path.parent
     assert out == fresh / "results" / "hybrid" / "primary"
     preds = pd.read_csv(pred_path, dtype={"participant_id": str})

@@ -59,6 +59,31 @@ def test_runs_on_synthetic_fixture_under_a_minute(null_run):
     assert elapsed < 60, f"run took {elapsed:.1f}s"
 
 
+def test_appends_point_metrics_to_run_log(null_run, synthetic_root):
+    pred_path, _ = null_run
+    preds = pd.read_csv(pred_path, dtype={"participant_id": str})
+    groups = preds.groupby(["model", "feature_set"], sort=False).ngroups
+    log = pd.read_csv(synthetic_root / "results" / "RUN_LOG.csv", dtype=str)
+    command = (
+        "python -m src.training.run_baselines --analysis primary "
+        "--predict-middle --stage smoke"
+    )
+    rows = log[log["command"] == command].tail(groups)
+    assert len(rows) == groups
+    assert set(zip(rows["model"], rows["feature_set"])) == set(
+        zip(preds["model"], preds["feature_set"])
+    )
+    assert (rows["stage"] == "smoke").all() and (rows["subset"] == "full").all()
+    assert rows["macro_f1_ci_low"].isna().all()
+    assert rows["macro_f1_ci_high"].isna().all()
+    tested = preds.loc[~preds["in_middle_band"], "participant_id"].nunique()
+    assert (rows["n_participants"].astype(int) == tested).all()
+    majority = rows[rows["model"] == "majority"].iloc[0]
+    assert float(majority["accuracy"]) == pytest.approx(
+        float(majority["majority_baseline"])
+    )
+
+
 def test_near_chance_on_null_root(null_run):
     summary = _summary(null_run[0])
     for key, entry in summary["models"].items():

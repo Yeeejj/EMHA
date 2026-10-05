@@ -85,6 +85,7 @@ def test_end_to_end_all_families_two_folds(cnn_root):
             assert state["best_epoch"] == 1 and state["fold"] == fold
     settings = json.loads((out / "run_config.json").read_text())
     assert settings["training"]["epochs"] == 1
+    assert not (cnn_root / "results" / "RUN_LOG.csv").exists()  # 2 of 5 folds
 
 
 def test_resume_skips_finished_folds(cnn_root, monkeypatch):
