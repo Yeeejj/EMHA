@@ -354,6 +354,31 @@ class EmbeddingConfig:
     output_subdir: str = "embeddings"
 
 
+@dataclass
+class HandwritingEmbeddingConfig:
+    """EXPLORATORY handwriting-encoder embeddings (Stage D, optional) -- see
+    src/features/embeddings_handwriting.py. Never part of the pre-registered
+    ensemble.
+
+    model_name chosen with the thesis author on 2026-10-05:
+    microsoft/trocr-base-handwritten (MIT; ViT-B/16 encoder fine-tuned on
+    IAM). Its processor squashes every crop to 384x384, destroying absolute
+    size and aspect ratio -- the reason this model is exploratory.
+    model_revision "main" until pinned; the commit actually loaded is stored
+    in every cache file. uninvert=True feeds dark-on-white crops (TrOCR's
+    training polarity) when the processed crops are stored inverted.
+    """
+
+    model_name: str = "microsoft/trocr-base-handwritten"
+    model_revision: str = "main"
+    batch_size: int = 16
+    device: str = "auto"
+    task_families: Tuple[str, ...] = ("word", "cursive")
+    uninvert: bool = True
+    output_prefix: str = "handwriting"
+    output_subdir: str = "embeddings"
+
+
 def _try_mkdir(path: Path) -> bool:
     """Create path (with parents). Return False instead of raising on failure."""
     try:
@@ -380,6 +405,9 @@ class Config:
     augment: AugmentConfig = field(default_factory=AugmentConfig)
     features: FeaturesConfig = field(default_factory=FeaturesConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    handwriting_embedding: HandwritingEmbeddingConfig = field(
+        default_factory=HandwritingEmbeddingConfig
+    )
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
