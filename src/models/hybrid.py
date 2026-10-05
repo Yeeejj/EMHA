@@ -8,6 +8,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from dataclasses import replace
+
+from src.utils.config import config
+
 from .cnn import EmotionCNN
 from .hmm import HMMClassifier
 
@@ -39,12 +43,13 @@ class HybridCNNHMM:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        self.cnn = EmotionCNN(
+        cnn_cfg = replace(
+            config.cnn,
             input_channels=input_channels,
             num_features=cnn_features,
-            num_classes=2,
             dropout_rate=dropout_rate,
-        ).to(self.device)
+        )
+        self.cnn = EmotionCNN(cnn_cfg).to(self.device)
 
         self.hmm = HMMClassifier(
             n_states=hmm_states,

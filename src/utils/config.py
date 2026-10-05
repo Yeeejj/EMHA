@@ -120,14 +120,29 @@ class PreprocessingConfig:
 
 @dataclass
 class CNNConfig:
-    """CNN model configuration."""
+    """CNN model configuration (Stage F) -- see src/models/cnn.py.
 
+    backbone "resnet18" (primary) or "simple" (old 4-block CNN, ablation).
+    use_pretrained loads torchvision ResNet18_Weights[weights]; conv1 becomes
+    1-channel by summing the RGB filters. Everything before the first of
+    trainable_blocks (stem, layer1, layer2) is frozen, with its BatchNorm
+    kept in eval mode. seq_layer is the block whose feature map, averaged
+    over height, gives the column sequence for the HMM (layer3: 256 ch,
+    stride 16). imagenet_input_norm rescales the eval-transform input
+    (mean 0.5, std 0.5) to ImageNet grayscale statistics before the
+    pretrained stem.
+    """
+
+    backbone: str = "resnet18"  # "resnet18" | "simple"
+    use_pretrained: bool = True
+    weights: str = "IMAGENET1K_V1"
+    trainable_blocks: Tuple[str, ...] = ("layer3", "layer4")
+    seq_layer: str = "layer3"  # "layer3" | "layer4"
+    imagenet_input_norm: bool = True
     input_channels: int = 1  # Grayscale
     num_features: int = 256
+    num_classes: int = 2
     dropout_rate: float = 0.5
-    use_pretrained: bool = True  # ResNet18 backbone (Section A Rule 6)
-    pretrained_backbone: str = "resnet18"
-    freeze_backbone: bool = True
 
 
 @dataclass
@@ -591,12 +606,12 @@ if __name__ == "__main__":
     print(f"  blank_threshold:       {config.preprocessing.blank_threshold}")
 
     print("\nCNN Config:")
-    print(f"  input_channels:      {config.cnn.input_channels}")
+    print(f"  backbone:            {config.cnn.backbone}")
+    print(f"  use_pretrained:      {config.cnn.use_pretrained}")
+    print(f"  trainable_blocks:    {config.cnn.trainable_blocks}")
+    print(f"  seq_layer:           {config.cnn.seq_layer}")
     print(f"  num_features:        {config.cnn.num_features}")
     print(f"  dropout_rate:        {config.cnn.dropout_rate}")
-    print(f"  use_pretrained:      {config.cnn.use_pretrained}  (ResNet18)")
-    print(f"  pretrained_backbone: {config.cnn.pretrained_backbone}")
-    print(f"  freeze_backbone:     {config.cnn.freeze_backbone}")
 
     print("\nHMM Config:")
     print(f"  n_states:         {config.hmm.n_states}")

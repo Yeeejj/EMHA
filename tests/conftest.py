@@ -33,3 +33,11 @@ def use_root(monkeypatch):
         return root
 
     return _use
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "network: needs pretrained weights (download or local torch cache); "
+        "skipped when they cannot be loaded. Deselect with -m 'not network'.",
+    )

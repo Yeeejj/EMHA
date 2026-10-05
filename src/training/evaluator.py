@@ -62,15 +62,7 @@ def _latest(pattern: str) -> Path | None:
 
 
 def _load_cnn(path: Path, device: torch.device) -> EmotionCNN:
-    cfg = config.cnn
-    model = EmotionCNN(
-        input_channels=cfg.input_channels,
-        num_features=cfg.num_features,
-        num_classes=2,
-        dropout_rate=cfg.dropout_rate,
-        use_pretrained=cfg.use_pretrained,
-        freeze_backbone=cfg.freeze_backbone,
-    ).to(device)
+    model = EmotionCNN(config.cnn).to(device)
     ckpt = torch.load(path, map_location=device)
     state = ckpt.get("model_state_dict", ckpt)
     model.load_state_dict(state)
@@ -257,8 +249,8 @@ class _GradCAM:
 
 
 def _gradcam_target_layer(cnn: EmotionCNN) -> torch.nn.Module:
-    """Return layer4 (final conv block) of the ResNet18 backbone."""
-    return cnn.extractor.feature_layers[-1]
+    """Final conv block: ResNet18 layer4, or the simple CNN's last conv."""
+    return cnn.extractor.gradcam_layer
 
 
 def _tensor_to_uint8(t: torch.Tensor) -> np.ndarray:
