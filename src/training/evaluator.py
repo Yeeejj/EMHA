@@ -72,12 +72,7 @@ def _load_cnn(path: Path, device: torch.device) -> EmotionCNN:
 
 
 def _load_hmm(path: Path) -> HMMClassifier:
-    clf = HMMClassifier(
-        n_states=config.hmm.n_states,
-        n_iter=config.hmm.n_iter,
-        covariance_type=config.hmm.covariance_type,
-    )
-    clf.load(str(path))
+    clf = HMMClassifier(config.hmm).load(path)
     print(f"  HMM loaded : {path}")
     return clf
 
@@ -121,8 +116,10 @@ def _hmm_predict(
     device: torch.device,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (preds, confidences, true_labels)."""
-    seqs, labels, lengths = extract_sequences(cnn, loader, device)
-    preds, confs = hmm_clf.predict(seqs, lengths=lengths)
+    frames, labels, lengths = extract_sequences(cnn, loader, device)
+    seqs = np.split(frames, np.cumsum(lengths)[:-1])
+    preds = hmm_clf.predict(seqs)
+    confs = hmm_clf.predict_proba(seqs).max(axis=1)
     return preds, confs, labels
 
 

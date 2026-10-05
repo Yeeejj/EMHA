@@ -147,11 +147,26 @@ class CNNConfig:
 
 @dataclass
 class HMMConfig:
-    """HMM model configuration."""
+    """Per-class GaussianHMM classifier (Stage F) -- see src/models/hmm.py.
+
+    Frames are standardized (standardize) and reduced to pca_components by
+    PCA, both fit on training frames only. One hmmlearn GaussianHMM per class
+    is fit n_restarts times (random_state = seed + restart); the restart with
+    the best training log-likelihood is kept. topology "ergodic" (all
+    transitions) or "left_right" (banded: stay or move one state right; the
+    zero transitions stay zero during EM). Decision score = length-normalized
+    LL_sad - LL_happy + log prior ratio; Platt-calibrated on held-out scores.
+    """
 
     n_states: int = 4
-    n_iter: int = 100
     covariance_type: str = "diag"
+    n_iter: int = 200
+    tol: float = 1e-3
+    min_covar: float = 1e-3
+    n_restarts: int = 5
+    topology: str = "ergodic"  # "ergodic" | "left_right"
+    pca_components: int = 16
+    standardize: bool = True
 
 
 @dataclass
@@ -624,6 +639,9 @@ if __name__ == "__main__":
     print(f"  n_states:         {config.hmm.n_states}")
     print(f"  n_iter:           {config.hmm.n_iter}")
     print(f"  covariance_type:  {config.hmm.covariance_type}")
+    print(f"  n_restarts:       {config.hmm.n_restarts}")
+    print(f"  topology:         {config.hmm.topology}")
+    print(f"  pca_components:   {config.hmm.pca_components}")
 
     print("\nTraining Config:")
     print(f"  batch_size:     {config.training.batch_size}")

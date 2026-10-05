@@ -51,9 +51,7 @@ class HybridCNNHMM:
         )
         self.cnn = EmotionCNN(cnn_cfg).to(self.device)
 
-        self.hmm = HMMClassifier(
-            n_states=hmm_states,
-        )
+        self.hmm = HMMClassifier(replace(config.hmm, n_states=hmm_states))
 
         self.is_trained = False
 
@@ -132,10 +130,10 @@ class HybridCNNHMM:
             seq_feats = self.cnn.extract_sequence_features(image)
 
         seq = seq_feats[0].cpu().numpy()  # (seq_len, 256)
-        predictions, confidences = self.hmm.predict(seq, lengths=[seq.shape[0]])
-
-        emotion = HMMClassifier.LABEL_TO_EMOTION[predictions[0]]
-        return emotion, confidences[0]
+        proba = self.hmm.predict_proba([seq])[0]  # columns: HAPPY, SAD
+        index_to_label = {v: k for k, v in config.data.label_to_index.items()}
+        best = int(np.argmax(proba))
+        return index_to_label[int(self.hmm.classes_[best])], float(proba[best])
 
     def save(self, cnn_path: str, hmm_path: str):
         """Save the complete hybrid model."""
