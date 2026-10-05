@@ -79,6 +79,20 @@ def assert_no_leakage(*id_lists) -> None:
                 )
 
 
+_BOOL_TEXT = {"true": True, "false": False, "1": True, "0": False}
+
+
+def _as_bool(values: pd.Series, name: str) -> pd.Series:
+    """Parse a flag column strictly; "False" must never become True."""
+    if values.dtype == bool:
+        return values
+    text = values.astype(str).str.strip().str.lower()
+    unknown = sorted(set(text) - set(_BOOL_TEXT))
+    if unknown:
+        raise ValueError(f"{name} has non-boolean values: {unknown[:5]}")
+    return text.map(_BOOL_TEXT).astype(bool)
+
+
 def _participant_table(labels: pd.DataFrame, cfg=config) -> pd.DataFrame:
     label_col = cfg.labeling.label_column
     needed = {"participant_id", label_col, "in_middle_band", "in_primary_analysis"}
@@ -92,7 +106,7 @@ def _participant_table(labels: pd.DataFrame, cfg=config) -> pd.DataFrame:
     if table.isna().any().any():
         raise ValueError("labels has missing label / band values")
     for col in ("in_middle_band", "in_primary_analysis"):
-        table[col] = table[col].astype(bool)
+        table[col] = _as_bool(table[col], col)
     return table.sort_values("participant_id").reset_index(drop=True)
 
 

@@ -179,6 +179,10 @@ class CVConfig:
 
     n_splits: int = 5
     inner_val_fraction: float = 0.15
+    # --subset pilot: participants whose 3-digit code is in this inclusive
+    # range (decided with the thesis author 2026-10-05), intersected with the
+    # analysis set.
+    pilot_id_range: Tuple[int, int] = (1, 100)
     stratify_columns: Tuple[str, ...] = ("label", "in_middle_band")
     folds_filename: str = "folds.csv"
 
@@ -195,6 +199,29 @@ class AggregateConfig:
     method: str = "mean_prob"
     threshold: float = 0.5
     logit_eps: float = 1e-6
+
+
+@dataclass
+class BaselineConfig:
+    """Majority + logistic-regression baselines (Stage F) -- see
+    src/training/run_baselines.py.
+
+    Pipeline StandardScaler -> (PCA, embeddings only) -> LogisticRegression.
+    C is chosen from C_grid by inner_cv-fold stratified CV (macro-F1) on the
+    outer-train participants only, then refit on all of them. PCA keeps
+    min(pca_components, smallest inner-train size - 1) components.
+    """
+
+    C_grid: Tuple[float, ...] = (0.001, 0.01, 0.1, 1.0, 10.0)
+    inner_cv: int = 5
+    class_weight: Optional[str] = "balanced"
+    max_iter: int = 5000
+    pca_components: int = 64
+    # Exact SVD: faster than "auto" (randomized) on ~100 participants x
+    # 512-1536 dims, and fully deterministic.
+    pca_svd_solver: str = "full"
+    scoring: str = "f1_macro"
+    output_subdir: str = "baselines"
 
 
 @dataclass
@@ -443,6 +470,7 @@ class Config:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)
+    baselines: BaselineConfig = field(default_factory=BaselineConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)

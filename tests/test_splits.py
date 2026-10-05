@@ -238,3 +238,14 @@ def test_run_refuses_overwrite_without_force(tmp_path, monkeypatch):
     monkeypatch.setattr("sys.argv", ["splits", "--force"])
     assert splits.main() == 0
     assert out.read_bytes() != before
+
+
+def test_flags_read_as_text_parse_strictly():
+    labels = _labels().astype(str)  # "True"/"False" strings, as from dtype=str
+    parts = _participants(_labels())
+    assert analysis_ids(labels, parts, "primary") == analysis_ids(
+        _labels(), parts, "primary"
+    )
+    bad = labels.assign(in_middle_band="maybe")
+    with pytest.raises(ValueError, match="non-boolean"):
+        make_outer_folds(bad, N, SEED)
