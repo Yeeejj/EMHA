@@ -131,6 +131,8 @@ def test_forbidden_column_fails(root, tmp_path, column):
 def test_notes_with_text_fail(root, tmp_path):
     path = root / "metadata" / "qc_log.csv"
     qc = _read(path)
+    # an all-blank notes column reads as float; pandas 3 refuses text in it
+    qc["notes"] = qc["notes"].astype(object)
     qc.loc[0, "notes"] = "reviewer comment"
     qc.to_csv(path, index=False)
     _fails(tmp_path, "notes")
