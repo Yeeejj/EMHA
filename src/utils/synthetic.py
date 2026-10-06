@@ -16,6 +16,8 @@ the real data and output roots (both point at `root`):
     root/results/embeddings/handwriting_<family>.npz (optional, exploratory)
     root/processed/<pid>/<cell>.png              (optional, images=True)
     root/metadata/processed_manifest.csv         (optional, images=True)
+    root/metadata/questionnaire_export.csv       (optional, export=True)
+    root/raw-3Page, root/raw-4Page               (optional, raw=True)
 
 signal=False: features and embeddings are pure noise, independent of the
 label (any model should score near chance). signal=True: SAD participants'
@@ -25,6 +27,16 @@ scores clearly above chance. images=True also writes processed-style crops
 (inverted canvases: dark paper, bright strokes) at
 PreprocessingConfig.canvas_size per family -- tests shrink canvas_size to
 keep CNN runs fast; with signal, SAD crops get thicker, brighter strokes.
+
+export=True writes a tabulation export with the same participants, scores
+and labels as labels.csv (id, item, score and label columns named by
+LabelingConfig/ReportConfig), so src.data.labeler reproduces labels.csv
+exactly; items are noisy reflections of the score, so alpha is positive.
+raw=True writes page scans (SCAN_SIZE_PX, IngestConfig.expected_dpi) and all
+24 crops per participant under the real file names, at
+CropConfig.expected_size_px, as dark strokes on white paper (with signal,
+SAD strokes are thicker and darker), for ingest -> crop manifest ->
+preprocessing -> handcrafted features end to end.
 """
 
 from __future__ import annotations
@@ -42,6 +54,14 @@ from src.utils.protocol_guard import SYNTHETIC_MARKER
 CELLS = {"drawing": DRAWING_CELLS, "word": WORD_CELLS, "cursive": CURSIVE_CELLS}
 EMBED_DIM = 512
 HANDWRITING_DIM = 32
+# Page-shaped placeholder scans: ingest checks DPI and sizes relative to the
+# median page, never an absolute page size.
+SCAN_SIZE_PX = (170, 220)
+PAPER = 255
+N_STROKES = 6
+# (ink grey level, stroke thickness px) for raw crops
+RAW_INK = {"SAD": (40, 3), "HAPPY": (90, 1)}
+ITEM_NOISE_SD = 0.7
 
 
 def _labels(n: int, rng: np.random.Generator, cfg) -> pd.DataFrame:
@@ -127,6 +147,59 @@ def _images(labels, rng, root: Path, signal: bool, cfg) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _export(labels, rng, cfg) -> pd.DataFrame:
+    from src.analysis.questionnaire_report import LIKERT_MAX, LIKERT_MIN
+
+    items = list(cfg.report.item_columns)
+    lo, hi = len(items) * LIKERT_MIN, len(items) * LIKERT_MAX
+    level = LIKERT_MIN + (LIKERT_MAX - LIKERT_MIN) * (
+        (labels["total_score"].to_numpy() - lo) / (hi - lo)
+    )
+    noise = rng.normal(0.0, ITEM_NOISE_SD, size=(len(labels), len(items)))
+    scored = np.clip(np.round(level[:, None] + noise), LIKERT_MIN, LIKERT_MAX)
+    table = pd.DataFrame(scored.astype(int), columns=items)
+    for col in cfg.report.reverse_items:
+        table[col] = (LIKERT_MIN + LIKERT_MAX) - table[col]
+    lbl = cfg.labeling
+    table.insert(0, lbl.id_column, labels["participant_id"].to_numpy())
+    table[lbl.score_column] = labels["total_score"].to_numpy()
+    table[lbl.label_column] = labels["label"].to_numpy()
+    return table
+
+
+def _raw(labels, rng, root: Path, signal: bool, cfg) -> None:
+    from PIL import Image, ImageDraw
+
+    raw3, raw4 = root / "raw-3Page", root / "raw-4Page"
+    dpi = (cfg.ingest.expected_dpi, cfg.ingest.expected_dpi)
+    for pid, label in zip(labels["participant_id"], labels["label"]):
+        ink, width = RAW_INK["SAD" if signal and label == "SAD" else "HAPPY"]
+        for folder, name in (
+            (raw3, f"EMHA-P3_DrawingExercise_{pid}.png"),
+            (raw4, f"EMHA-P4_WritingExercise_{pid}.png"),
+        ):
+            folder.mkdir(parents=True, exist_ok=True)
+            Image.new("L", SCAN_SIZE_PX, PAPER).save(folder / name, dpi=dpi)
+        for family, cells in CELLS.items():
+            folder = raw3 if family == "drawing" else raw4
+            prefix = (
+                "P3_DrawingExercise" if family == "drawing" else "P4_WritingExercise"
+            )
+            for cell in cells:
+                w, h = cfg.crop.expected_size_px[cell]
+                img = Image.new("L", (w, h), PAPER)
+                draw = ImageDraw.Draw(img)
+                for _ in range(N_STROKES):
+                    xy = [
+                        (int(rng.integers(0, w)), int(rng.integers(0, h)))
+                        for _ in range(2)
+                    ]
+                    draw.line(xy, fill=ink, width=width)
+                path = folder / cell / f"EMHA-{prefix}_{pid}_{cell}.png"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                img.save(path)
+
+
 def make_synthetic_root(
     root,
     n_participants: int = 200,
@@ -137,6 +210,8 @@ def make_synthetic_root(
     handwriting: bool = False,
     images: bool = False,
     cfg=None,
+    export: bool = False,
+    raw: bool = False,
 ) -> Path:
     """Write a synthetic data root at `root` and return it."""
     from src.utils.config import config
@@ -185,4 +260,8 @@ def make_synthetic_root(
         _images(labels, rng, root, signal, cfg).to_csv(
             meta / "processed_manifest.csv", index=False
         )
+    if export:
+        _export(labels, rng, cfg).to_csv(meta / "questionnaire_export.csv", index=False)
+    if raw:
+        _raw(labels, rng, root, signal, cfg)
     return root

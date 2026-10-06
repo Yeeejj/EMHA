@@ -339,6 +339,92 @@ class ReportConfig:
 
 
 @dataclass
+class EvalConfig:
+    """Participant-level evaluation (Stage H1) -- see src/training/evaluator.py.
+
+    Fixed by EVALUATION_PROTOCOL.md section 4: n_bootstrap participant
+    resamples of the pooled out-of-fold predictions (seed
+    TrainingConfig.seed), ci_level percentile intervals, and the paired
+    macro-F1 difference of every model against reference_model /
+    reference_feature_set on the same resamples. The reliability curve is
+    drawn for the pre-registered primary model (reliability_model /
+    reliability_feature_set, the ensemble), never one chosen from results.
+    """
+
+    n_bootstrap: int = 2000
+    ci_level: float = 0.95
+    reference_model: str = "lr_handcrafted"
+    reference_feature_set: str = "all"
+    reliability_model: str = "ensemble"
+    reliability_feature_set: str = "all"
+    reliability_bins: int = 10
+    # H3 secondary analyses: handcrafted features shown by |mean coefficient|
+    top_features: int = 10
+    # Runner output folders read under results/, in report order. The
+    # ensemble folder has no subset suffix (run_ensemble), so it is read only
+    # when no subset is given.
+    sources: Tuple[str, ...] = ("baselines", "cnn", "hybrid", "ensemble")
+    analyses: Tuple[str, ...] = ("primary", "full")
+    output_subdir: str = "final"
+    dpi: int = 300
+
+
+@dataclass
+class PermutationConfig:
+    """Participant-level permutation tests (Stage H2) -- see
+    src/analysis/permutation.py and EVALUATION_PROTOCOL.md section 4.
+
+    In every permutation and outer fold the labels of that fold's outer-train
+    participants are shuffled among them (CNN models: inner train + inner
+    validation) and the whole pipeline is refit; test participants are scored
+    against their true labels. p = (1 + #{null >= observed}) / (1 + n).
+
+    LR models: n_lr permutations, only for the two ensemble feature sets
+    (lr_models). CNN models and the ensemble: n_cnn FULL retrains (same
+    epochs, early stopping, HMM selection and calibration as the observed
+    run -- no epoch-capped proxy, decided with the thesis author
+    2026-10-06), primary set only (cnn_analyses).
+    """
+
+    n_lr: int = 1000
+    n_cnn: int = 100
+    lr_models: Tuple[Tuple[str, str], ...] = (
+        ("lr_handcrafted", "all"),
+        ("lr_embeddings", "concat"),
+    )
+    cnn_models: Tuple[Tuple[str, str], ...] = (
+        ("cnn_head_fused", "fused"),
+        ("cnn_hmm_fused", "fused"),
+        ("ensemble", "all"),
+    )
+    cnn_analyses: Tuple[str, ...] = ("primary",)
+    alpha: float = 0.05
+    hist_bins: int = 30
+    # Per-permutation participant predictions of the CNN-path draws (resume
+    # unit on Kaggle), under results/<EvalConfig.output_subdir>/.
+    runs_subdir: str = "permutation_runs"
+
+
+@dataclass
+class GradCAMConfig:
+    """Grad-CAM of the fine-tuned CNN (Stage H4) -- see src/analysis/gradcam.py.
+
+    Per task family, n_examples outer-test crops per category (most
+    confident correct HAPPY / SAD, most confident errors each way) from the
+    analysis run's crop_predictions.csv, each explained by the fold model
+    that predicted it. A recomputed prob_sad must match the stored one
+    within match_atol (same checkpoint, CPU vs GPU numerics).
+    """
+
+    target_layer: str = "layer4"
+    n_examples: int = 4
+    analysis: str = "primary"
+    output_subdir: str = "gradcam"  # under results/<EvalConfig.output_subdir>
+    overlay_alpha: float = 0.6
+    match_atol: float = 1e-3
+
+
+@dataclass
 class IngestConfig:
     """src/data/ingest.py — raw scan validation and checksums.
 
@@ -519,6 +605,95 @@ def _try_mkdir(path: Path) -> bool:
 
 
 @dataclass
+class DemoConfig:
+    """Defense demo (src/app/predict.py): one participant's prediction.
+
+    Uses only the fold models for which the participant was in outer
+    validation. output_dir is under Config.paths.results_dir (results/demo).
+    analysis/subset select the run whose fold models are loaded (subset
+    "pilot" = the pilot run). Every live component probability must match
+    the stored out-of-fold prediction within match_atol, or the demo
+    refuses. n_gradcam crops get Grad-CAM overlays when H4 exists.
+    """
+
+    default_model: str = "ensemble"
+    output_dir: str = "demo"
+    analysis: str = "primary"
+    subset: Optional[str] = None
+    device: str = "auto"
+    n_gradcam: int = 3
+    match_atol: float = 1e-4
+
+
+@dataclass
+class SmokeConfig:
+    """smoke_test.py: the whole pipeline on a temporary synthetic root.
+
+    n_participants is 24, not 12 (decided with the thesis author
+    2026-10-05): 12 leaves ~6 primary training participants per outer fold,
+    too few for a stratified inner-validation split. Crop and canvas sizes
+    are the real ones divided by size_divisor so a CPU run stays under
+    time_budget_s; min_per_class replaces LabelingConfig.min_per_class on
+    the synthetic root only. cnn_families are the families the CNN-HMM and
+    ensemble need. All overrides are restored when the smoke test ends.
+    """
+
+    n_participants: int = 24
+    epochs: int = 1
+    hmm_states: int = 2
+    signal_shift: float = 1.0
+    size_divisor: int = 4
+    min_per_class: int = 2
+    pretrained: bool = False
+    cnn_families: Tuple[str, ...] = ("word", "cursive")
+    hmm_pca: int = 4
+    hmm_iter: int = 20
+    hmm_restarts: int = 1
+    n_real_participants: int = 3
+    time_budget_s: float = 300.0
+
+
+@dataclass
+class PackageConfig:
+    """Private Kaggle dataset upload (src/utils/package_dataset.py), Stage G.
+
+    Written to <out_dir>/<slug>/ with DATASET's layout so
+    EMHA_DATA_ROOT=mount_root works unchanged; manifest path columns in the
+    packaged copies are rewritten under mount_root. include_crops adds the
+    raw crop folders (needed for handcrafted features); page scans and the
+    tabulation export are never copied. Columns whose lowercased name
+    contains a forbidden_column_pattern fail the build, except an all-blank
+    notes column, which is dropped (decided with the thesis author
+    2026-10-06). kaggle_user None = read from KAGGLE_USERNAME or
+    kaggle.json. dir_mode is the Kaggle CLI --dir-mode that keeps folders.
+    """
+
+    slug: str = "emha-crops"
+    title: str = "EMHA handwriting crops"
+    license: str = "other"
+    include_crops: bool = True
+    out_dir: str = "dist"
+    mount_root: str = "/kaggle/input/emha-crops"
+    kaggle_user: Optional[str] = None
+    dir_mode: str = "zip"
+    metadata_files: Tuple[str, ...] = (
+        "labels.csv",
+        "participants.csv",
+        "crop_manifest.csv",
+        "processed_manifest.csv",
+        "qc_log.csv",
+        "folds.csv",
+    )
+    # copied byte-identical (their SHA-256 must match the frozen protocol)
+    verbatim_files: Tuple[str, ...] = ("labels.csv", "participants.csv", "folds.csv")
+    path_columns: Tuple[str, ...] = ("path", "processed_path")
+    forbidden_column_patterns: Tuple[str, ...] = ("name", "email", "note")
+    droppable_blank_columns: Tuple[str, ...] = ("notes",)
+    never_copy: Tuple[str, ...] = ("questionnaire_export.csv", "raw_manifest.csv")
+    tabulation_dir: str = "src/tabulation"
+
+
+@dataclass
 class Config:
     """Master configuration class."""
 
@@ -534,6 +709,9 @@ class Config:
     baselines: BaselineConfig = field(default_factory=BaselineConfig)
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
+    evaluation: EvalConfig = field(default_factory=EvalConfig)
+    permutation: PermutationConfig = field(default_factory=PermutationConfig)
+    gradcam: GradCAMConfig = field(default_factory=GradCAMConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
     crop: CropConfig = field(default_factory=CropConfig)
     augment: AugmentConfig = field(default_factory=AugmentConfig)
@@ -542,6 +720,9 @@ class Config:
     handwriting_embedding: HandwritingEmbeddingConfig = field(
         default_factory=HandwritingEmbeddingConfig
     )
+    demo: DemoConfig = field(default_factory=DemoConfig)
+    smoke: SmokeConfig = field(default_factory=SmokeConfig)
+    package: PackageConfig = field(default_factory=PackageConfig)
 
     project_name: str = "INSIDE-OUT"
     version: str = "1.0.0"
@@ -696,6 +877,15 @@ if __name__ == "__main__":
     print(f"  n_bootstrap:   {config.report.n_bootstrap}")
     print(f"  item_columns:  {config.report.item_columns}")
     print(f"  reverse_items: {config.report.reverse_items}")
+
+    print("\nEval Config:")
+    print(f"  n_bootstrap:     {config.evaluation.n_bootstrap}")
+    print(f"  ci_level:        {config.evaluation.ci_level}")
+    print(f"  reference_model: {config.evaluation.reference_model}")
+
+    print("\nPermutation Config:")
+    print(f"  n_lr:  {config.permutation.n_lr}")
+    print(f"  n_cnn: {config.permutation.n_cnn} (full retrains, primary only)")
 
     print("\nIngest Config:")
     print(f"  expected_dpi:   {config.ingest.expected_dpi}")

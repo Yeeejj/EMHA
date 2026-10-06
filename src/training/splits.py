@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 import sys
 from pathlib import Path
 
@@ -137,9 +138,12 @@ def inner_split(
 ) -> tuple:
     """(inner_train_ids, inner_val_ids) from an outer fold's training IDs.
 
-    Stratified on CVConfig.stratify_columns; if a stratum has fewer than 2
-    participants (possible after qc_passed / primary filtering), falls back
-    to stratifying on label alone. Deterministic for the same inputs.
+    Stratified on CVConfig.stratify_columns; falls back to stratifying on
+    label alone if a stratum has fewer than 2 participants (possible after
+    qc_passed / primary filtering) or if either side of the split would get
+    fewer participants than there are strata (small analysis sets, e.g. the
+    smoke test), where sklearn cannot stratify. The fallback never changes
+    a split the full strata can produce. Deterministic for the same inputs.
     """
     ids = sorted({str(p) for p in train_ids})
     table = _participant_table(labels).set_index("participant_id")
@@ -149,7 +153,10 @@ def inner_split(
     sub = table.loc[ids].reset_index()
 
     strata = _strata(sub, config.cv.stratify_columns)
-    if pd.Series(strata).value_counts().min() < 2:
+    n_val = math.ceil(val_fraction * len(ids))  # sklearn's float test_size rule
+    n_strata = len(set(strata))
+    too_few = min(n_val, len(ids) - n_val) < n_strata
+    if pd.Series(strata).value_counts().min() < 2 or too_few:
         strata = sub["label"].astype(str).to_numpy()
     inner_train, inner_val = train_test_split(
         ids, test_size=val_fraction, stratify=strata, random_state=seed

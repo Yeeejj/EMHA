@@ -2,6 +2,7 @@
 
 import pandas as pd
 import pytest
+from sklearn.model_selection import train_test_split
 
 from src.training import splits
 from src.training.splits import (
@@ -175,6 +176,27 @@ def test_inner_split_falls_back_when_a_stratum_is_tiny():
     labels = _labels((("HAPPY", False, 20), ("SAD", False, 20), ("SAD", True, 1)))
     train_ids, val_ids = inner_split(list(labels["participant_id"]), labels, 0.2, 0)
     assert len(val_ids) == 9 and not set(train_ids) & set(val_ids)
+
+
+def test_inner_split_falls_back_when_holdout_smaller_than_strata():
+    # 19 training participants, 4 strata, 15% -> 3 held out: cannot stratify on 4
+    labels = _labels(
+        (("HAPPY", False, 8), ("SAD", False, 7), ("HAPPY", True, 2), ("SAD", True, 2))
+    )
+    train_ids, val_ids = inner_split(list(labels["participant_id"]), labels, 0.15, 0)
+    assert len(val_ids) == 3 and not set(train_ids) & set(val_ids)
+    val = labels.set_index("participant_id").loc[val_ids]
+    assert val["label"].nunique() == 2
+
+
+def test_inner_split_unchanged_where_full_strata_work():
+    labels = _labels()
+    train = list(labels["participant_id"][::2])
+    ids = sorted(train)
+    sub = labels.set_index("participant_id").loc[ids].reset_index()
+    strata = sub[list(config.cv.stratify_columns)].astype(str).agg("|".join, axis=1)
+    expected = train_test_split(ids, test_size=0.15, stratify=strata, random_state=3)
+    assert inner_split(train, labels, 0.15, 3) == tuple(sorted(x) for x in expected)
 
 
 # ── analysis_ids ──────────────────────────────────────────────────────────────
