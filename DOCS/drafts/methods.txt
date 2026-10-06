@@ -1,0 +1,403 @@
+METHODS (DRAFT)
+Drafted from repository files only. Every number below comes from
+a repo file named in the source notes at the end of each section.
+[CITE: topic] marks a needed citation. [MISSING: what] marks a fact the repo
+does not hold; all are listed at the end.
+
+STATUS: The evaluation protocol is approved but not yet frozen (no git tag
+protocol-frozen). Labeling is still in progress. Counts marked "current" will
+change.
+
+================================================================================
+1. SCOPE
+================================================================================
+
+This study asks whether offline handwriting and drawings carry information
+about a person's self-reported emotional state at the time of writing. The
+target is a binary label, HAPPY or SAD, taken from a questionnaire completed
+in the same session. It is a concurrent, self-reported state. It is not a
+diagnosis, and the models are not screening or clinical tools.
+
+================================================================================
+2. PARTICIPANTS AND INSTRUMENT
+================================================================================
+
+Participants were right-handed USC students aged 18 to 25
+[MISSING: full institution name for USC]. About 400 students
+completed the FINALE assessment. The tabulation export holds 400 rows.
+[MISSING: recruitment method, dates of data collection, setting, consent
+procedure, ethics approval body and reference number]
+[MISSING: sex/gender and age distribution of the final sample]
+
+The FINALE instrument was designed with 4 registered psychometricians. It is
+a 24-item self-report on a 1-to-5 Likert scale. 12 items are reverse-scored
+(items 1, 3, 5, 7, 9, 11, 14, 15, 17, 18, 22, 24). Responses were scored in
+Google Sheets. The export holds a happiness sum, a sadness sum, an adjusted
+total, and a label per participant. [CITE: Likert scale construction]
+[MISSING: how the adjusted total and the label are computed in the sheet,
+e.g. the formula and which subscale is reversed]
+
+Labels are read from the export exactly as scored. No label or score is ever
+recomputed by the analysis code. Each participant has one label, and every
+crop of that participant inherits it. The cutoff on the adjusted total is 72.
+
+Reliability. Internal consistency is reported as Cronbach's alpha with a
+bootstrap 95% confidence interval and alpha-if-item-deleted per item
+[CITE: Cronbach]. [MISSING: Cronbach's alpha and its CI;
+results/questionnaire/report.txt has not been generated yet]
+
+Current counts (labels.csv, provisional, labeling in progress): 285 labeled
+participants, 158 HAPPY and 127 SAD. Adjusted totals range from 42 to 114.
+[MISSING: final labeled N and class balance after labeling is complete]
+
+Sources: CLAUDE.md; DATASET/metadata/questionnaire_export.csv (row count);
+DATASET/metadata/labels.csv; src/utils/config.py (LabelingConfig,
+ReportConfig); src/analysis/questionnaire_report.py; src/data/labeler.py.
+
+================================================================================
+3. TASKS, SCANNING, AND CROPPING
+================================================================================
+
+Each participant completed a drawing page and a writing page.
+
+Drawing page: four drawings, coded D1 to D4: circles, dots, a person, and a
+house. [MISSING: exact drawing instructions and any time limits]
+[CITE: projective drawing tasks, e.g. House-Tree-Person]
+
+Writing page: five emotion words (content, disconnected, melancholic,
+optimistic, vibrant), each written three ways: with the non-dominant left
+hand (LH), with the dominant right hand (RH), and in uppercase (UC). This
+gives 15 word boxes. The page also holds five cursive passages, CS1 to CS5.
+[MISSING: cursive passage text, and whether UC was written with the right
+hand]
+
+This gives 24 crops per participant: 4 drawing, 15 word, and 5 cursive.
+
+All pages were printed on one printer, completed with one pen model, and
+scanned on one scanner. [MISSING: printer, pen, and scanner make and model;
+paper type] Scans are 1700 x 2200 pixels at 200 dpi, checked on the files
+themselves.
+
+Each box was cut at a fixed position and a fixed pixel size per exercise:
+
+    Drawings   D1 674 x 669, D2 662 x 674, D3 675 x 1016, D4 664 x 1016
+    Words      368 x 118 (all 15 boxes)
+    Cursive    1342 x 174 (all 5 boxes)
+
+The top drawing row is shorter than the bottom row, so D1 and D2 differ in
+size from D3 and D4. Crop sizes were verified on every file against these
+values. Each crop was checked by hand to confirm that every box was
+answered. [MISSING: who checked completeness and how disagreements were
+resolved] The scans and crops are kept read-only; no analysis step changes
+them.
+
+Current counts: 2,400 crops are indexed (100 participants x 24 crops: 400
+drawing, 1,500 word, 500 cursive). [MISSING: final crop count]
+
+Sources: DATASET/metadata/crop_manifest.csv; src/utils/config.py
+(IngestConfig, CropConfig); CLAUDE.md.
+
+================================================================================
+4. PREPROCESSING
+================================================================================
+
+Each crop is converted to grayscale. Uneven paper background is flattened by
+dividing the image by a large blur of itself (51-pixel kernel), so paper
+lands near white and ink keeps its darkness. A 3 x 3 median filter removes
+scanner noise. Each task family is then scaled by one fixed factor (drawing
+0.44, word 1.0, cursive 0.33) and padded with white to a fixed canvas
+(drawing 297 x 448, word 368 x 118, cursive 443 x 58). The factors were set
+from the measured crop sizes so that the long side of the largest drawing
+and cursive crops lands near 448 pixels; word crops keep their native size.
+The stored image is inverted (ink bright on dark).
+
+Three common steps were deliberately avoided:
+
+  - Binarization. Thresholding to black and white would discard ink
+    darkness and pressure-related variation in stroke intensity, which are
+    candidate signals [CITE: pen pressure and emotion]. Otsu thresholding is
+    used only to compute descriptive statistics, never on a model input
+    [CITE: Otsu].
+  - Deskewing. Rotating text to a horizontal baseline would erase baseline
+    slope and slant, which graphology links to mood [CITE: baseline
+    direction and mood]. Baseline angle is measured on each word and
+    cursive crop without rotating it.
+  - Stretch-resizing. Resizing every crop to a square would distort aspect
+    ratio and absolute size. One fixed scale factor per family keeps
+    relative size comparable across participants.
+
+Training augmentation is limited to small translations (up to 8 pixels),
+brightness and contrast changes (up to 0.15), and light Gaussian blur
+(probability 0.2, sigma 0.1 to 0.6). Rotation, scaling, shear, and flips are
+never used, for the same reasons.
+
+Sources: src/preprocessing/pipeline.py; src/utils/config.py
+(PreprocessingConfig, AugmentConfig); src/data/transforms.py; CLAUDE.md.
+
+================================================================================
+5. FEATURES
+================================================================================
+
+5.1 Handcrafted features. Measured on the background-flattened original crop
+(not the scaled model input), with pixel sizes converted to millimetres at
+200 dpi. An ink mask (threshold 170 on the flattened crop) is used only to
+measure.
+
+  - Every crop: ink ratio, mean and spread of ink darkness, median and
+    interquartile range of stroke width, ink bounding-box height and width,
+    and number of connected components.
+  - Stroke level, on the ink skeleton: variation of stroke width and of ink
+    darkness along the stroke, a tremor index (deviation of the stroke from
+    a smoothed path), mean segment length, and endpoints and junctions per
+    centimetre. [CITE: skeleton-based stroke analysis] [CITE: tremor in
+    handwriting]
+  - Word and cursive crops: baseline angle, slant, core-zone (x-) height,
+    gap between components, and right margin.
+  - Drawing crops: share of the box covered by the drawing, horizontal and
+    vertical position of its centre, share of ink in the lower half, figure
+    height, a detail count, empty-space ratio, and an erasure score.
+
+Pre-printed box rules near the crop edge are removed before measuring. Per
+participant, each feature is summarized by its mean and standard deviation
+within each task family. A missing value is filled with the median of the
+same participant's other crops in that family, never pooled across
+participants; every fill is logged.
+
+5.2 Frozen ResNet18 embeddings. An ImageNet-pretrained ResNet18 (torchvision
+weights IMAGENET1K_V1) is used as a fixed feature extractor [CITE: He et al., ResNet] [CITE: ImageNet]. Each crop gives a 512-dimensional embedding.
+Embeddings are averaged per participant within each task family.
+
+5.3 Exploratory handwriting-encoder embeddings. Embeddings from a
+handwriting-trained encoder (microsoft/trocr-base-handwritten) are computed
+for word and cursive crops [CITE: Li et al., TrOCR]. Its processor resizes
+every crop to 384 x 384, which discards absolute size and aspect ratio.
+These embeddings are therefore exploratory only.
+
+Sources: src/features/handcrafted.py; src/features/strokes.py;
+src/features/embeddings.py; src/features/embeddings_handwriting.py;
+src/utils/config.py (FeaturesConfig, EmbeddingConfig,
+HandwritingEmbeddingConfig).
+
+================================================================================
+6. MODELS
+================================================================================
+
+All models output a participant-level probability of SAD. A participant is
+predicted SAD when that probability is 0.5 or higher. The threshold is fixed
+and never tuned.
+
+6.1 Majority baseline. Each outer fold predicts the majority label of that
+fold's training participants.
+
+6.2 Logistic regression on handcrafted features. Standardization followed
+by logistic regression with balanced class weights [CITE: scikit-learn].
+The regularization strength C is chosen from {0.001, 0.01, 0.1, 1, 10} by
+stratified 5-fold inner cross-validation on macro-F1, using the outer
+training participants only. Feature sets: all features (the main set), and
+each task family alone.
+
+6.3 Logistic regression on frozen embeddings. As above, with principal
+component analysis between standardization and regression. PCA keeps at
+most 64 components. Feature sets: the three family means side by side (the
+main set), and each family alone. The exploratory handwriting embeddings use
+the same pipeline.
+
+6.4 Fine-tuned ResNet18. The first convolution is reduced to one input
+channel by summing its pretrained colour filters. The stem and the first two
+residual blocks are frozen; the last two blocks (layer3, layer4) and the
+head are trained. The head is global average pooling, a 256-unit layer with
+ReLU and dropout (0.5), and a 2-class output. Training uses AdamW
+[CITE: Loshchilov and Hutter, AdamW] with learning rates 1e-3 for the head
+and 1e-4 for the backbone, weight decay 1e-4, a cosine schedule, batch size
+32, at most 100 epochs, and class-balanced cross-entropy. Training stops
+early when inner-validation participant macro-F1 has not improved for 10
+epochs; the best epoch is restored. One model is trained per task family.
+Crop probabilities are averaged per participant, and the three families are
+fused with equal weights.
+
+6.5 CNN-HMM hybrid (the titled method). For word and cursive crops, the
+fine-tuned network's layer3 feature map is averaged over height, giving one
+256-dimensional vector per image column. Read left to right, these vectors
+form a sequence, one per crop. The frames are standardized and reduced by
+PCA, both fitted on training frames only. One Gaussian hidden Markov model
+with diagonal covariance is fitted per class [CITE: Rabiner, HMM
+tutorial] [CITE: hmmlearn]. The decision score is the length-normalized
+log-likelihood difference between the SAD and HAPPY models plus the log
+prior ratio. The model setting is chosen from 2, 3, 4, or 6 states, 8, 16,
+or 32 PCA components, and an ergodic or left-to-right topology, by
+inner-validation participant macro-F1 (2 restarts per candidate). The chosen
+setting is refitted with 5 restarts and calibrated with Platt scaling on the
+inner-validation participants [CITE: Platt]. Crop probabilities are
+averaged per participant, and word and cursive are fused with equal weights.
+Drawing is run only as a secondary analysis and is never fused.
+
+A limitation follows from this design: the HMMs see features of images the
+network was trained on. Selecting and calibrating on inner-validation
+participants, whose images the network did not train on, reduces but does
+not remove this optimism.
+
+Sources: EVALUATION_PROTOCOL.md section 5; src/utils/config.py
+(BaselineConfig, CNNConfig, TrainingConfig, HMMConfig, HybridConfig,
+AggregateConfig); src/models/cnn.py; src/models/hmm.py;
+src/training/run_baselines.py; src/training/run_cnn.py;
+src/training/run_hybrid.py.
+
+================================================================================
+7. ANALYSIS DESIGN
+================================================================================
+
+The main analysis uses an extreme-groups design [CITE: extreme-groups
+designs, e.g. Preacher et al.]. Participants whose adjusted totals lie
+closest to the cutoff of 72 are set aside as a middle band, so the primary
+set contrasts clearly HAPPY with clearly SAD participants.
+
+The middle-band fraction was fixed at 0.20 on 2026-10-04, from labels.csv
+score data only, before any model was run. Of the fractions previewed (0.20,
+0.25, 0.30, 0.35, 0.40), 0.20 was the smallest that kept at least 100
+participants in each class; all larger fractions left fewer than 100 SAD
+participants. On the current labels this sets aside 57 participants and
+keeps 228 in the primary set (126 HAPPY, 102 SAD), with kept adjusted totals
+of 75 to 114 (HAPPY) and 42 to 69 (SAD). [MISSING: final counts at freeze]
+[MISSING: adviser sign-off date on the analysis design decision]
+
+The full sample, every participant who passed quality checks, is analysed as
+a secondary set.
+
+Sources: DOCS/decisions/analysis_design.txt; EVALUATION_PROTOCOL.md section
+1; src/utils/config.py (LabelingConfig); DATASET/metadata/labels.csv.
+
+================================================================================
+8. EVALUATION PROTOCOL
+================================================================================
+
+The protocol was written and approved before any model result existed. It is
+frozen by a git tag. No model may run on real data before the tag; this is
+enforced in code. [MISSING: freeze date and commit]
+
+Unit of analysis. The participant. Crop-level models are aggregated by the
+mean of the participant's crop probabilities.
+
+Cross-validation. 5 outer folds, stratified on label and middle-band
+membership, seed 42, over all labeled participants. A participant's crops are
+never split across training and test, and this is checked in every fold.
+Inside each outer training set, the CNN models hold out a stratified 15% of
+participants for early stopping, HMM selection, and calibration; the
+logistic regressions use 5-fold inner cross-validation. Scalers, PCA, and
+models are fitted on training participants only. Nothing is tuned on outer
+test participants. [CITE: nested cross-validation, e.g. Varma and Simon]
+
+Metrics. The primary metric is participant-level macro-F1. Accuracy,
+balanced accuracy, precision and recall per class, and ROC-AUC (SAD as
+positive) are also reported. Metrics are computed once on the pooled
+out-of-fold predictions, and per fold for all folds. Accuracy is always shown
+next to the majority baseline. The target, not a hypothesis, is macro-F1 and
+accuracy of at least 0.70 on the primary set.
+
+Uncertainty. 95% percentile confidence intervals come from 2,000 bootstrap
+resamples of participants, seed 42 [CITE: Efron and Tibshirani, bootstrap].
+Every model is compared with the handcrafted logistic regression as a paired
+difference in macro-F1 on the same resamples.
+
+Permutation tests. Within each outer fold, the labels of the training
+participants are shuffled among them, the whole pipeline is refitted, and
+test participants are scored against their true labels [CITE: Ojala and
+Garriga, permutation tests for classifiers]. The p-value is
+(1 + number of permuted macro-F1 at or above the observed) / (1 + number of
+permutations). The two logistic regressions in the ensemble get 1,000
+permutations. The CNN models and the ensemble get 100 full retrains on the
+primary set; the smallest attainable p-value is then 0.0099. The
+significance level is 0.05.
+
+The pilot (participants 001 to 100) is a technical check only and is not
+reported as a result. Any change after the pilot is logged as a deviation.
+
+Sources: EVALUATION_PROTOCOL.md sections 2 to 4 and 7; src/utils/config.py
+(CVConfig, EvalConfig, PermutationConfig); src/training/splits.py;
+src/training/evaluator.py; src/analysis/permutation.py.
+
+================================================================================
+9. ENSEMBLE AND PRIMARY CLAIM
+================================================================================
+
+The ensemble is the equal-weight mean of three participant probabilities:
+the handcrafted logistic regression (all features), the embedding logistic
+regression (family means side by side), and the fused CNN-HMM. No weights
+are learned, and no component can be added or dropped. Exploratory models
+are never included.
+
+The single confirmatory claim is the ensemble's participant-level macro-F1
+on the primary set, with its 95% confidence interval, shown against the
+majority baseline, with its paired comparison against the handcrafted
+logistic regression and its permutation p-value from 100 retrains. All other
+models and sets are secondary. No model is promoted to the headline after
+results are seen.
+
+Sources: EVALUATION_PROTOCOL.md section 5; src/training/run_ensemble.py.
+
+================================================================================
+10. SECONDARY AND EXPLORATORY ANALYSES
+================================================================================
+
+Secondary analyses are reported without correction for multiple
+comparisons:
+
+  - Macro-F1 per task family (drawing, word, cursive, combined) for every
+    model.
+  - The full sample, side by side with the primary set.
+  - The middle band: models trained on primary-set participants predict the
+    set-aside participants, scored against their export labels and shown
+    next to the majority baseline.
+  - Aggregation: mean of logits and majority vote, compared with the mean of
+    probabilities.
+  - Ablations: a simpler 4-block CNN and the ResNet18 head against the
+    CNN-HMM; each ensemble component against the ensemble.
+  - The handcrafted features with the largest mean standardized
+    coefficients across folds (top 10), with their fold-to-fold spread.
+  - Label balance of participants excluded at quality control against those
+    included, by chi-square test, if any were excluded.
+  - Grad-CAM maps of the fine-tuned network's last residual block (layer4),
+    for the 4 most confident correct and incorrect predictions of each kind
+    per task family, each from the fold model that made the prediction
+    [CITE: Selvaraju et al., Grad-CAM].
+
+Exploratory: the handwriting-encoder embeddings, compared with the ResNet18
+embeddings. They are never part of a confirmatory claim.
+
+Sources: EVALUATION_PROTOCOL.md section 6; src/analysis/secondary.py;
+src/analysis/gradcam.py; src/utils/config.py (EvalConfig, GradCAMConfig).
+
+================================================================================
+11. SOFTWARE AND REPRODUCIBILITY
+================================================================================
+
+All models use PyTorch [CITE: PyTorch], scikit-learn [CITE: scikit-learn],
+and hmmlearn [CITE: hmmlearn]. All hyperparameters are kept in one
+configuration file. Every run appends a row to a run log with its git
+commit. Hashes of folds.csv and labels.csv are recorded in the protocol at
+freeze and in the results report. [MISSING: software versions, hardware
+(GPU) used for the final run, and the Kaggle/Colab environment details]
+
+Sources: CLAUDE.md; src/utils/run_log.py; src/analysis/report.py.
+
+================================================================================
+[MISSING] ITEMS
+================================================================================
+
+ 1. Full institution name for USC.
+ 2. Recruitment method, data-collection dates, setting, consent procedure,
+    ethics approval body and reference number.
+ 3. Sex/gender and age distribution of the final sample.
+ 4. How the adjusted total and the label are computed in the scoring sheet.
+ 5. Cronbach's alpha and its bootstrap CI (run
+    python -m src.analysis.questionnaire_report).
+ 6. Final labeled N and class balance after labeling is complete.
+ 7. Exact drawing instructions and any time limits.
+ 8. Cursive passage text, and which hand wrote the uppercase (UC) words.
+ 9. Printer, pen, and scanner make and model; paper type.
+10. Who checked crop completeness by hand, and how disagreements were
+    resolved.
+11. Final crop count.
+12. Final primary-set and middle-band counts at freeze.
+13. Adviser sign-off date on the analysis design decision.
+14. Protocol freeze date and commit.
+15. Software versions, hardware, and cloud environment for the final run.

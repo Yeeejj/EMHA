@@ -1,0 +1,217 @@
+RESULTS (DRAFT TEMPLATE)
+
+STATUS: TEMPLATE ONLY. No real results exist yet. The protocol is not frozen
+and results/final/RESULTS.txt and results/final/secondary.txt have not been
+produced from real data. This file holds no numbers. Every number goes into a
+slot of the form
+
+    [FILL: <file> > <section> > <row> > <value>]
+
+and must be copied exactly as printed in that file. Do not round, recompute,
+or take a number from anywhere else. Delete this status block when filling.
+
+Filling rules:
+  - Copy numbers exactly as printed, with the CI brackets as printed.
+  - No evaluative adjectives (e.g. excellent, strong, poor, impressive).
+  - No causal or clinical claims. The label is a concurrent self-reported
+    state, not a diagnosis. Write "was associated with" or "predicted", never
+    "caused", "detects", or "diagnoses".
+  - Report every model, set, and fold summary listed; never only the best.
+  - Use the conditional frames below exactly as they apply.
+
+Sources:
+  RESULTS.txt   = results/final/RESULTS.txt
+  secondary.txt = results/final/secondary.txt
+
+================================================================================
+DATASET
+================================================================================
+
+[FILL: RESULTS.txt > DATASET SUMMARY > N participants (labeled, complete
+items)] participants had complete questionnaire items and a label. Of these,
+[FILL: RESULTS.txt > DATASET SUMMARY > Class balance (overall) > HAPPY] were
+labeled HAPPY and [FILL: ... > SAD] SAD. Cronbach's alpha was [FILL: RESULTS.txt
+> DATASET SUMMARY > Cronbach's alpha] (bootstrap CI [FILL: ... > bootstrap
+CI]).
+
+The analysis design was extreme groups, with a middle-band fraction of
+[FILL: RESULTS.txt > DATASET SUMMARY > Middle-band fraction]. [FILL: RESULTS.txt
+> DATASET SUMMARY > Middle-band count] participants closest to the cutoff of
+[FILL: ... > Cutoff] were set aside. The primary set held [FILL: RESULTS.txt >
+DATASET SUMMARY > Class balance (primary analysis set) > HAPPY] HAPPY and
+[FILL: ... > SAD] SAD participants.
+
+If secondary.txt section 5 reports QC exclusions, add: [FILL: secondary.txt >
+5. QC exclusions] participants were excluded at quality control. Their label
+balance did not / did differ from the included participants (chi-square
+[FILL: chi-square value], p = [FILL: p]).
+
+================================================================================
+PRIMARY RESULT (extreme-groups primary set)
+================================================================================
+
+Scope of the claim. Because the primary set excludes the middle band, the
+primary result applies only to participants whose questionnaire scores lie
+away from the cutoff. It does not show how the models perform across the
+full score range. The full-sample results are reported alongside.
+
+Table 1. Participant-level results, primary set (pooled out-of-fold).
+Source: RESULTS.txt > PRIMARY RESULTS. One row per model:
+
+    model                      n     macro-F1 [CI]   accuracy [CI]   majority   permutation p (N)
+    majority/all               [FILL] [FILL]         [FILL]          [FILL]     not run
+    lr_handcrafted/all         [FILL] [FILL]         [FILL]          [FILL]     [FILL]
+    lr_embeddings/concat       [FILL] [FILL]         [FILL]          [FILL]     [FILL]
+    cnn_head_fused/fused       [FILL] [FILL]         [FILL]          [FILL]     [FILL]
+    cnn_hmm_fused/fused        [FILL] [FILL]         [FILL]          [FILL]     [FILL]
+    ensemble/all (primary)     [FILL] [FILL]         [FILL]          [FILL]     [FILL]
+
+Add balanced accuracy [CI] and ROC-AUC [CI] for every row from the same
+table. Copy the bootstrap description line from RESULTS.txt > PRIMARY
+RESULTS as the table note.
+
+Primary claim. The ensemble reached a participant-level macro-F1 of
+[FILL: RESULTS.txt > PRIMARY RESULTS > ensemble/all > macro-F1 [CI]] and an
+accuracy of [FILL: ... > accuracy [CI]] on the primary set, against a
+majority baseline accuracy of [FILL: ... > majority]. The permutation test
+gave p = [FILL: ... > permutation p] (N = [FILL: N]).
+
+Use the frame that applies:
+  - If p is at or below the significance level in the protocol: "Under the
+    permutation test, the ensemble's macro-F1 was higher than expected if
+    handwriting and label were unrelated."
+  - Otherwise: "Under the permutation test, the ensemble's macro-F1 was not
+    distinguishable from what would be expected if handwriting and label
+    were unrelated."
+
+State whether the pre-set target (macro-F1 and accuracy at or above the
+target in EVALUATION_PROTOCOL.md section 2) was met, as "met" or "not met",
+without further comment.
+
+Other models. Report each remaining row of Table 1 in one sentence each, in
+table order, with macro-F1 [CI], accuracy [CI], majority baseline, and
+permutation p where run.
+
+Full sample (secondary). Table 2 repeats Table 1 for the full sample.
+Source: RESULTS.txt > PRIMARY RESULTS > Full sample (secondary). Rows run on
+the full sample only; models not run there are listed as "not run".
+
+================================================================================
+COMPARISON WITH THE LOGISTIC-REGRESSION BASELINE
+================================================================================
+
+Table 3. Paired macro-F1 difference from lr_handcrafted/all [CI].
+Source: RESULTS.txt > PAIRED COMPARISONS, primary then full.
+
+For each model: "The macro-F1 of <model> differed from the handcrafted
+logistic regression by [FILL: difference] (CI [FILL: low, high])." Then use
+the frame that applies:
+  - CI excludes zero and the difference is positive: "...higher than the
+    baseline on the same participants."
+  - CI excludes zero and the difference is negative: "...lower than the
+    baseline on the same participants."
+  - CI includes zero: "The CI included zero."
+
+================================================================================
+PER-FAMILY RESULTS (secondary)
+================================================================================
+
+Table 4. Macro-F1 [CI] per task family (drawing, word, cursive, combined).
+Source: secondary.txt > 1. Macro-F1 per task family, primary then full.
+Rows: lr_handcrafted, lr_embeddings, cnn_head (ResNet18), cnn_head (simple
+CNN), cnn_hmm. Cells not run are left blank and marked "not run".
+
+Describe each family in one sentence giving the macro-F1 [CI] of each model,
+without ranking language.
+
+================================================================================
+SECONDARY ANALYSES (labelled secondary; no multiplicity correction)
+================================================================================
+
+Middle band. Source: secondary.txt > 2b. Middle band. For each model run
+with --predict-middle: n [FILL], macro-F1 [FILL CI], accuracy [FILL], and
+majority baseline [FILL]. If none was run, write that the middle band was
+not predicted.
+
+Primary vs full sample. Source: secondary.txt > 2a. Report the two sets side
+by side for each model as printed.
+
+Aggregation rule. Source: secondary.txt > 3. Ablations, rows marked
+[mean_logit] and [majority_vote]: paired macro-F1 difference from mean_prob
+[FILL CI] per family and fused, for the CNN head and the CNN-HMM.
+
+================================================================================
+ABLATIONS (secondary)
+================================================================================
+
+Source: secondary.txt > 3. Ablations.
+  - Backbone: cnn_head_fused/fused and cnn_head_simple_fused/fused, each as a
+    paired macro-F1 difference from cnn_hmm_fused/fused [FILL CI].
+  - Ensemble components: lr_handcrafted/all, lr_embeddings/concat, and
+    cnn_hmm_fused/fused, each as a paired difference from ensemble/all
+    [FILL CI].
+  - Exploratory (label as exploratory, never confirmatory): lr_handwriting/
+    concat vs lr_embeddings/concat [FILL CI], from secondary.txt > 3e.
+
+Use the CI frames from the baseline comparison above.
+
+================================================================================
+INTERPRETABILITY (descriptive only)
+================================================================================
+
+Top handcrafted features. Source: secondary.txt > 4. Top handcrafted
+features. List the features in printed order with mean standardized
+coefficient, fold standard deviation, minimum and maximum [FILL]. Positive
+coefficients are associated with a SAD prediction. State that coefficients
+describe the fitted models and do not show that a feature causes or
+indicates an emotional state.
+
+Grad-CAM. Figures F9 to F11 show Grad-CAM maps for the most confident
+correct and incorrect outer-test predictions per task family. Describe only
+what is visible (for example, which parts of the crop carry weight), and
+state that the maps show where the network's prediction was sensitive, not
+why a participant was labeled HAPPY or SAD.
+
+================================================================================
+FIGURE AND TABLE INDEX
+================================================================================
+
+Tables (all from text files; copy exactly):
+  T1  Primary results, primary set        RESULTS.txt > PRIMARY RESULTS
+  T2  Primary results, full sample        RESULTS.txt > PRIMARY RESULTS >
+                                          Full sample (secondary)
+  T3  Paired comparisons vs LR baseline   RESULTS.txt > PAIRED COMPARISONS
+  T4  Per-family macro-F1                 secondary.txt > 1
+  T5  Middle band                         secondary.txt > 2b
+  T6  Ablations                           secondary.txt > 3, 3e
+  T7  Top handcrafted features            secondary.txt > 4
+  T8  QC exclusions                       secondary.txt > 5
+  Machine-readable sources: results/final/model_comparison.csv,
+  results/final/per_fold_metrics.csv, results/final/secondary_metrics.csv,
+  results/final/permutation_<model>_<analysis>.json
+
+Figures (paths as written by the pipeline; confirm each against
+RESULTS.txt > FIGURES before use):
+  F1   Questionnaire score distribution
+       results/questionnaire/score_distribution.png
+  F2   Confusion matrices, primary / full
+       results/final/confusion_matrices_primary.png
+       results/final/confusion_matrices_full.png
+  F3   ROC curves, primary / full
+       results/final/roc_curves_primary.png
+       results/final/roc_curves_full.png
+  F4   Reliability curve, ensemble, primary set
+       results/final/reliability_ensemble_primary.png
+  F5   Permutation null distributions, one per tested model
+       results/final/permutation_<model>_<analysis>.png
+  F6   Per-family macro-F1, primary / full
+       results/final/secondary_family_primary.png
+       results/final/secondary_family_full.png
+  F7   Ablations (paired differences)
+       results/final/secondary_ablations_primary.png
+  F8   Top handcrafted features
+       results/final/secondary_top_features.png
+  F9   Grad-CAM, drawing   results/final/gradcam/gradcam_drawing.png
+  F10  Grad-CAM, word      results/final/gradcam/gradcam_word.png
+  F11  Grad-CAM, cursive   results/final/gradcam/gradcam_cursive.png
+       Per-crop overlays: results/final/gradcam/<family>/

@@ -1,0 +1,150 @@
+DEFENSE Q&A (DRAFT)
+Each answer cites the repo file, function, or result it rests on. [PENDING]
+marks an answer that needs the full run (results/final/RESULTS.txt,
+secondary.txt), which does not exist yet: the protocol is not frozen.
+
+--------------------------------------------------------------------------------
+1. How do you know there is no leakage?
+--------------------------------------------------------------------------------
+Splitting is by participant, never by crop. DATASET/metadata/folds.csv holds
+one row per participant (src/training/splits.py, make_outer_folds), so all 24
+crops of a person sit in one fold. Every runner calls
+splits.assert_no_leakage on train, test, and middle-band IDs in every fold
+(run_baselines.py, run_cnn.py, permutation.py; CrossValidator in
+cross_validate.py also checks inner train and validation). run_hybrid._check_split
+refuses a CNN checkpoint whose stored split differs. Scalers and PCA sit inside
+sklearn Pipelines fitted on training participants only (run_baselines.fit_lr).
+The evaluator rejects any participant predicted twice (evaluator.validate).
+tests/test_splits.py tests these guards, e.g.
+test_one_row_per_participant_no_participant_in_two_folds.
+
+--------------------------------------------------------------------------------
+2. Why is accuracy below the proposal's 80-85%? [PENDING]
+--------------------------------------------------------------------------------
+[PENDING: whether it is below; RESULTS.txt > PRIMARY RESULTS, ensemble/all.]
+If it is: the 80-85% figure is the proposal target (README.md). The
+pre-registered target is at least 0.70 macro-F1 and accuracy, and it is not a
+hypothesis (EVALUATION_PROTOCOL.md section 2; CLAUDE.md). The estimate is
+deliberately conservative: participant-level folds, nothing tuned on test
+folds, a fixed 0.5 threshold, and every model reported (protocol sections 3
+and 7). For context, EMOTHAW reports 60% to 71% for its emotional states from
+online tablet data (CITATIONS/EMOTHAW_A_novel_database_for_emotional_state_recog.pdf,
+abstract). Report the value with its CI and majority baseline, not as a
+shortfall to explain away.
+
+--------------------------------------------------------------------------------
+3. Why an HMM on offline images?
+--------------------------------------------------------------------------------
+Offline scans lose pen timing, but writing still runs left to right. The
+fine-tuned CNN's layer3 map, averaged over height, gives one feature vector
+per image column; read left to right, these form a sequence per word or
+cursive crop (CNNConfig.seq_layer; src/models/hybrid.py, crop_sequences). One
+Gaussian HMM per class models how those column features change along the
+line (src/models/hmm.py). Topology, state count, and PCA size are chosen on
+inner-validation participants (HybridConfig; run_hybrid.select_hmm). Whether
+the sequence model adds anything is tested, not assumed: the backbone
+ablation compares the CNN head with the CNN-HMM (secondary.txt > 3.
+Ablations) [PENDING]. Limitation: the HMMs see features of images the CNN
+trained on (run_hybrid.py docstring; protocol section 5).
+
+--------------------------------------------------------------------------------
+4. Are the self-report labels reliable?
+--------------------------------------------------------------------------------
+The FINALE instrument was designed with 4 registered psychometricians
+(CLAUDE.md; DOCS/FINALE Thesis Assessment.pdf). It has 24 Likert items, 12
+reverse-scored (config.py, ReportConfig). Labels are read verbatim from the
+scoring export and never recomputed (src/data/labeler.py). Internal
+consistency is Cronbach's alpha with a bootstrap CI
+(src/analysis/questionnaire_report.py) [PENDING: alpha value;
+results/questionnaire/report.txt not yet generated]. The extreme-groups
+design sets aside participants nearest the cutoff, where a label is least
+certain (DOCS/decisions/analysis_design.txt). The labels remain concurrent
+self-report, not diagnosis, and that is the stated scope
+(DOCS/drafts/methods.txt, section 1).
+
+--------------------------------------------------------------------------------
+5. Why no binarization or deskew?
+--------------------------------------------------------------------------------
+The proposal planned both (README.md, Methodology). They were dropped before
+any model was run because they delete candidate signal. Binarization removes
+ink darkness, so stroke-intensity variation cannot be measured. Deskewing
+removes baseline slope and slant, which are measured as features
+(baseline_angle_deg, slant_deg in src/features/handcrafted.py). Stretch
+resizing would distort size and aspect ratio. The pipeline does grayscale
+background flattening, one fixed scale per family, and white padding only
+(src/preprocessing/pipeline.py docstring; PreprocessingConfig). Otsu appears
+only in descriptive statistics, never in a model input. Augmentation
+excludes rotation, scaling, shear, and flips for the same reason
+(AugmentConfig).
+
+--------------------------------------------------------------------------------
+6. How does this compare with online-tablet studies such as EMOTHAW?
+--------------------------------------------------------------------------------
+EMOTHAW recorded 129 participants on a digitizing tablet, with pen position,
+in-air movement, timing, and pressure, across seven tasks including house
+drawing and cursive copying. Labels were DASS anxiety, depression, and
+stress. Random forests reached 60% to 71% (CITATIONS/EMOTHAW_A_novel_database_
+for_emotional_state_recog.pdf, abstract). This study uses offline 200 dpi
+scans (IngestConfig) with no timing, in-air, or pressure channel, and a
+binary HAPPY/SAD self-report. The numbers are therefore not directly
+comparable: different labels, inputs, and samples. Our result [PENDING:
+RESULTS.txt > PRIMARY RESULTS] shows what is recoverable from paper alone,
+which matches how handwriting is usually collected.
+
+--------------------------------------------------------------------------------
+7. Is it better than chance?
+--------------------------------------------------------------------------------
+Two checks, both fixed in advance (EVALUATION_PROTOCOL.md section 4).
+First, every accuracy is shown beside the majority baseline: the training-fold
+majority label (src/training/evaluator.py, majority_hits). Second, a
+permutation test shuffles training labels within each outer fold, refits the
+whole pipeline, and scores test participants on their true labels;
+p = (1 + #null >= observed) / (1 + N) (src/analysis/permutation.py). N is
+1,000 for the two ensemble logistic regressions and 100 full retrains for
+the CNN models and the ensemble (PermutationConfig). The test is checked on
+synthetic data: not significant without signal, and the smallest attainable
+p with signal (tests/test_permutation.py). Real values: [PENDING: RESULTS.txt
+> PRIMARY RESULTS, permutation column].
+
+--------------------------------------------------------------------------------
+8. Why set aside the middle band, and how is that not cherry-picking?
+--------------------------------------------------------------------------------
+Participants near the cutoff carry the least certain labels. The band
+fraction (0.20) was chosen on 2026-10-04 from labels.csv scores only, before
+any model existed, as the smallest previewed fraction that kept at least 100
+per class (DOCS/decisions/analysis_design.txt; commit 2bb867a). Membership
+never depends on predictions (EVALUATION_PROTOCOL.md section 1). The protocol
+was approved on 2026-10-05 and is frozen by the git tag protocol-frozen;
+runners refuse real data until the tag exists
+(src/utils/protocol_guard.py). The full sample is reported alongside, and the
+middle band is predicted as a secondary analysis (protocol section 6).
+[PENDING: tag commit and date.]
+
+--------------------------------------------------------------------------------
+9. Which exercises and features carried the signal? [PENDING]
+--------------------------------------------------------------------------------
+Answer from secondary.txt only, as reported:
+  - Per family: macro-F1 [CI] for drawing, word, cursive, and combined
+    (secondary.txt > 1) [PENDING].
+  - Features: the top handcrafted features by mean standardized coefficient,
+    with fold spread (secondary.txt > 4; secondary_top_features.png)
+    [PENDING].
+  - Grad-CAM: where the fine-tuned CNN's prediction was sensitive, per family
+    (results/final/gradcam/) [PENDING].
+State these as associations in fitted models, not causes, and note they are
+secondary analyses without multiplicity correction (protocol section 4).
+
+--------------------------------------------------------------------------------
+10. What would you do with more time or data?
+--------------------------------------------------------------------------------
+  - Finish labeling: the export has 400 rows, labels.csv currently 285
+    (DATASET/metadata).
+  - Use separate inner-validation sets for HMM selection and Platt
+    calibration, removing the mild optimism the protocol notes (section 3).
+  - Model the full score range instead of extreme groups (protocol section 1).
+  - Pin the TrOCR revision and test handwriting encoders that keep size
+    (HandwritingEmbeddingConfig notes the 384 x 384 resize).
+  - Collect online pen data alongside paper, to compare with EMOTHAW-style
+    timing and pressure features (CITATIONS/EMOTHAW_...pdf).
+  - Test on a second site or population; this sample is right-handed
+    students aged 18 to 25 (CLAUDE.md).
