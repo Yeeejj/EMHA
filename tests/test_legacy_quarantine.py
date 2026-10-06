@@ -12,13 +12,10 @@ import pytest
 
 from src.data import dataloader
 from src.data.dataloader import LegacyPipelineError
-from src.training import evaluator, trainer
+from src.training import trainer
 
 SRC = Path(dataloader.__file__).resolve().parents[1]
-LEGACY_FILES = (
-    SRC / "training" / "trainer.py",
-    SRC / "training" / "evaluator.py",
-)
+LEGACY_FILES = (SRC / "training" / "trainer.py",)
 
 
 def test_run_training_is_disabled():
@@ -26,17 +23,9 @@ def test_run_training_is_disabled():
         trainer.run_training(epochs=1)
 
 
-def test_run_evaluation_and_cv_are_disabled():
-    with pytest.raises(LegacyPipelineError, match="run_evaluation"):
-        evaluator.run_evaluation(smoke=True)
-    with pytest.raises(LegacyPipelineError, match="_run_cross_validation"):
-        evaluator._run_cross_validation(None, n_folds=2, cv_epochs=1)
-
-
-@pytest.mark.parametrize("module", [trainer, evaluator])
-def test_cli_exits_with_error_not_traceback(module, monkeypatch, capsys):
-    monkeypatch.setattr("sys.argv", [module.__name__])
-    assert module.main() == 1
+def test_cli_exits_with_error_not_traceback(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", [trainer.__name__])
+    assert trainer.main() == 1
     assert "legacy pipeline and is disabled" in capsys.readouterr().out
 
 

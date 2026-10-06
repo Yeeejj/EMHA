@@ -202,10 +202,17 @@ def _fit_fold(
     manifest,
     dropped,
     cnn_cfg,
-    shuffle,
+    shuffle_seed,
     device,
     ckpt_path,
 ) -> pd.DataFrame:
+    """Fit one (family, fold); predict its test (+ middle) crops.
+
+    shuffle_seed None fits on the true labels; otherwise the outer-train
+    participants' labels are permuted among them with that seed (the
+    --shuffle-labels null run, or one src.analysis.permutation draw). Test
+    and middle-band crops always keep their true labels.
+    """
     train, test = fold_ids(folds, fold, ids)
     middle = fold_ids(folds, fold, middle_ids)[1] if middle_ids else []
     assert_no_leakage(train, test, middle)
@@ -215,7 +222,9 @@ def _fit_fold(
     )
     assert_no_leakage(inner_train, inner_val, test, middle)
 
-    fit_labels = shuffled_labels(labels, train, seed) if shuffle else labels
+    fit_labels = (
+        labels if shuffle_seed is None else shuffled_labels(labels, train, shuffle_seed)
+    )
     set_seed(seed)
     train_loader, val_loader = build_loaders(
         inner_train, inner_val, family, config, labels=fit_labels
@@ -348,7 +357,7 @@ def run(
                 manifest,
                 dropped,
                 cnn_cfg,
-                shuffle_labels,
+                config.training.seed + fold if shuffle_labels else None,
                 device,
                 ckpt,
             )

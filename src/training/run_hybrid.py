@@ -72,7 +72,7 @@ from src.models.hmm import HMMClassifier
 from src.models.hybrid import cnn_checkpoint_path, crop_sequences, hmm_path, load_cnn
 from src.training.aggregate import aggregate_crops, fuse_task_families
 from src.training.run_baselines import PRED_COLUMNS
-from src.training.run_cnn import check_resume, run_name
+from src.training.run_cnn import check_resume, run_name, shuffled_labels
 from src.training.splits import (
     SUBSETS,
     analysis_ids,
@@ -198,8 +198,28 @@ def _check_split(state: dict, inner_train, inner_val, test, ckpt: Path) -> None:
 
 
 def _fold(
-    family, fold, ids, middle_ids, folds, labels, manifest, dropped, name, device
+    family,
+    fold,
+    ids,
+    middle_ids,
+    folds,
+    labels,
+    manifest,
+    dropped,
+    name,
+    device,
+    ckpt: Path | None = None,
+    shuffle_seed: int | None = None,
+    save: bool = True,
 ) -> tuple:
+    """CNN-HMM for one (family, fold): (eval crop predictions, selection).
+
+    By default the CNN checkpoint of run `name` is used, the HMMs are fit on
+    the true labels, and the winner is saved. src.analysis.permutation
+    passes its own checkpoint, a shuffle_seed (outer-train labels permuted
+    among themselves, as in run_cnn) and save=False. Eval crops always keep
+    their true labels.
+    """
     train, test = fold_ids(folds, fold, ids)
     middle = fold_ids(folds, fold, middle_ids)[1] if middle_ids else []
     assert_no_leakage(train, test, middle)
@@ -209,24 +229,28 @@ def _fold(
     )
     assert_no_leakage(inner_train, inner_val, test, middle)
 
-    ckpt = cnn_checkpoint_path(config, name, family, fold)
+    ckpt = ckpt or cnn_checkpoint_path(config, name, family, fold)
     if not ckpt.is_file():
         raise FileNotFoundError(f"{ckpt} not found; run src.training.run_cnn first")
     cnn, state = load_cnn(ckpt)
     _check_split(state, inner_train, inner_val, test, ckpt)
 
+    fit_labels = (
+        labels if shuffle_seed is None else shuffled_labels(labels, train, shuffle_seed)
+    )
     set_seed(seed)
     sets = {
-        role: extract_set(cnn, manifest, labels, role_ids, family, dropped, device)
-        for role, role_ids in (
-            ("inner_train", inner_train),
-            ("inner_val", inner_val),
-            ("eval", test + middle),
+        role: extract_set(cnn, manifest, role_labels, role_ids, family, dropped, device)
+        for role, role_ids, role_labels in (
+            ("inner_train", inner_train, fit_labels),
+            ("inner_val", inner_val, fit_labels),
+            ("eval", test + middle, labels),
         )
     }
     best, table = select_hmm(sets["inner_train"], sets["inner_val"], seed)
     clf = fit_final(sets["inner_train"], sets["inner_val"], best, seed)
-    clf.save(hmm_path(config, name, family, fold))
+    if save:
+        clf.save(hmm_path(config, name, family, fold))
 
     sad_col = list(clf.classes_).index(config.data.label_to_index["SAD"])
     crops = sets["eval"].meta.drop(columns=["label_index"]).copy()
