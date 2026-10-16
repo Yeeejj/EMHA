@@ -383,11 +383,14 @@ class PermutationConfig:
     (lr_models). CNN models and the ensemble: n_cnn FULL retrains (same
     epochs, early stopping, HMM selection and calibration as the observed
     run -- no epoch-capped proxy, decided with the thesis author
-    2026-10-06), primary set only (cnn_analyses).
+    2026-10-06), primary set only (cnn_analyses). n_cnn reduced from 100 to
+    20 before the protocol-frozen tag (2026-10-16, thesis author): 100 full
+    retrains x 3 models exceeded the available GPU budget. Decided before
+    any real result existed; smallest attainable p is 1/21 = 0.0476.
     """
 
     n_lr: int = 1000
-    n_cnn: int = 100
+    n_cnn: int = 20
     lr_models: Tuple[Tuple[str, str], ...] = (
         ("lr_handcrafted", "all"),
         ("lr_embeddings", "concat"),
