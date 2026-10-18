@@ -16,7 +16,7 @@ permuted label vectors are drawn in the parent process, so the workers only
 fit.
 
 CNN models (PermutationConfig.cnn_models: cnn_head_fused, cnn_hmm_fused, and
-the ensemble; n_cnn = 100; primary only): FULL retrains, no proxy. One draw
+the ensemble; n_cnn = 20; primary only): FULL retrains, no proxy. One draw
 retrains the fine-tuned CNN for every family and fold (run_cnn._fit_fold,
 same epochs and early stopping on the shuffled inner-val labels), refits the
 CNN-HMM on the word and cursive checkpoints (run_hybrid._fold: selection and

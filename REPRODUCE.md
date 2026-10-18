@@ -44,8 +44,8 @@ the `protocol-frozen` tag; the scripts stop if they differ.
 
 | File | SHA-256 |
 |---|---|
-| `metadata/folds.csv` | `[AT FREEZE]` |
-| `metadata/labels.csv` | `[AT FREEZE]` |
+| `metadata/folds.csv` | `40403812420cde0e1f7d1980ce02ad0f77c531fdf59aab62b7987ca4b90751bf` |
+| `metadata/labels.csv` | `694d360091e28dc331422cf7171b8e3afcf5dda16545e7ad5b2a9291204d3006` |
 
 Print them with `python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" DATASET/metadata/folds.csv`.
 

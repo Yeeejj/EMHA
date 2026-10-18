@@ -1,6 +1,6 @@
 # EMHA Evaluation Protocol
 
-Status: **DRAFT — approved text pending freeze.** The protocol is frozen by the
+Status: **FROZEN 2026-10-16.** The protocol is frozen by the
 git tag `protocol-frozen` on the commit that adds this file. That commit is made
 only after labeling is complete and `folds.csv` has been regenerated on the
 final labels (section 3). No model may be run on real data before the tag.
@@ -8,8 +8,8 @@ Fields marked `[AT FREEZE]` are filled in that commit.
 
 | Item | Value |
 |---|---|
-| Approved by thesis author | 2026-10-05 (text); revision 1 approved 2026-10-05; revision 2 pending re-approval |
-| Frozen (tag `protocol-frozen`) | `[AT FREEZE]` date and commit |
+| Approved by thesis author | 2026-10-05 (text); revision 1 approved 2026-10-05; revision 2 approved 2026-10-16; revision 3 (pre-freeze, section 4: CNN permutations N = 100 -> 20) approved 2026-10-16 |
+| Frozen (tag `protocol-frozen`) | 2026-10-16; the commit carrying the tag `protocol-frozen` (`git rev-list -n 1 protocol-frozen`) |
 | Code base at approval | `3e222ff` |
 
 ## 1. Question and analysis sets
@@ -26,7 +26,11 @@ recomputed).
 - Middle-band fraction: **0.20** of participants closest to the cutoff (72)
   are set aside (`in_middle_band = True`).
 - At decision time: primary set 228 participants (HAPPY 126, SAD 102),
-  middle band 57. Final counts on the complete sample: `[AT FREEZE]`.
+  middle band 57. Final counts on the complete sample (400 labeled
+  participants, all `qc_passed`; HAPPY 224, SAD 176): **primary set 320
+  (HAPPY 174, SAD 146), middle band 80** (scores 70-74; ties at the band
+  edges are split by the labeler's stable sort on participant order).
+  Primary-set score ranges: HAPPY [74, 119], SAD [37, 70].
 
 | Set | Definition | Role |
 |---|---|---|
@@ -69,10 +73,13 @@ Target (not a hypothesis test): primary-set macro-F1 and accuracy >= 0.70.
   `StratifiedKFold` on the participant table, strata label x `in_middle_band`,
   seed 42 (`TrainingConfig.seed`), over **all labeled participants**. Runners
   filter it to the analysis set at load time.
-  - `folds.csv` SHA-256: `[AT FREEZE]` (regenerated with `--force` once
-    labeling is complete; the provisional 285-participant file is
+  - `folds.csv` SHA-256:
+    `40403812420cde0e1f7d1980ce02ad0f77c531fdf59aab62b7987ca4b90751bf`
+    (400 participants, regenerated with `--force` after labeling was
+    complete; the superseded provisional 285-participant file was
     `fdf5a63e03ab22690908e52a4664508a16630daef8bbeb83f00d0471baea7106`).
-  - `labels.csv` SHA-256: `[AT FREEZE]`.
+  - `labels.csv` SHA-256:
+    `694d360091e28dc331422cf7171b8e3afcf5dda16545e7ad5b2a9291204d3006`.
 - **Inner validation, two fixed mechanisms**, both on outer-train
   participants only:
   - *LR baselines:* C is chosen by stratified 5-fold inner CV (macro-F1) over
@@ -111,8 +118,12 @@ Target (not a hypothesis test): primary-set macro-F1 and accuracy >= 0.70.
     feature sets (per-family, exploratory `lr_handwriting`) get no
     permutation test; they are reported with bootstrap CIs only.
   - CNN models (fine-tuned ResNet18, CNN-HMM) and the ensemble (which
-    contains CNN-HMM): **N = 100** full retrains, primary set only (smallest
-    p 0.0099). This is the reduced test.
+    contains CNN-HMM): **N = 20** full retrains, primary set only (smallest
+    p 1/21 = 0.0476). This is the reduced test. Revision 3 (2026-10-16,
+    before the tag and before any real result): N reduced from 100 because
+    100 full retrains x 3 models (~150-250 GPU-hours) exceeded the available
+    GPU budget (Kaggle, ~30 GPU-hours/week). With N = 20, p < 0.05 is
+    attainable only if the observed macro-F1 exceeds every null draw.
 - Significance level 0.05, two-sided intervals. The primary claim (section 5)
   is the single confirmatory test; all others are reported without
   multiplicity correction and labeled as secondary.
@@ -134,7 +145,7 @@ Selection uses inner-validation participant macro-F1 only.
 **Primary claim (confirmatory):** the ensemble's participant-level macro-F1
 on the primary set, with bootstrap 95% CI, shown against the majority
 baseline, with its paired comparison vs LR-handcrafted and its permutation
-p-value (N = 100). Every other model and set is reported in full as
+p-value (N = 20). Every other model and set is reported in full as
 secondary. No model is promoted to the headline after seeing results.
 
 **Exploratory (never part of the ensemble or any confirmatory claim):**

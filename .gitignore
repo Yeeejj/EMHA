@@ -56,3 +56,6 @@ env/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local run notes that may contain tokens - never commit
+TASK.txt
