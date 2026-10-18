@@ -6,6 +6,8 @@ build it with SmokeConfig's tiny settings). git is always mocked.
 """
 
 import contextlib
+import importlib
+import inspect
 import subprocess
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from src.training.run_baselines import PRED_COLUMNS
 from src.utils import protocol_guard
 from src.utils.config import config
 
-# Steps whose modules exist today (Stage H modules are not built yet).
+# The preparation and model steps (no evaluation gate).
 BUILT = [
     "embeddings",
     "handcrafted",
@@ -29,6 +31,8 @@ BUILT = [
     "hybrid",
     "ensemble",
 ]
+SHARED = ["embeddings", "handcrafted"]
+MODEL_STEPS = [s for s in BUILT if s not in SHARED]
 
 
 _REAL_RUN = subprocess.run
@@ -68,25 +72,64 @@ def fakes(tmp_path, monkeypatch, tagged):
         return fake
 
     monkeypatch.setattr(pr, "resolve", make)
-    # ensemble passes its run name positionally; wrap so the fake records it
-    real_ensemble = pr.STEPS["ensemble"]
-    monkeypatch.setitem(
-        pr.STEPS,
-        "ensemble",
-        pr.Step(real_ensemble.module, lambda f, c: f(name=c.run_name)),
-    )
     return calls
 
 
 def test_order_primary_first_and_shared_steps_once(fakes):
     assert pr.run("pilot", ["full", "primary"], "cpu", None) == pr.EXIT_OK
     steps = [s for s, _ in fakes]
-    shared = ["embeddings", "handcrafted"]
-    per = [s for s in config.runner.default_steps if s not in shared]
-    assert steps == shared + per + per
-    first = fakes[2 : 2 + len(per)]
-    assert all(kw.get("analysis", "primary") == "primary" for _, kw in first)
+    once_after = ["secondary", "gradcam", "report"]
+    expected = (
+        SHARED
+        + MODEL_STEPS
+        + MODEL_STEPS
+        + ["evaluate", "permutation", "permutation"]
+        + once_after
+    )
+    assert steps == expected
+    first = fakes[2 : 2 + len(MODEL_STEPS)]
+    assert all(kw["analysis"] == "primary" for _, kw in first)
     assert fakes[0][1] == {"device": "cpu"} and fakes[1][1] == {}
+    by_step = {s: kw for s, kw in fakes}
+    assert by_step["evaluate"] == {"analysis": None, "subset": "pilot"}
+    perms = [kw["analysis"] for s, kw in fakes if s == "permutation"]
+    assert perms == ["primary", "full"]
+    for step in once_after:
+        assert by_step[step] == {"subset": "pilot"}
+
+
+def test_gated_steps_wait_for_every_analysis(fakes, capsys):
+    steps = MODEL_STEPS + ["evaluate", "secondary", "gradcam", "report"]
+    assert pr.run("pilot", ["primary"], "cpu", steps) == pr.EXIT_OK
+    out = capsys.readouterr().out
+    assert [s for s, _ in fakes] == MODEL_STEPS
+    for step in ("evaluate", "secondary", "gradcam", "report"):
+        assert f"[WAIT] {step}: needs full/baselines" in out
+        assert not pr.marker_path("pilot", pr.ALL_ANALYSES, step).exists()
+    assert "waiting for the other analysis set" in out
+
+    # a later command that adds the full set runs the waiting steps
+    fakes.clear()
+    assert pr.run("pilot", ["primary", "full"], "cpu", steps) == pr.EXIT_OK
+    ran = [s for s, _ in fakes]
+    assert ran == MODEL_STEPS + ["evaluate", "secondary", "gradcam", "report"]
+    assert "[WAIT]" not in capsys.readouterr().out
+
+
+def test_gate_uses_the_commands_model_steps(fakes, capsys):
+    without_null = [s for s in MODEL_STEPS if s != "cnn_shuffled"]
+    steps = without_null + ["evaluate"]
+    assert pr.run("pilot", ["primary", "full"], "cpu", steps) == pr.EXIT_OK
+    assert [s for s, _ in fakes][-1] == "evaluate"
+    assert "[WAIT]" not in capsys.readouterr().out
+
+    # a command naming no model step is gated on every default model step
+    marker = pr.marker_path("pilot", pr.ALL_ANALYSES, "evaluate")
+    marker.unlink()
+    fakes.clear()
+    assert pr.run("pilot", ["primary", "full"], "cpu", ["evaluate"]) == pr.EXIT_OK
+    assert fakes == []
+    assert "[WAIT] evaluate: needs primary/cnn_shuffled" in capsys.readouterr().out
 
 
 def test_arguments_per_analysis_and_subset(fakes):
@@ -100,13 +143,16 @@ def test_arguments_per_analysis_and_subset(fakes):
     assert by[("baselines", "full")]["predict_middle"] is False
     assert by[("cnn_shuffled", "primary")]["shuffle_labels"] is True
     assert by[("hybrid", "full")]["device"] == "cuda"
-    names = [kw["name"] for s, kw in fakes if s == "ensemble"]
-    assert names == ["primary_pilot", "full_pilot"]
+    ensembles = [kw for s, kw in fakes if s == "ensemble"]
+    assert ensembles == [
+        {"analysis": "primary", "subset": "pilot"},
+        {"analysis": "full", "subset": "pilot"},
+    ]
 
     fakes.clear()
     assert pr.run("full", ["primary"], "cpu", ["baselines", "ensemble"]) == 0
     assert fakes[0][1]["subset"] is None
-    assert fakes[1][1] == {"name": "primary"}
+    assert fakes[1][1] == {"analysis": "primary", "subset": None}
 
 
 def test_rerun_skips_finished_steps(fakes, capsys):
@@ -154,18 +200,46 @@ def test_unbuilt_module_stops_with_clear_message(tmp_path, monkeypatch, tagged):
     monkeypatch.setattr(config.paths, "output_root", tmp_path)
     monkeypatch.setitem(
         pr.STEPS,
-        "report",
+        "baselines",
         pr.Step("src.analysis._not_built_for_test", lambda f, c: f()),
     )
     with pytest.raises(pr.StepNotBuiltError, match="not built yet"):
-        pr.resolve("report")
-    assert pr.run("pilot", ["primary"], "cpu", ["report"]) == pr.EXIT_FAILED
+        pr.resolve("baselines")
+    assert pr.run("pilot", ["primary"], "cpu", ["baselines"]) == pr.EXIT_FAILED
 
 
 def test_module_without_run_is_not_built(monkeypatch):
-    monkeypatch.setitem(pr.STEPS, "report", pr.Step("src.utils.seed", None))
+    monkeypatch.setitem(pr.STEPS, "baselines", pr.Step("src.utils.seed", None))
     with pytest.raises(pr.StepNotBuiltError, match="no run"):
-        pr.resolve("report")
+        pr.resolve("baselines")
+
+
+def _ctx_variants():
+    for analysis in (pr.ALL_ANALYSES, *pr.ANALYSES):
+        for subset in ("pilot", None):
+            yield pr.Ctx(
+                analysis="primary" if analysis == pr.ALL_ANALYSES else analysis,
+                subset=subset,
+                run_name=pr.run_name(analysis, subset),
+                predict_middle=analysis == "primary",
+                device="cpu",
+            )
+
+
+@pytest.mark.parametrize("step", list(pr.STEPS))
+def test_every_step_matches_the_real_run_signature(step):
+    """Bind each STEPS call against the real module's run(): signature drift
+    must fail here, not in a Kaggle session."""
+    spec = pr.STEPS[step]
+    real = importlib.import_module(spec.module).run
+    signature = inspect.signature(real)
+
+    def bind_only(*args, **kwargs):
+        signature.bind(*args, **kwargs)  # TypeError on any mismatch
+        return None
+
+    for ctx in _ctx_variants():
+        spec.call(bind_only, ctx)
 
 
 def test_refuses_without_protocol_tag(fakes, monkeypatch, capsys):
@@ -240,13 +314,19 @@ def e2e_root(tmp_path_factory):
 
 
 def test_end_to_end_on_synthetic_fixture(e2e_root, monkeypatch, capsys):
-    assert pr.run("pilot", ["primary"], "cpu", BUILT) == pr.EXIT_OK
+    monkeypatch.setattr(config.permutation, "n_lr", config.smoke.permutation_n)
+    analyses = list(config.runner.default_analyses)
+    plan = pr._plan(analyses, list(config.runner.default_steps))
+    assert pr.run("pilot", analyses, "cpu", None) == pr.EXIT_OK
     out = capsys.readouterr().out
-    assert out.count("[DONE]") == len(BUILT) and "ALL STEPS FINISHED" in out
+    assert out.count("[DONE]") == len(plan) and "ALL STEPS FINISHED" in out
+    assert "[SKIP] cnn_head_fused: CNN-path tests run on the full run only" in out
 
     results = config.paths.results_dir
-    for sub in ("baselines", "cnn", "cnn_shuffled", "hybrid", "ensemble"):
-        assert (results / sub / "primary_pilot" / "predictions.csv").is_file(), sub
+    for analysis in analyses:
+        for sub in ("baselines", "cnn", "cnn_shuffled", "hybrid", "ensemble"):
+            path = results / sub / f"{analysis}_pilot" / "predictions.csv"
+            assert path.is_file(), path
     ens = pd.read_csv(
         results / "ensemble" / "primary_pilot" / "predictions.csv",
         dtype={"participant_id": str},
@@ -255,17 +335,38 @@ def test_end_to_end_on_synthetic_fixture(e2e_root, monkeypatch, capsys):
     assert set(ens["analysis"]) == {"primary"}
     assert ens["in_middle_band"].any()  # predict_middle on the primary set
     assert ens["prob_sad"].between(0, 1).all()
-    for step in BUILT:
-        analysis = "all" if step in ("embeddings", "handcrafted") else "primary"
+    for analysis, step in plan:
         assert pr.marker_path("pilot", analysis, step).is_file(), step
+
+    final = results / "final_pilot"
+    comp = pd.read_csv(final / "model_comparison.csv")
+    assert set(comp["analysis"]) == set(analyses)
+    assert ("ensemble", "all") in set(zip(comp["model"], comp["feature_set"]))
+    text = (final / "model_comparison.txt").read_text(encoding="utf-8")
+    perm_lines = [ln for ln in text.splitlines() if "Permutation test," in ln]
+    assert len(perm_lines) == 2 * len(config.permutation.pilot_models)
+    assert (final / "secondary.txt").is_file()
+    assert (final / config.gradcam.output_subdir).is_dir()
+    report = (final / "RESULTS.txt").read_text(encoding="utf-8")
+    assert "SYNTHETIC DATA ROOT" in report and "SUBSET PILOT" in report
+    assert not (results / "final").exists()  # pilot never writes the full run's
+
+    # rerun the evaluator after the permutation tests: p-values survive
+    from src.training import evaluator
+
+    evaluator.run(None, "pilot")
+    again = (final / "model_comparison.txt").read_text(encoding="utf-8")
+    assert [ln for ln in again.splitlines() if "Permutation test," in ln] == (
+        perm_lines
+    )
 
     # rerun: every step skipped, no module run function called
     def no_call(step):
         raise AssertionError(f"{step} resolved on a finished run")
 
     monkeypatch.setattr(pr, "resolve", no_call)
-    assert pr.run("pilot", ["primary"], "cpu", BUILT) == pr.EXIT_OK
-    assert capsys.readouterr().out.count("[SKIP]") == len(BUILT)
+    assert pr.run("pilot", analyses, "cpu", None) == pr.EXIT_OK
+    assert capsys.readouterr().out.count("[SKIP]") == len(plan)
 
 
 def test_end_to_end_refuses_without_tag(e2e_root, monkeypatch, capsys):

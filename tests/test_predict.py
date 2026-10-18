@@ -5,7 +5,6 @@ once with --predict-middle on 40 synthetic participants (CPU, 1 epoch,
 no pretrained weights); the demo is then checked against those runs.
 """
 
-import types
 from pathlib import Path
 
 import pandas as pd
@@ -116,7 +115,7 @@ def test_ensemble_matches_reported_out_of_fold_prediction(demo_root):
     ).set_index("participant_id")
     assert result["prob_sad"] == pytest.approx(ens.loc[codes[0], "prob_sad"], abs=1e-4)
     assert (demo_root / "results" / "demo" / codes[0] / "prediction.json").is_file()
-    paths = result["gradcam_paths"]  # H4 src.analysis.gradcam overlays
+    paths = result["gradcam_paths"]  # src.analysis.gradcam.save_overlay
     assert len(paths) == config.demo.n_gradcam
     assert all(Path(p).is_file() for p in paths)
 
@@ -169,18 +168,29 @@ def test_live_mismatch_with_reported_run_refused(demo_root, monkeypatch):
         predict.predict_participant(codes[0], "lr_handcrafted")
 
 
-def test_gradcam_overlays_saved_when_h4_exists(demo_root, monkeypatch):
+def test_gradcam_overlays_use_save_overlay(demo_root, monkeypatch):
+    calls = []
+
     def save_overlay(cnn, image, out_path):
         assert image.dim() == 3
+        calls.append(out_path)
         out_path.write_bytes(b"png")
         return out_path
 
-    stub = types.SimpleNamespace(save_overlay=save_overlay)
-    monkeypatch.setattr(predict, "_gradcam_module", lambda: stub)
+    monkeypatch.setattr(predict, "save_overlay", save_overlay)
     codes, _ = _sample(demo_root)
     result = predict.predict_participant(codes[0])
-    assert len(result["gradcam_paths"]) == config.demo.n_gradcam
+    assert len(calls) == config.demo.n_gradcam
+    assert result["gradcam_paths"] == [str(p) for p in calls]
     assert all(p.endswith(".png") for p in result["gradcam_paths"])
+
+
+def test_lr_only_model_has_no_gradcam(demo_root, capsys):
+    codes, _ = _sample(demo_root)
+    result = predict.predict_participant(codes[0], "lr_handcrafted")
+    assert result["gradcam_paths"] == []
+    assert predict.main(["--code", codes[0], "--model", "lr_handcrafted"]) == 0
+    assert "Grad-CAM      : none (LR-only model)" in capsys.readouterr().out
 
 
 def test_cli(demo_root, capsys):

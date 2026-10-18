@@ -1,22 +1,32 @@
 """
 One resumable command for the pilot and full runs — Stage G.
 
-Runs RunnerConfig.default_steps (or --steps) in order for each analysis set,
-primary first, by calling each module's run function:
+Runs RunnerConfig.default_steps (or --steps) by calling each module's run
+function, in this order (per analysis = primary, then full):
 
-    embeddings     src.features.embeddings.run(device)          once per subset
-    handcrafted    src.features.handcrafted.run()               once per subset
-    baselines      src.training.run_baselines.run(analysis, subset, predict_middle)
-    cnn            src.training.run_cnn.run(analysis, subset, predict_middle, device)
+    embeddings     src.features.embeddings.run(device)            once
+    handcrafted    src.features.handcrafted.run()                 once
+    baselines      src.training.run_baselines.run(analysis, subset,
+                                                  predict_middle)  per analysis
+    cnn            src.training.run_cnn.run(analysis, subset,
+                                            predict_middle, device)
     cnn_shuffled   src.training.run_cnn.run(..., shuffle_labels=True)  null run
-    hybrid         src.training.run_hybrid.run(analysis, subset, predict_middle,
-                                               device)
-    ensemble       src.training.run_ensemble.run(<run name>)
-    evaluate       src.training.evaluator.run(analysis, subset)
-    permutation    src.analysis.permutation.run(analysis, subset)
-    secondary      src.analysis.secondary.run(analysis, subset)
-    gradcam        src.analysis.gradcam.run(analysis, subset, device)
-    report         src.analysis.report.run(analysis, subset)
+    hybrid         src.training.run_hybrid.run(analysis, subset,
+                                               predict_middle, device)
+    ensemble       src.training.run_ensemble.run(analysis, subset)
+    evaluate       src.training.evaluator.run(None, subset)       once
+    permutation    src.analysis.permutation.run(analysis, subset,
+                                                device)           per analysis
+    secondary      src.analysis.secondary.run(subset)             once
+    gradcam        src.analysis.gradcam.run(subset=subset)        once
+    report         src.analysis.report.run(subset)                once
+
+The once-only evaluation steps (evaluate, secondary, gradcam, report) read
+every analysis set, so they run only after every RunnerConfig.default_analyses
+set has finished the command's model steps (all of RunnerConfig.default_steps'
+if it names none) for this subset. Given fewer analyses, they
+print "[WAIT] <step>: needs <missing> first" and write no marker, so a later
+command that adds the missing analysis runs them.
 
 predict_middle is RunnerConfig.predict_middle on the primary set only. The
 first failing step stops the run with its error; a step whose module (or
@@ -80,18 +90,30 @@ class Ctx:
     device: str
 
 
+# Plan phases, run in this order. Steps of a per-analysis phase run for
+# primary, then full; the others run once per subset.
+PREPARE, MODELS, EVALUATE, PERMUTATION, REPORT = range(5)
+PER_ANALYSIS_PHASES = (MODELS, PERMUTATION)
+# Once-only steps that read every analysis set's model outputs.
+GATED_PHASES = (EVALUATE, REPORT)
+
+
 @dataclass(frozen=True)
 class Step:
     module: str
     call: Callable  # (run_fn, Ctx) -> output path(s) or None
-    per_analysis: bool = True
+    phase: int = MODELS
+
+    @property
+    def per_analysis(self) -> bool:
+        return self.phase in PER_ANALYSIS_PHASES
 
 
 STEPS = {
     "embeddings": Step(
-        "src.features.embeddings", lambda f, c: f(device=c.device), False
+        "src.features.embeddings", lambda f, c: f(device=c.device), PREPARE
     ),
-    "handcrafted": Step("src.features.handcrafted", lambda f, c: f(), False),
+    "handcrafted": Step("src.features.handcrafted", lambda f, c: f(), PREPARE),
     "baselines": Step(
         "src.training.run_baselines",
         lambda f, c: f(
@@ -122,27 +144,26 @@ STEPS = {
             device=c.device,
         ),
     ),
-    # run_ensemble.run(analysis) only uses its argument as the results folder
-    # name (rows keep the components' analysis), so the run name selects the
-    # pilot folders written by the component runners.
-    "ensemble": Step("src.training.run_ensemble", lambda f, c: f(c.run_name)),
+    "ensemble": Step(
+        "src.training.run_ensemble",
+        lambda f, c: f(analysis=c.analysis, subset=c.subset),
+    ),
+    # analysis None: one model_comparison table holding every analysis set
     "evaluate": Step(
-        "src.training.evaluator", lambda f, c: f(analysis=c.analysis, subset=c.subset)
+        "src.training.evaluator",
+        lambda f, c: f(analysis=None, subset=c.subset),
+        EVALUATE,
     ),
     "permutation": Step(
         "src.analysis.permutation",
-        lambda f, c: f(analysis=c.analysis, subset=c.subset),
+        lambda f, c: f(analysis=c.analysis, subset=c.subset, device=c.device),
+        PERMUTATION,
     ),
     "secondary": Step(
-        "src.analysis.secondary", lambda f, c: f(analysis=c.analysis, subset=c.subset)
+        "src.analysis.secondary", lambda f, c: f(subset=c.subset), REPORT
     ),
-    "gradcam": Step(
-        "src.analysis.gradcam",
-        lambda f, c: f(analysis=c.analysis, subset=c.subset, device=c.device),
-    ),
-    "report": Step(
-        "src.analysis.report", lambda f, c: f(analysis=c.analysis, subset=c.subset)
-    ),
+    "gradcam": Step("src.analysis.gradcam", lambda f, c: f(subset=c.subset), REPORT),
+    "report": Step("src.analysis.report", lambda f, c: f(subset=c.subset), REPORT),
 }
 
 
@@ -252,14 +273,44 @@ def _plan(analyses: list, steps: list) -> list:
     """[(analysis or ALL_ANALYSES, step)] in run order, primary first."""
     ordered = [a for a in ANALYSES if a in analyses]
     plan = []
-    for analysis in ordered:
-        for step in steps:
-            if not STEPS[step].per_analysis:
-                if (ALL_ANALYSES, step) not in plan:
-                    plan.append((ALL_ANALYSES, step))
-            else:
-                plan.append((analysis, step))
+    for phase in sorted({STEPS[s].phase for s in steps}):
+        in_phase = [s for s in steps if STEPS[s].phase == phase]
+        if phase in PER_ANALYSIS_PHASES:
+            plan += [(a, s) for a in ordered for s in in_phase]
+        else:
+            plan += [(ALL_ANALYSES, s) for s in in_phase]
     return plan
+
+
+def _ctx(analysis: str, module_subset: str | None, device: str) -> Ctx:
+    return Ctx(
+        analysis=ANALYSES[0] if analysis == ALL_ANALYSES else analysis,
+        subset=module_subset,
+        run_name=run_name(analysis, module_subset),
+        predict_middle=config.runner.predict_middle and analysis == "primary",
+        device=device,
+    )
+
+
+def missing_models(
+    subset: str, module_subset, device: str, fingerprint: str, steps: list
+) -> list:
+    """'<analysis>/<step>' model steps not yet finished for this subset.
+
+    Every RunnerConfig.default_analyses set must have finished the model
+    steps of this command (or, if it names none, every model step of
+    RunnerConfig.default_steps) before a gated step may run.
+    """
+    model_steps = [s for s in steps if STEPS[s].phase == MODELS] or [
+        s for s in config.runner.default_steps if STEPS[s].phase == MODELS
+    ]
+    missing = []
+    for analysis in [a for a in ANALYSES if a in config.runner.default_analyses]:
+        settings = _settings(_ctx(analysis, module_subset, device), fingerprint)
+        for step in model_steps:
+            if not is_done(marker_path(subset, analysis, step), settings):
+                missing.append(f"{analysis}/{step}")
+    return missing
 
 
 def _validate(subset: str, analyses: list, steps: list) -> list:
@@ -307,15 +358,10 @@ def run(
     print(f"state: {state_dir(subset)}")
     print("=" * 72)
     start = time.perf_counter()
+    waiting = []
     for analysis, step in plan:
         label = f"{analysis}/{step}"
-        ctx = Ctx(
-            analysis=ANALYSES[0] if analysis == ALL_ANALYSES else analysis,
-            subset=module_subset,
-            run_name=run_name(analysis, module_subset),
-            predict_middle=config.runner.predict_middle and analysis == "primary",
-            device=device,
-        )
+        ctx = _ctx(analysis, module_subset, device)
         settings = _settings(ctx, fingerprint)
         marker = marker_path(subset, analysis, step)
         t0 = time.perf_counter()
@@ -323,6 +369,14 @@ def run(
             if is_done(marker, settings):
                 print(f"[SKIP] {label}: already finished ({marker.name})")
                 continue
+            if STEPS[step].phase in GATED_PHASES:
+                missing = missing_models(
+                    subset, module_subset, device, fingerprint, steps
+                )
+                if missing:
+                    print(f"[WAIT] {step}: needs {', '.join(missing)} first")
+                    waiting.append(step)
+                    continue
             print(f"[RUN ] {label}", flush=True)
             fn = resolve(step)
             result = STEPS[step].call(fn, ctx)
@@ -342,7 +396,14 @@ def run(
         write_marker(marker, step, settings, result, dt)
         print(f"[DONE] {label} ({dt:.1f} s)")
     print("=" * 72)
-    print(f"ALL STEPS FINISHED in {time.perf_counter() - start:.1f} s")
+    total = time.perf_counter() - start
+    if waiting:
+        print(
+            f"FINISHED in {total:.1f} s; waiting for the other analysis set: "
+            f"{', '.join(waiting)}"
+        )
+    else:
+        print(f"ALL STEPS FINISHED in {total:.1f} s")
     return EXIT_OK
 
 

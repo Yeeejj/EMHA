@@ -31,16 +31,26 @@ directory removed when the draw finishes.
 The observed macro-F1 is read from the model's predictions.csv (the run H1
 evaluates), pooled over the out-of-fold participants outside the middle band.
 
-Outputs, results/final/:
+Subset runs (the pilot, --subset pilot): the participants, outer folds,
+observed predictions (results/<source>/<analysis>_<subset>/) and outputs
+(results/final_<subset>/) all belong to the subset; pilot and full files are
+never mixed. Only PermutationConfig.pilot_models are tested on a subset; the
+CNN-path tests run on the full run only (F4 [A]).
+
+Outputs, results/final[_<subset>]/:
 
     permutation_<model>_<analysis>_null.npy   null macro-F1 values
     permutation_<model>_<analysis>.png        histogram + observed value
     permutation_<model>_<analysis>.json       observed, p_value, n, seed, ...
-    model_comparison.txt                      one line appended per test
+    model_comparison.txt                      permutation section rebuilt from
+                                              every JSON (evaluator keeps it)
+
+run(analysis, subset) runs every protocol test of one analysis set (the
+pipeline runner's step); permutation_test() runs one.
 
     python -m src.analysis.permutation --model lr_handcrafted
-        [--analysis primary] [--n 1000] [--n-jobs -1] [--seed 42]
-        [--device auto]
+        [--analysis primary] [--subset pilot] [--n 1000] [--n-jobs -1]
+        [--seed 42] [--device auto]
 """
 
 from __future__ import annotations
@@ -62,14 +72,22 @@ from sklearn.metrics import f1_score
 from src.data.dataloader import labels_csv_path, load_tables
 from src.features.embeddings import resolve_device
 from src.training import run_cnn, run_ensemble, run_hybrid
-from src.training.evaluator import analysis_frame, metrics, output_dir, validate
+from src.training.evaluator import (
+    analysis_frame,
+    metrics,
+    output_dir,
+    validate,
+    write_comparison_text,
+)
 from src.training.run_baselines import PRED_COLUMNS, _prob_sad, feature_sets, fit_lr
 from src.training.splits import (
+    SUBSETS,
     analysis_ids,
     assert_no_leakage,
     fold_ids,
     folds_path,
     load_folds,
+    restrict_to_subset,
 )
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
@@ -126,15 +144,19 @@ def _label_index(labels: pd.DataFrame, ids, cfg=config) -> np.ndarray:
     return lab.loc[list(ids)].map(cfg.data.label_to_index).to_numpy()
 
 
-def _context(analysis: str, cfg=config) -> _Context:
+def _run_name(analysis: str, subset: str | None) -> str:
+    return analysis if subset is None else f"{analysis}_{subset}"
+
+
+def _context(analysis: str, cfg=config, subset: str | None = None) -> _Context:
     labels = pd.read_csv(labels_csv_path(cfg), dtype={"participant_id": str})
     participants = pd.read_csv(
         cfg.paths.metadata_dir / "participants.csv", dtype={"participant_id": str}
     )
     folds = load_folds(cfg)
-    ids = analysis_ids(labels, participants, analysis)
+    ids = restrict_to_subset(analysis_ids(labels, participants, analysis), subset)
     if not ids:
-        raise ValueError(f"no participants in analysis {analysis!r}")
+        raise ValueError(f"no participants in analysis {analysis!r} / {subset}")
     splits = []
     for fold in range(cfg.cv.n_splits):
         train, test = fold_ids(folds, fold, ids)
@@ -160,9 +182,12 @@ def permuted_train_labels(ctx: _Context, perm: int, seed: int, cfg=config) -> li
 # ─── observed ─────────────────────────────────────────────────────────────────
 
 
-def observed_macro_f1(model: str, fs: str, analysis: str, cfg=config) -> float:
+def observed_macro_f1(
+    model: str, fs: str, analysis: str, cfg=config, subset: str | None = None
+) -> float:
     """Pooled macro-F1 of the observed run, as the H1 evaluator computes it."""
-    path = cfg.paths.results_dir / SOURCES[model] / analysis / "predictions.csv"
+    name = _run_name(analysis, subset)
+    path = cfg.paths.results_dir / SOURCES[model] / name / "predictions.csv"
     if not path.is_file():
         raise FileNotFoundError(f"{path} not found; run the {SOURCES[model]} runner")
     preds = validate(pd.read_csv(path, dtype={"participant_id": str}), analysis, path)
@@ -227,9 +252,10 @@ def lr_null(
     n_jobs: int,
     seed: int,
     cfg=config,
+    subset: str | None = None,
 ) -> np.ndarray:
     """Null macro-F1 of an LR model over permutations 0..n-1."""
-    ctx = _context(analysis, cfg)
+    ctx = _context(analysis, cfg, subset)
     X_df, use_pca = _lr_features(model, fs, ctx.ids, cfg)
     X = X_df.to_numpy(dtype=float)
     plan = _lr_plan(X_df, ctx)
@@ -283,17 +309,17 @@ def lr_predictions(
 # ─── CNN path ─────────────────────────────────────────────────────────────────
 
 
-def runs_dir(analysis: str, seed: int, cfg=config) -> Path:
-    return (
-        output_dir(None, cfg) / cfg.permutation.runs_subdir / analysis / f"seed_{seed}"
-    )
+def runs_dir(analysis: str, seed: int, cfg=config, subset: str | None = None) -> Path:
+    out = output_dir(subset, cfg) / cfg.permutation.runs_subdir
+    return out / analysis / f"seed_{seed}"
 
 
-def _settings(analysis: str, seed: int, cfg=config) -> dict:
+def _settings(analysis: str, seed: int, cfg=config, subset: str | None = None):
     return json.loads(
         json.dumps(
             {
                 "analysis": analysis,
+                "subset": subset,
                 "seed": seed,
                 "folds_sha256": hashlib.sha256(
                     folds_path(cfg).read_bytes()
@@ -376,12 +402,19 @@ def cnn_null_run(ctx: _Context, perm: int, seed: int, device: str, cfg=config):
 
 
 def cnn_null(
-    model: str, fs: str, analysis: str, n: int, seed: int, device: str, cfg=config
+    model: str,
+    fs: str,
+    analysis: str,
+    n: int,
+    seed: int,
+    device: str,
+    cfg=config,
+    subset: str | None = None,
 ) -> np.ndarray:
     """Null macro-F1 of a CNN-path model; draws are cached and resumed."""
-    ctx = _context(analysis, cfg)
-    out = runs_dir(analysis, seed, cfg)
-    run_cnn.check_resume(out, _settings(analysis, seed, cfg))
+    ctx = _context(analysis, cfg, subset)
+    out = runs_dir(analysis, seed, cfg, subset)
+    run_cnn.check_resume(out, _settings(analysis, seed, cfg, subset))
     null = []
     for perm in range(n):
         path = out / f"perm_{perm:04d}.csv"
@@ -435,17 +468,25 @@ def permutation_test(
     seed: int | None = None,
     device: str = "auto",
     cfg=config,
+    subset: str | None = None,
 ) -> dict:
     """Permutation p-value of the model's pooled macro-F1; writes the outputs."""
     require_frozen_or_synthetic(cfg, "permutation")
     pcfg = cfg.permutation
+    if subset is not None and subset not in SUBSETS:
+        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
+    if subset is not None and model not in pcfg.pilot_models:
+        raise ValueError(
+            f"{model}: CNN-path tests run on the full run only; a {subset} run "
+            f"tests {list(pcfg.pilot_models)}"
+        )
     seed = cfg.training.seed if seed is None else seed
     lr, cnn = dict(pcfg.lr_models), dict(pcfg.cnn_models)
     if model in lr:
         fs, n = lr[model], n or pcfg.n_lr
         method = "LR: nested-CV pipeline refit on shuffled outer-train labels"
         print(f"Permutation ({method}), N = {n}, n_jobs = {n_jobs}")
-        null = lr_null(model, fs, analysis, n, n_jobs, seed, cfg)
+        null = lr_null(model, fs, analysis, n, n_jobs, seed, cfg, subset)
     elif model in cnn:
         if analysis not in pcfg.cnn_analyses:
             raise ValueError(
@@ -458,14 +499,16 @@ def permutation_test(
             "proxy), CNN + CNN-HMM + ensemble LRs refit on shuffled labels"
         )
         print(f"Permutation ({method}), N = {n}; n_jobs unused, draws run in turn")
-        null = cnn_null(model, fs, analysis, n, seed, resolve_device(device), cfg)
+        null = cnn_null(
+            model, fs, analysis, n, seed, resolve_device(device), cfg, subset
+        )
     else:
         tested = sorted(lr) + sorted(cnn)
         raise ValueError(f"no permutation test for {model!r}; protocol tests {tested}")
 
-    observed = observed_macro_f1(model, fs, analysis, cfg)
+    observed = observed_macro_f1(model, fs, analysis, cfg, subset)
     p = p_value(null, observed)
-    out = output_dir(None, cfg)
+    out = output_dir(subset, cfg)
     out.mkdir(parents=True, exist_ok=True)
     stem = f"permutation_{model}_{analysis}"
     null_path = out / f"{stem}_null.npy"
@@ -482,6 +525,7 @@ def permutation_test(
         "model": model,
         "feature_set": fs,
         "analysis": analysis,
+        "subset": subset,
         "n": int(n),
         "seed": int(seed),
         "method": method,
@@ -491,16 +535,44 @@ def permutation_test(
         "significant": bool(p <= pcfg.alpha),
         "null_path": str(null_path),
     }
-    (out / f"{stem}.json").write_text(json.dumps(result, indent=2))
-    line = (
+    result["summary"] = (
         f"Permutation test, {analysis} {model}/{fs}: observed macro-F1 "
         f"{observed:.3f}, p = {p:.4f} (N = {n}, seed {seed}, null mean "
-        f"{result['null_mean']:.3f}; {method})\n"
+        f"{result['null_mean']:.3f}; {method})"
     )
-    with (out / "model_comparison.txt").open("a", encoding="utf-8") as f:
-        f.write(line)
-    print(line, end="")
-    return result
+    json_path = out / f"{stem}.json"
+    json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    write_comparison_text(out, cfg=cfg)
+    print(result["summary"])
+    return {**result, "json_path": str(json_path)}
+
+
+def run(
+    analysis: str = "primary",
+    subset: str | None = None,
+    device: str = "auto",
+    n_jobs: int = -1,
+) -> list[Path]:
+    """Every protocol permutation test of one analysis set; the JSON paths.
+
+    LR models always; CNN-path models when analysis is in
+    PermutationConfig.cnn_analyses. A subset run tests only
+    PermutationConfig.pilot_models and skips the rest with a message.
+    """
+    pcfg = config.permutation
+    models = [m for m, _ in pcfg.lr_models]
+    if analysis in pcfg.cnn_analyses:
+        models += [m for m, _ in pcfg.cnn_models]
+    paths = []
+    for model in models:
+        if subset is not None and model not in pcfg.pilot_models:
+            print(f"[SKIP] {model}: CNN-path tests run on the full run only")
+            continue
+        result = permutation_test(
+            model, analysis, n_jobs=n_jobs, device=device, subset=subset
+        )
+        paths.append(Path(result["json_path"]))
+    return paths
 
 
 def main() -> int:
@@ -510,6 +582,7 @@ def main() -> int:
     ]
     parser.add_argument("--model", required=True, choices=tested)
     parser.add_argument("--analysis", choices=("primary", "full"), default="primary")
+    parser.add_argument("--subset", choices=SUBSETS, default=None)
     parser.add_argument("--n", type=int, default=None)
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--seed", type=int, default=None)
@@ -517,7 +590,13 @@ def main() -> int:
     args = parser.parse_args()
     try:
         permutation_test(
-            args.model, args.analysis, args.n, args.n_jobs, args.seed, args.device
+            args.model,
+            args.analysis,
+            args.n,
+            args.n_jobs,
+            args.seed,
+            args.device,
+            subset=args.subset,
         )
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")

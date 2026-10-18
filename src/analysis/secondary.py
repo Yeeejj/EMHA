@@ -35,7 +35,11 @@ PNGs (300 dpi, titled "Secondary analysis: ..." or "Exploratory: ..."):
 secondary_family_<analysis>.png, secondary_ablations_<analysis>.png,
 secondary_top_features.png.
 
-    python -m src.analysis.secondary
+With --subset pilot every input is the subset's run (results/<source>/
+<analysis>_pilot/, labels restricted to the pilot codes) and the outputs go
+to results/final_pilot/; pilot and full files are never mixed.
+
+    python -m src.analysis.secondary [--subset pilot]
 """
 
 from __future__ import annotations
@@ -65,6 +69,7 @@ from src.training.evaluator import (
     validate,
 )
 from src.training.run_baselines import EXPLORATORY_MODELS, PRED_COLUMNS
+from src.training.splits import SUBSETS, restrict_to_subset
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
 
@@ -153,11 +158,17 @@ def _complete(frame: pd.DataFrame, cfg=config) -> bool:
     return set(frame["fold"]) == set(range(cfg.cv.n_splits))
 
 
-def load_simple_cnn(cfg=config) -> pd.DataFrame:
+def _run_name(analysis: str, subset: str | None) -> str:
+    """Runner folder name, as src.training.run_cnn.run_name (resnet18)."""
+    return analysis if subset is None else f"{analysis}_{subset}"
+
+
+def load_simple_cnn(cfg=config, subset: str | None = None) -> pd.DataFrame:
     """The simple-CNN ablation (run_cnn --backbone simple), models renamed."""
     frames = []
     for analysis in cfg.evaluation.analyses:
-        path = cfg.paths.results_dir / "cnn" / f"{analysis}_simple" / "predictions.csv"
+        name = f"{_run_name(analysis, subset)}_simple"
+        path = cfg.paths.results_dir / "cnn" / name / "predictions.csv"
         if path.is_file():
             raw = pd.read_csv(path, dtype={"participant_id": str})
             frames.append(validate(raw, analysis, str(path), cfg))
@@ -170,8 +181,11 @@ def load_simple_cnn(cfg=config) -> pd.DataFrame:
     return df
 
 
-def _crops(source: str, analysis: str, cfg=config) -> pd.DataFrame | None:
-    path = cfg.paths.results_dir / source / analysis / "crop_predictions.csv"
+def _crops(
+    source: str, analysis: str, cfg=config, subset: str | None = None
+) -> pd.DataFrame | None:
+    name = _run_name(analysis, subset)
+    path = cfg.paths.results_dir / source / name / "crop_predictions.csv"
     if not path.is_file():
         return None
     crops = pd.read_csv(path, dtype={"participant_id": str})
@@ -304,7 +318,7 @@ def middle_band_rows(df: pd.DataFrame, cfg=config) -> list:
     return rows
 
 
-def ablation_rows(df: pd.DataFrame, cfg=config) -> list:
+def ablation_rows(df: pd.DataFrame, cfg=config, subset: str | None = None) -> list:
     rows = []
     for analysis in [a for a in cfg.evaluation.analyses if a in set(df["analysis"])]:
         groups = _groups(df, analysis, cfg)
@@ -315,15 +329,15 @@ def ablation_rows(df: pd.DataFrame, cfg=config) -> list:
                         block, analysis, groups[key], key, groups[ref_key], ref_key, cfg
                     )
                 )
-        rows += aggregation_rows(analysis, cfg)
+        rows += aggregation_rows(analysis, cfg, subset)
     return rows
 
 
-def aggregation_rows(analysis: str, cfg=config) -> list:
+def aggregation_rows(analysis: str, cfg=config, subset: str | None = None) -> list:
     """mean_logit / majority_vote vs mean_prob from the same crop predictions."""
     rows = []
     for source, model, fused, families in CROP_MODELS:
-        crops = _crops(source, analysis, cfg)
+        crops = _crops(source, analysis, cfg, subset)
         if crops is None:
             continue
         by_method = {}
@@ -350,8 +364,9 @@ def aggregation_rows(analysis: str, cfg=config) -> list:
     return rows
 
 
-def top_features(cfg=config) -> pd.DataFrame | None:
-    path = cfg.paths.results_dir / "baselines" / "primary" / "lr_coefficients.csv"
+def top_features(cfg=config, subset: str | None = None) -> pd.DataFrame | None:
+    name = _run_name("primary", subset)
+    path = cfg.paths.results_dir / "baselines" / name / "lr_coefficients.csv"
     if not path.is_file():
         return None
     coefs = pd.read_csv(path)
@@ -365,9 +380,11 @@ def top_features(cfg=config) -> pd.DataFrame | None:
     return stats.loc[order.index[: cfg.evaluation.top_features]].reset_index()
 
 
-def qc_balance(cfg=config) -> dict | None:
+def qc_balance(cfg=config, subset: str | None = None) -> dict | None:
     """Label x QC status (qc_passed vs anything else) among labeled people."""
     labels = pd.read_csv(labels_csv_path(cfg), dtype={"participant_id": str})
+    keep = restrict_to_subset(list(labels["participant_id"]), subset, cfg)
+    labels = labels[labels["participant_id"].isin(keep)]
     participants = pd.read_csv(
         cfg.paths.metadata_dir / "participants.csv", dtype={"participant_id": str}
     )
@@ -614,20 +631,24 @@ def text_report(rows: pd.DataFrame, comparison, top, qc, cfg=config) -> str:
 # ─── run ──────────────────────────────────────────────────────────────────────
 
 
-def run() -> Path:
+def run(subset: str | None = None) -> Path:
     """Write secondary.txt, secondary_metrics.csv and PNGs; return the txt path."""
     require_frozen_or_synthetic(config, "secondary")
-    preds = load_predictions()
-    simple = load_simple_cnn()
+    if subset is not None and subset not in SUBSETS:
+        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
+    preds = load_predictions(None, subset)
+    simple = load_simple_cnn(config, subset)
     df = pd.concat([preds, simple], ignore_index=True) if len(simple) else preds
     comparison = evaluate(preds).comparison
-    rows = pd.DataFrame(family_rows(df) + middle_band_rows(df) + ablation_rows(df))
+    rows = pd.DataFrame(
+        family_rows(df) + middle_band_rows(df) + ablation_rows(df, config, subset)
+    )
     # every column present even when a block (e.g. paired ablations) is empty
     rows = rows.reindex(columns=list(dict.fromkeys([*ROW_COLUMNS, *rows.columns])))
-    top = top_features()
-    qc = qc_balance()
+    top = top_features(config, subset)
+    qc = qc_balance(config, subset)
 
-    out = output_dir()
+    out = output_dir(subset)
     out.mkdir(parents=True, exist_ok=True)
     rows.to_csv(out / "secondary_metrics.csv", index=False, float_format="%.6f")
     path = out / "secondary.txt"
@@ -644,9 +665,11 @@ def run() -> Path:
 
 
 def main() -> int:
-    argparse.ArgumentParser(description="Secondary analyses (Stage H3).").parse_args()
+    parser = argparse.ArgumentParser(description="Secondary analyses (Stage H3).")
+    parser.add_argument("--subset", choices=SUBSETS, default=None)
+    args = parser.parse_args()
     try:
-        run()
+        run(args.subset)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")
         return 1

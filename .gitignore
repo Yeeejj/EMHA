@@ -59,3 +59,6 @@ Thumbs.db
 
 # Local run notes that may contain tokens - never commit
 TASK.txt
+
+# Git bundles (backups live outside the repo)
+*.bundle
