@@ -1,7 +1,7 @@
 """
 Smoke test: the whole pipeline on a temporary synthetic root — Stage G.
 
-One command runs every stage end to end and prints PASS / FAIL / SKIP with
+One command runs every stage end to end and prints PASS / FAIL with
 timing, stopping at the first failure:
 
     A  config, paths, seed
@@ -11,8 +11,10 @@ timing, stopping at the first failure:
     D  preprocessing, transforms, handcrafted + stroke features, embeddings
     E  folds, a deliberately leaky split that must be caught, aggregation
     F  baselines, CNN (1 epoch), CNN-HMM, ensemble   -- primary and full
-    G  run log                                         (SKIP until built)
-    H  evaluator and report                            (SKIP until built)
+    G  run log: one point-estimate row per F runner and (model, feature_set)
+       for each analysis, CI columns empty
+    H  evaluator, permutation tests (LR models, N = SmokeConfig.permutation_n),
+       secondary analyses, Grad-CAM, RESULTS.txt
 
 Everything is written under a temporary directory that is removed at the
 end; the real DATASET is never written (with --real-sample it is only read,
@@ -31,7 +33,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
-import importlib.util
 import io
 import shutil
 import sys
@@ -55,18 +56,20 @@ TITLES = {
     "E": "folds, leakage guard, aggregation",
     "F": "baselines, CNN, CNN-HMM, ensemble",
     "G": "run log",
-    "H": "evaluator and report",
+    "H": "evaluator, permutation, secondary, Grad-CAM, report",
 }
-PENDING = {"G": ("src.utils.run_log",), "H": ("src.analysis.report",)}
 FAIL_TAIL_LINES = 25
+# F runner module -> its results folder
+RUNNERS = {
+    "src.training.run_baselines": "baselines",
+    "src.training.run_cnn": "cnn",
+    "src.training.run_hybrid": "hybrid",
+    "src.training.run_ensemble": "ensemble",
+}
 
 
 class StageFailure(Exception):
     """A smoke check did not hold."""
-
-
-class StageSkipped(Exception):
-    """The stage's module is not built yet."""
 
 
 def check(condition: bool, message: str) -> None:
@@ -365,11 +368,102 @@ def stage_f(ctx: dict, analysis: str) -> str:
     return f"ensemble on {len(preds)} participants (accuracy {acc:.2f}, synthetic)"
 
 
-def stage_pending(letter: str) -> str:
-    missing = [m for m in PENDING[letter] if importlib.util.find_spec(m) is None]
-    if missing:
-        raise StageSkipped(f"{', '.join(missing)} not built")
-    raise StageFailure(f"{', '.join(PENDING[letter])} exists; add its smoke check here")
+def _complete_groups(path: Path) -> set:
+    """(model, feature_set) pairs of a predictions.csv covering every fold."""
+    preds = pd.read_csv(path, dtype={"participant_id": str})
+    test = preds[preds["in_middle_band"].astype(str) != "True"]
+    folds = set(range(config.cv.n_splits))
+    return {
+        key
+        for key, part in test.groupby(["model", "feature_set"])
+        if set(part["fold"].astype(int)) == folds
+    }
+
+
+def _run_log() -> pd.DataFrame:
+    from src.utils.run_log import log_path
+
+    path = log_path()
+    check(path.is_file(), f"{path} not written")
+    return pd.read_csv(path, dtype=str, keep_default_na=False)
+
+
+def stage_g(ctx: dict) -> str:
+    log = _run_log()
+    module = log["command"].str.split().str[2]
+    check(set(module) == set(RUNNERS), f"run log modules {sorted(set(module))}")
+    for col in ("macro_f1_ci_low", "macro_f1_ci_high"):
+        check((log[col] == "").all(), f"a runner row has {col} filled")
+    dup = log.duplicated(["command", "analysis", "model", "feature_set"])
+    check(not dup.any(), "a runner logged one (model, feature_set) twice")
+    for analysis in ANALYSES:
+        for mod, folder in RUNNERS.items():
+            rows = log[(module == mod) & (log["analysis"] == analysis)]
+            logged = set(zip(rows["model"], rows["feature_set"]))
+            path = config.paths.results_dir / folder / analysis / "predictions.csv"
+            expected = _complete_groups(path)
+            check(
+                logged == expected,
+                f"{mod} {analysis}: logged {sorted(logged)}, "
+                f"predictions {sorted(expected)}",
+            )
+    ctx["runner_rows"] = len(log)
+    return f"{len(log)} runner rows, one per (runner, analysis, model), CIs empty"
+
+
+def stage_h(ctx: dict) -> str:
+    from src.analysis import gradcam, permutation, report, secondary
+    from src.training import evaluator
+
+    s, pcfg = config.smoke, config.permutation
+    final = evaluator.output_dir()
+    comparison = pd.read_csv(evaluator.run())
+    check(
+        set(comparison["analysis"]) == set(ANALYSES),
+        f"model_comparison.csv analyses {sorted(set(comparison['analysis']))}",
+    )
+    # LR tests only: the CNN-path permutation (full retrains) has its own tests
+    with patch.object(pcfg, "n_lr", s.permutation_n), patch.object(
+        pcfg, "cnn_analyses", ()
+    ):
+        jsons = [p for a in ANALYSES for p in permutation.run(a, n_jobs=1)]
+    check(
+        len(jsons) == len(ANALYSES) * len(pcfg.lr_models),
+        f"{len(jsons)} permutation results, expected one per LR model and set",
+    )
+    secondary.run()
+    overlays = gradcam.run()
+    results = report.run()
+
+    expected = [
+        final / "model_comparison.csv",
+        final / "per_fold_metrics.csv",
+        final / "confusion_matrices.csv",
+        final / "secondary.txt",
+        final / "secondary_metrics.csv",
+        results,
+        *jsons,
+        *overlays,
+    ]
+    absent = [str(p) for p in expected if not Path(p).is_file()]
+    check(not absent, f"outputs missing: {absent}")
+    check(len(overlays) > 0, "Grad-CAM wrote nothing")
+    text = (final / "model_comparison.txt").read_text(encoding="utf-8")
+    n_perm = sum("Permutation test," in ln for ln in text.splitlines())
+    check(n_perm == len(jsons), f"{n_perm} permutation lines in model_comparison")
+    check(
+        "SYNTHETIC DATA ROOT" in Path(results).read_text(encoding="utf-8"),
+        "RESULTS.txt does not say SYNTHETIC DATA ROOT",
+    )
+    log = _run_log().iloc[ctx["runner_rows"] :]
+    ev_rows = log[log["command"].str.startswith("python -m src.training.evaluator")]
+    check(len(ev_rows) == len(comparison), "evaluator run-log rows != comparison")
+    for col in ("macro_f1_ci_low", "macro_f1_ci_high"):
+        check((ev_rows[col] != "").all(), f"an evaluator row has no {col}")
+    return (
+        f"{len(comparison)} model rows, {len(jsons)} permutation tests, "
+        f"{len(overlays)} Grad-CAM files, RESULTS.txt (synthetic)"
+    )
 
 
 # ── driver ───────────────────────────────────────────────────────────────────
@@ -391,13 +485,6 @@ def _steps(wanted: list) -> list:
                         requested,
                     )
                 )
-        elif letter == "H":
-            for analysis in ANALYSES:
-                steps.append(
-                    (f"H/{analysis}", title, lambda c: stage_pending("H"), requested)
-                )
-        elif letter == "G":
-            steps.append(("G", title, lambda c: stage_pending("G"), requested))
         else:
             fn = globals()[f"stage_{letter.lower()}"]
             steps.append((letter, title, fn, requested))
@@ -405,11 +492,11 @@ def _steps(wanted: list) -> list:
 
 
 def main(stages: str = "A-H", real_sample: Path | None = None) -> int:
-    """Run the smoke stages; 0 if none failed (skips allowed), else 1."""
+    """Run the smoke stages; 0 if none failed, else 1."""
     wanted = parse_stages(stages)
     real_sizes = dict(config.crop.expected_size_px)
     start = time.perf_counter()
-    skipped, failed = [], False
+    failed = False
     print("=" * 72)
     real = f", real sample {real_sample}" if real_sample else ""
     print(
@@ -435,9 +522,6 @@ def main(stages: str = "A-H", real_sample: Path | None = None) -> int:
                     ):
                         detail = fn(ctx)
                     status = "PASS"
-                except StageSkipped as exc:
-                    status, detail = "SKIP", str(exc)
-                    skipped.append(label)
                 except (Exception, SystemExit) as exc:  # report, then stop
                     status, detail = "FAIL", f"{type(exc).__name__}: {exc}"
                     failed = True
@@ -454,10 +538,7 @@ def main(stages: str = "A-H", real_sample: Path | None = None) -> int:
     total = time.perf_counter() - start
     print("=" * 72)
     verdict = "FAILED" if failed else "ALL STAGES PASSED"
-    print(
-        f"{verdict} in {total:.1f} s"
-        f"{'; skipped (not built): ' + ', '.join(skipped) if skipped else ''}"
-    )
+    print(f"{verdict} in {total:.1f} s")
     if not failed and total > config.smoke.time_budget_s:
         print(f"WARNING: over the {config.smoke.time_budget_s:.0f} s budget")
     return 1 if failed else 0

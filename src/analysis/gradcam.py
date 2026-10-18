@@ -20,14 +20,17 @@ class it predicted; its recomputed prob_sad must match the stored one
 dark ink on white (un-inverted when PreprocessingConfig.invert), with the
 participant code, cell, true label, prob_sad and fold in the caption.
 
-Outputs, results/final/gradcam/:
+Outputs, results/final[_<subset>]/gradcam/:
 
     gradcam_<family>.png                 summary grid (300 dpi)
     <family>/<category>_<code>_<cell>.png   one overlay per crop
 
+With --subset pilot the predictions, checkpoints (models/cnn/<run>_pilot/)
+and outputs are the pilot run's; pilot and full files are never mixed.
+
 save_overlay(cnn, image, out_path) is the hook used by src.app.predict.
 
-    python -m src.analysis.gradcam [--task-family word]
+    python -m src.analysis.gradcam [--task-family word] [--subset pilot]
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ from src.models.hybrid import cnn_checkpoint_path, load_cnn
 from src.training.aggregate import FAMILIES
 from src.training.evaluator import output_dir
 from src.training.run_cnn import MODEL, run_name
+from src.training.splits import SUBSETS
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
 
@@ -165,8 +169,8 @@ def save_overlay(
 # ─── selection ────────────────────────────────────────────────────────────────
 
 
-def crop_predictions_path(cfg=config) -> Path:
-    name = run_name(cfg.gradcam.analysis, None, "resnet18")
+def crop_predictions_path(cfg=config, subset: str | None = None) -> Path:
+    name = run_name(cfg.gradcam.analysis, subset, "resnet18")
     return cfg.paths.results_dir / "cnn" / name / "crop_predictions.csv"
 
 
@@ -199,7 +203,9 @@ def _caption(row) -> str:
     )
 
 
-def explain_family(crops: pd.DataFrame, family: str, cfg=config) -> list:
+def explain_family(
+    crops: pd.DataFrame, family: str, cfg=config, subset: str | None = None
+) -> list:
     """Overlays + summary grid for one family; returns the written paths."""
     examples = select_examples(crops, family, cfg)
     manifest, _, _ = load_tables(cfg)
@@ -207,8 +213,8 @@ def explain_family(crops: pd.DataFrame, family: str, cfg=config) -> list:
         participant_id=manifest["participant_id"].astype(str)
     ).set_index(["participant_id", "cell"])["processed_path"]
     transform = get_eval_transform(cfg, family)
-    name = run_name(cfg.gradcam.analysis, None, "resnet18")
-    out = output_dir(None, cfg) / cfg.gradcam.output_subdir
+    name = run_name(cfg.gradcam.analysis, subset, "resnet18")
+    out = output_dir(subset, cfg) / cfg.gradcam.output_subdir
     models, written, panels = {}, [], []
 
     for _, row in examples.iterrows():
@@ -272,12 +278,14 @@ def _grid(panels: list, family: str, path: Path, cfg=config) -> Path:
     return path
 
 
-def run(task_family: str | None = None) -> list:
+def run(task_family: str | None = None, subset: str | None = None) -> list:
     """Grad-CAM grids and overlays for one family (default: all); their paths."""
     require_frozen_or_synthetic(config, "gradcam")
     if task_family is not None and task_family not in FAMILIES:
         raise ValueError(f"task_family must be one of {FAMILIES}")
-    path = crop_predictions_path()
+    if subset is not None and subset not in SUBSETS:
+        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
+    path = crop_predictions_path(config, subset)
     if not path.is_file():
         raise FileNotFoundError(f"{path} not found; run src.training.run_cnn first")
     crops = pd.read_csv(path, dtype={"participant_id": str})
@@ -287,7 +295,7 @@ def run(task_family: str | None = None) -> list:
         if not (crops["task_family"] == family).any():
             print(f"gradcam: no {family} crops in {path}; skipped")
             continue
-        written += explain_family(crops, family)
+        written += explain_family(crops, family, config, subset)
         print(f"gradcam: {family} -> {written[-1].parent.parent}")
     return written
 
@@ -295,9 +303,10 @@ def run(task_family: str | None = None) -> list:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Grad-CAM of the CNN (Stage H4).")
     parser.add_argument("--task-family", choices=FAMILIES, default=None)
+    parser.add_argument("--subset", choices=SUBSETS, default=None)
     args = parser.parse_args()
     try:
-        run(args.task_family)
+        run(args.task_family, args.subset)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")
         return 1

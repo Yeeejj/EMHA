@@ -11,7 +11,7 @@ DATA LAYOUT (repo root D:\EMHA_Thesis\EMHA-1; data root DATASET/)
 - Cursive crops: DATASET/raw-4Page/CS1..CS5/EMHA-P4_WritingExercise_<code>_CS<k>.png
 - 24 crops per participant, one fixed pixel size per exercise, all boxes answered.
 - participant_id = the 3-digit <code> (e.g. 001); it must match the tabulation export ID column (ask me to confirm).
-- Labels: DATASET/metadata/questionnaire_export.csv (authoritative).
+- Labels: src/tabulation/ERHA_HappySad_Tabulation_FINALE - self-report data.csv (authoritative, read-only, gitignored; the name contains spaces, so always use pathlib or quoted paths). labels.csv and every derived file go to DATASET/metadata/.
 - Derived outputs: DATASET/metadata/, DATASET/processed/, results/, models/.
 - Existing crop script src/cropping/p3 stays untouched. Write no new cropping code.
 
@@ -26,7 +26,7 @@ NON-NEGOTIABLES
 8. The analysis design (extreme-groups band) and EVALUATION_PROTOCOL.md are fixed before any real result. Nothing is tuned on outer test folds. Any change after the pilot is a logged Deviation.
 9. Ask me before deleting, moving, or overwriting any existing file, and before any git rm, force push, or history rewrite.
 
-ACCURACY STRATEGY (target: >= 70% participant-level accuracy and macro-F1 on the primary set, measured honestly)
+ACCURACY STRATEGY (target: >= 75% participant-level accuracy and macro-F1 on the primary set, measured honestly)
 - Extreme-groups primary set: exclude the middle_band_fraction (default 0.30) of participants closest to the label cutoff. The full sample is secondary.
 - Preserve the signal: grayscale with background flattening only. No binarization, no deskew, no stretch-resize: one fixed scale factor plus white padding. Augment with translation, brightness/contrast, and light blur only. Never rotation, scaling, shear, or flips.
 - Measure baseline_angle_deg per word and cursive crop without rotating it.
@@ -47,14 +47,14 @@ Root: smoke_test.py, EVALUATION_PROTOCOL.md, REPRODUCE.md, notebooks/ (thin boot
 Prediction schema for every model: analysis, model, feature_set, fold, participant_id, label, prob_sad, pred, in_middle_band.
 
 BUILD ORDER (stop at each gate and wait for my confirmation)
-A Foundation: env, .gitignore (DATASET/ excluded), config + data root, seed, synthetic fixture mirroring the real layout, docs cleanup.
+A Foundation: env, .gitignore (DATASET/ and src/tabulation/*.csv excluded), config + data root, seed, synthetic fixture mirroring the real layout, docs cleanup.
 B Labels: labeler, questionnaire report (alpha, balance), analysis-design decision file.
 C Data indexing: scan validator and checksums, crop manifest and verifier, contact sheets.
 D Preprocessing and features: pipeline, transforms, handcrafted features, ResNet18 embeddings.
 E Evaluation setup: dataset, folds.csv for all labeled participants, aggregation, protocol frozen and tagged protocol-frozen.
 F Models: baselines, CNN, CNN-HMM, ensemble (optional exploratory handwriting backbone).
-G Runs: smoke test (local, then Colab) -> pilot on the first ~100 participants (Kaggle) -> full run.
-H Results: evaluator, permutation test, secondary analyses, Grad-CAM, RESULTS.txt, reproducibility bundle.
+G Runs (only after the Stage H evaluation code is built and tested on synthetic data): smoke test (local, then Colab) -> pilot on the first ~100 participants (Kaggle) -> full run.
+H Results: evaluator, permutation test, secondary analyses, Grad-CAM, and report code (built before G); then RESULTS.txt, chapter drafts, defense Q&A, and the reproducibility bundle.
 
 HOW TO WORK ON EVERY TASK
 1. Restate the task in two lines and list the files you will create or change.

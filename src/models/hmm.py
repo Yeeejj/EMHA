@@ -247,7 +247,8 @@ class HMMClassifier:
         y = (np.asarray(labels).astype(int) == self.sad).astype(int)
         if len(np.unique(y)) < 2:
             raise ValueError("calibration needs held-out scores of both classes")
-        self.calibrator = LogisticRegression(penalty=None).fit(s, y)
+        # C=np.inf = unpenalized (scikit-learn >= 1.8 deprecates penalty=None)
+        self.calibrator = LogisticRegression(C=np.inf).fit(s, y)
         return self
 
     def predict_proba(self, sequences) -> np.ndarray:

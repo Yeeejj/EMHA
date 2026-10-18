@@ -22,9 +22,9 @@ used, so the demo never shows a participant to a model trained on them:
      (src.training.run_ensemble.COMPONENTS).
 
 Models: ensemble (default), cnn_hmm (= cnn_hmm_fused), lr_handcrafted,
-lr_embeddings. Grad-CAM overlays for DemoConfig.n_gradcam crops are saved
-when src.analysis.gradcam (H4) exists; it must provide
-save_overlay(cnn, image, out_path) -> Path for a (1, H, W) eval tensor.
+lr_embeddings. Grad-CAM overlays (src.analysis.gradcam.save_overlay, H4)
+are saved for DemoConfig.n_gradcam crops of the CNN-path models; the
+LR-only models have none.
 
 Output: printed summary and results/demo/<code>/prediction.json.
 Refuses to run on real data before the protocol-frozen tag.
@@ -35,8 +35,6 @@ Refuses to run on real data before the protocol-frozen tag.
 from __future__ import annotations
 
 import argparse
-import importlib
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -46,6 +44,7 @@ import pandas as pd
 import torch
 from PIL import Image
 
+from src.analysis.gradcam import save_overlay
 from src.data.dataloader import labels_csv_path, load_tables
 from src.data.transforms import get_eval_transform
 from src.models.hmm import HMMClassifier
@@ -73,7 +72,6 @@ from src.utils.protocol_guard import require_frozen_or_synthetic
 MODELS = ("ensemble", "cnn_hmm", "lr_handcrafted", "lr_embeddings")
 LR_SETS = {"lr_handcrafted": ("all", False), "lr_embeddings": ("concat", True)}
 HYBRID_COMPONENT = ("cnn_hmm_fused", "fused")
-GRADCAM_MODULE = "src.analysis.gradcam"
 
 
 class DemoRefusal(RuntimeError):
@@ -239,17 +237,9 @@ def _check_match(model, fs, subdir, code, fold, live, cfg) -> None:
 # ── grad-cam ─────────────────────────────────────────────────────────────────
 
 
-def _gradcam_module():
-    """src.analysis.gradcam (H4) if it exists, else None."""
-    if importlib.util.find_spec(GRADCAM_MODULE) is None:
-        return None
-    return importlib.import_module(GRADCAM_MODULE)
-
-
 def save_gradcams(hybrid, crops, crop_probs, label, out_dir, cfg=config) -> list:
     """Overlays for the n_gradcam crops that most support `label`."""
-    module = _gradcam_module()
-    if module is None or hybrid is None:
+    if hybrid is None:  # LR-only models have no CNN to explain
         return []
     ranked = [
         (p, family, cell, img)
@@ -261,7 +251,7 @@ def save_gradcams(hybrid, crops, crop_probs, label, out_dir, cfg=config) -> list
     for _, family, cell, img in ranked[: cfg.demo.n_gradcam]:
         image = get_eval_transform(cfg, family)(Image.fromarray(img))
         out = out_dir / f"gradcam_{cell}.png"
-        paths.append(str(module.save_overlay(hybrid.cnns[family], image, out)))
+        paths.append(str(save_overlay(hybrid.cnns[family], image, out)))
     return paths
 
 
@@ -352,7 +342,7 @@ def print_result(r: dict) -> None:
     print(f"Components    : {_probs(r['component_probs'])}")
     print(f"Per family    : {_probs(r['per_family_probs'])}  (CNN-HMM)")
     print(f"Self-report   : {r['self_report_label']}")
-    shown = ", ".join(r["gradcam_paths"]) or "not available (H4 Grad-CAM not built)"
+    shown = ", ".join(r["gradcam_paths"]) or "none (LR-only model)"
     print(f"Grad-CAM      : {shown}")
 
 

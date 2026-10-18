@@ -157,6 +157,19 @@ def test_uncalibrated_predict_proba_warns(data):
     assert proba.shape == (5, 2)
 
 
+@pytest.mark.filterwarnings("error::FutureWarning")
+def test_platt_calibrator_is_unpenalized_without_deprecation_warning(fitted, data):
+    scores = fitted.decision_scores(data["val"][0])
+    fitted.fit_calibrator(scores, data["val"][1])  # FutureWarning -> error
+    cal = fitted.calibrator
+    assert np.isinf(cal.C)
+    # unpenalized maximum likelihood: the log-loss gradient vanishes at the fit
+    y = (data["val"][1] == SAD).astype(float)
+    p = cal.predict_proba(scores.reshape(-1, 1))[:, 1]
+    gradient = [np.mean(p - y), np.mean((p - y) * scores)]
+    assert np.allclose(gradient, 0.0, atol=1e-3)
+
+
 def test_left_right_topology_keeps_zero_transitions(data):
     seqs, labels = data["train"]
     cfg = replace(config.hmm, topology="left_right", n_restarts=2)

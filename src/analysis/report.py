@@ -6,20 +6,24 @@ quoted line for line, CSV/JSON values are only formatted. The only things
 computed here are the SHA-256 hashes of folds.csv and labels.csv and the git
 lookups.
 
-Sources (a missing source is reported as missing, never filled in):
+Sources (a missing source is reported as missing, never filled in), with
+<final> = results/final, or results/final_<subset> for a subset run (the
+pilot: a technical check whose numbers are never reported):
 
     results/questionnaire/report.txt         N, Cronbach's alpha, balance, band
     DOCS/decisions/analysis_design.txt       design, middle-band fraction
-    results/final/model_comparison.txt/.csv  primary + full tables, paired diffs
-    results/final/permutation_*.json         permutation p-values
-    results/final/secondary.txt              secondary + exploratory analyses
-    results/final/**.png, results/questionnaire/*.png   figure list
+    <final>/model_comparison.txt/.csv        primary + full tables, paired diffs
+    <final>/permutation_*.json               permutation p-values
+    <final>/secondary.txt                    secondary + exploratory analyses
+    <final>/**.png, results/questionnaire/*.png   figure list
     metadata/folds.csv, labels.csv           SHA-256 (and whether the protocol
                                              text records the same hash)
     git: tag protocol-frozen, HEAD commit, uncommitted changes
     EVALUATION_PROTOCOL.md section 9         Deviations, verbatim
 
-    python -m src.analysis.report
+Output: <final>/RESULTS.txt.
+
+    python -m src.analysis.report [--subset pilot]
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ from src.data.dataloader import labels_csv_path
 from src.training.evaluator import output_dir
 from src.training.run_ensemble import FEATURE_SET as ENSEMBLE_FS
 from src.training.run_ensemble import MODEL as ENSEMBLE
-from src.training.splits import folds_path
+from src.training.splits import SUBSETS, folds_path
 from src.utils.config import config
 from src.utils.protocol_guard import PROTOCOL_TAG, is_synthetic_root
 
@@ -162,12 +166,11 @@ def paired_table(comp: pd.DataFrame, analysis: str) -> list:
     return lines
 
 
-def figures(results: Path) -> list:
+def figures(results: Path, final: Path | None = None) -> list:
     """Figure paths relative to the output root; per-crop overlays summarized."""
     root = results.parent
-    pngs = sorted(results.glob("final/**/*.png")) + sorted(
-        results.glob("questionnaire/*.png")
-    )
+    final = results / "final" if final is None else final
+    pngs = sorted(final.glob("**/*.png")) + sorted(results.glob("questionnaire/*.png"))
     grids = [p for p in pngs if p.parent.parent.name != config.gradcam.output_subdir]
     overlays = {}
     for p in pngs:
@@ -185,10 +188,12 @@ def figures(results: Path) -> list:
 # ─── build ────────────────────────────────────────────────────────────────────
 
 
-def build() -> Path:
-    """Write results/final/RESULTS.txt from the existing result files."""
+def build(subset: str | None = None) -> Path:
+    """Write <final>/RESULTS.txt from the existing result files."""
+    if subset is not None and subset not in SUBSETS:
+        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
     results = config.paths.results_dir
-    final = output_dir()
+    final = output_dir(subset)
     comp_path = final / "model_comparison.csv"
     comp = pd.read_csv(comp_path) if comp_path.is_file() else None
     perms = permutation_results(final)
@@ -207,6 +212,11 @@ def build() -> Path:
     ]
     if synthetic:
         out.append("SYNTHETIC DATA ROOT: these are pipeline checks, NOT results.")
+    if subset is not None:
+        out.append(
+            f"SUBSET {subset.upper()}: a technical check on part of the sample; "
+            "these numbers are never reported as results."
+        )
     if not tag_commit:
         out.append(
             f"WARNING: git tag '{PROTOCOL_TAG}' not found; the protocol is not "
@@ -244,7 +254,7 @@ def build() -> Path:
     out += _quote(_read(sec), sec)
     out.append("")
 
-    out += ["5. FIGURES"] + figures(results) + [""]
+    out += ["5. FIGURES"] + figures(results, final) + [""]
 
     out += ["6. DATA FILES (SHA-256)"]
     for name, path in (
@@ -282,9 +292,16 @@ def build() -> Path:
     return path
 
 
+def run(subset: str | None = None) -> Path:
+    """The pipeline runner's step: build(subset)."""
+    return build(subset)
+
+
 def main() -> int:
-    argparse.ArgumentParser(description="Assemble RESULTS.txt (Stage H5).").parse_args()
-    build()
+    parser = argparse.ArgumentParser(description="Assemble RESULTS.txt (Stage H5).")
+    parser.add_argument("--subset", choices=SUBSETS, default=None)
+    args = parser.parse_args()
+    run(args.subset)
     return 0
 
 

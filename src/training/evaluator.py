@@ -7,7 +7,7 @@ fold, participant_id, label, prob_sad, pred, in_middle_band):
     results/baselines/<name>/predictions.csv
     results/cnn/<name>/predictions.csv
     results/hybrid/<name>/predictions.csv
-    results/ensemble/<analysis>/predictions.csv    (only when no subset)
+    results/ensemble/<name>/predictions.csv
 
 with <name> = <analysis>[_<subset>] (EvalConfig.sources). A missing file is
 reported, never invented. Every file is validated: schema, one analysis, labels
@@ -43,6 +43,10 @@ Outputs, results/final[_<subset>]/:
     reliability_<model>_<analysis>.png   the pre-registered primary model
                                          (EvalConfig.reliability_model)
 
+model_comparison.txt ends with a permutation section rebuilt from the
+permutation_*.json files in the same folder (src.analysis.permutation), so
+rerunning the evaluator after the permutation tests keeps their p-values.
+
 Each (analysis, model, feature_set) appends a row to results/RUN_LOG.csv with
 macro_f1_ci_low/high filled (src.utils.run_log.log_run). Refuses to run on
 real data before the protocol-frozen tag.
@@ -54,6 +58,7 @@ real data before the protocol-frozen tag.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from dataclasses import dataclass, field
@@ -124,13 +129,8 @@ def prediction_paths(
     """(analysis, source, path) for every predictions.csv the evaluator reads."""
     out = []
     for name in _analyses(analysis, cfg):
+        folder = name if subset is None else f"{name}_{subset}"
         for source in cfg.evaluation.sources:
-            if source == "ensemble":
-                if subset is not None:
-                    continue  # run_ensemble has no subset runs
-                folder = name
-            else:
-                folder = name if subset is None else f"{name}_{subset}"
             path = cfg.paths.results_dir / source / folder / "predictions.csv"
             out.append((name, source, path))
     return out
@@ -642,6 +642,41 @@ def _plot_reliability(group: pd.DataFrame, key: tuple, path: Path, cfg=config):
     _save(fig, path, cfg)
 
 
+# ─── permutation section of model_comparison.txt ─────────────────────────────
+
+PERMUTATION_HEADER = "Permutation tests (EVALUATION_PROTOCOL.md section 4):"
+
+
+def permutation_lines(out: Path, cfg=config) -> list:
+    """One summary line per permutation_*.json in out, primary first."""
+    order = {a: i for i, a in enumerate(cfg.evaluation.analyses)}
+    results = [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(out.glob("permutation_*.json"))
+    ]
+    results.sort(key=lambda r: (order.get(r["analysis"], len(order)), r["model"]))
+    return [r["summary"] for r in results]
+
+
+def write_comparison_text(out: Path, body: str | None = None, cfg=config) -> Path:
+    """model_comparison.txt = evaluator body + the permutation section.
+
+    body None keeps the evaluator part already on disk and rebuilds only the
+    permutation section (called by src.analysis.permutation after each test).
+    """
+    path = out / "model_comparison.txt"
+    if body is None:
+        old = path.read_text(encoding="utf-8") if path.is_file() else ""
+        body = old.split(PERMUTATION_HEADER, 1)[0]
+    text = body.rstrip("\n") + "\n"
+    lines = permutation_lines(out, cfg)
+    if lines:
+        text += "\n" + PERMUTATION_HEADER + "\n" + "".join(f"  {ln}\n" for ln in lines)
+    out.mkdir(parents=True, exist_ok=True)
+    path.write_text(text.lstrip("\n"), encoding="utf-8")
+    return path
+
+
 # ─── run ──────────────────────────────────────────────────────────────────────
 
 
@@ -676,9 +711,7 @@ def run(
     result.comparison.to_csv(path, index=False, float_format=fmt)
     result.per_fold.to_csv(out / "per_fold_metrics.csv", index=False, float_format=fmt)
     result.confusion.to_csv(out / "confusion_matrices.csv", index=False)
-    (out / "model_comparison.txt").write_text(
-        _text_report(result, missing, subset), encoding="utf-8"
-    )
+    write_comparison_text(out, _text_report(result, missing, subset))
 
     for name in [a for a in ev.analyses if a in set(result.comparison["analysis"])]:
         _plot_confusion(result, name, out / f"confusion_matrices_{name}.png")

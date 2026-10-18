@@ -383,7 +383,9 @@ class PermutationConfig:
     (lr_models). CNN models and the ensemble: n_cnn FULL retrains (same
     epochs, early stopping, HMM selection and calibration as the observed
     run -- no epoch-capped proxy, decided with the thesis author
-    2026-10-06), primary set only (cnn_analyses).
+    2026-10-06), primary set only (cnn_analyses). A subset run (the pilot)
+    tests only pilot_models; the CNN-path tests run on the full run only
+    (F4 [A]).
     """
 
     n_lr: int = 1000
@@ -398,6 +400,7 @@ class PermutationConfig:
         ("ensemble", "all"),
     )
     cnn_analyses: Tuple[str, ...] = ("primary",)
+    pilot_models: Tuple[str, ...] = ("lr_handcrafted", "lr_embeddings")
     alpha: float = 0.05
     hist_bins: int = 30
     # Per-permutation participant predictions of the CNN-path draws (resume
@@ -679,7 +682,8 @@ class SmokeConfig:
     are the real ones divided by size_divisor so a CPU run stays under
     time_budget_s; min_per_class replaces LabelingConfig.min_per_class on
     the synthetic root only. cnn_families are the families the CNN-HMM and
-    ensemble need. All overrides are restored when the smoke test ends.
+    ensemble need. permutation_n is the N of the stage H permutation tests
+    (LR models only). All overrides are restored when the smoke test ends.
     """
 
     n_participants: int = 24
@@ -694,6 +698,7 @@ class SmokeConfig:
     hmm_iter: int = 20
     hmm_restarts: int = 1
     n_real_participants: int = 3
+    permutation_n: int = 2
     time_budget_s: float = 300.0
 
 

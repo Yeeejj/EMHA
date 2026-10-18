@@ -4,9 +4,12 @@ The fixed ensemble named in EVALUATION_PROTOCOL.md (primary claim) — Stage F.
 Components and weights are fixed by the protocol; there is no weights
 argument and no way to add or drop a component:
 
-    lr_handcrafted  / all      results/baselines/<analysis>/predictions.csv
-    lr_embeddings   / concat   results/baselines/<analysis>/predictions.csv
-    cnn_hmm_fused   / fused    results/hybrid/<analysis>/predictions.csv
+    lr_handcrafted  / all      results/baselines/<name>/predictions.csv
+    lr_embeddings   / concat   results/baselines/<name>/predictions.csv
+    cnn_hmm_fused   / fused    results/hybrid/<name>/predictions.csv
+
+with <name> = <analysis>[_<subset>]: a subset run (the pilot) reads the
+components' subset folders and writes its own.
 
 combine() inner-joins the three components on (analysis, fold,
 participant_id) and averages prob_sad with equal weights; pred is SAD when
@@ -17,11 +20,11 @@ component predicted; if a component has no middle-band rows at all, the
 ensemble has none. label and in_middle_band must agree across components.
 Exploratory models (e.g. lr_handwriting) are never included.
 
-Output: results/ensemble/<analysis>/predictions.csv with model "ensemble",
+Output: results/ensemble/<name>/predictions.csv with model "ensemble",
 feature_set "all", in the shared prediction schema.
 
     python -m src.training.run_ensemble [--analysis primary|full]
-        [--stage smoke|pilot|full]
+        [--subset pilot] [--stage smoke|pilot|full]
 
 Each run appends point metrics to results/RUN_LOG.csv (src/utils/run_log.py).
 """
@@ -36,6 +39,7 @@ import numpy as np
 import pandas as pd
 
 from src.training.run_baselines import EXPLORATORY_MODELS, PRED_COLUMNS
+from src.training.splits import SUBSETS
 from src.utils.config import config
 from src.utils.protocol_guard import require_frozen_or_synthetic
 from src.utils.run_log import STAGES, command_line, log_predictions, resolve_stage
@@ -135,8 +139,12 @@ def combine(frames: list) -> pd.DataFrame:
     )
 
 
-def _component_frame(analysis: str, model: str, fs: str, subdir: str) -> pd.DataFrame:
-    path = config.paths.results_dir / subdir / analysis / "predictions.csv"
+def run_name(analysis: str, subset: str | None) -> str:
+    return analysis if subset is None else f"{analysis}_{subset}"
+
+
+def _component_frame(name: str, model: str, fs: str, subdir: str) -> pd.DataFrame:
+    path = config.paths.results_dir / subdir / name / "predictions.csv"
     if not path.is_file():
         raise FileNotFoundError(f"{path} not found; run the {subdir} runner first")
     preds = pd.read_csv(path, dtype={"participant_id": str})
@@ -146,13 +154,18 @@ def _component_frame(analysis: str, model: str, fs: str, subdir: str) -> pd.Data
     return rows
 
 
-def run(analysis: str = "primary", stage: str | None = None) -> Path:
+def run(
+    analysis: str = "primary", subset: str | None = None, stage: str | None = None
+) -> Path:
     """Build the ensemble from the component runs; return predictions.csv path."""
     require_frozen_or_synthetic(config, "run_ensemble")
-    stage = resolve_stage(stage, None)
-    frames = [_component_frame(analysis, m, f, d) for m, f, d in COMPONENTS]
+    if subset is not None and subset not in SUBSETS:
+        raise ValueError(f"subset must be one of {SUBSETS}, got {subset!r}")
+    stage = resolve_stage(stage, subset)
+    name = run_name(analysis, subset)
+    frames = [_component_frame(name, m, f, d) for m, f, d in COMPONENTS]
     ensemble = combine(frames)
-    out_dir = config.paths.results_dir / "ensemble" / analysis
+    out_dir = config.paths.results_dir / "ensemble" / name
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "predictions.csv"
     ensemble.to_csv(path, index=False)
@@ -160,18 +173,21 @@ def run(analysis: str = "primary", stage: str | None = None) -> Path:
     print(
         f"Ensemble: {len(ensemble) - n_mid} test + {n_mid} middle-band rows -> {path}"
     )
-    command = command_line("src.training.run_ensemble", analysis=analysis, stage=stage)
-    log_predictions(stage, command, analysis, None, ensemble)
+    command = command_line(
+        "src.training.run_ensemble", analysis=analysis, subset=subset, stage=stage
+    )
+    log_predictions(stage, command, analysis, subset, ensemble)
     return path
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fixed equal-weight ensemble.")
     parser.add_argument("--analysis", choices=("primary", "full"), default="primary")
+    parser.add_argument("--subset", choices=SUBSETS, default=None)
     parser.add_argument("--stage", choices=STAGES, default=None)
     args = parser.parse_args()
     try:
-        run(args.analysis, args.stage)
+        run(args.analysis, args.subset, args.stage)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")
         return 1
