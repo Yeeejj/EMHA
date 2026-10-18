@@ -1,3 +1,5 @@
+> Historical (early October 2026). Superseded; see EVALUATION_PROTOCOL.md and git history.
+
 # RECOVERY_PLAN.md
 
 Written 2026-10-06 (maintenance; no features). Nothing has been merged,

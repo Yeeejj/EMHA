@@ -202,4 +202,12 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
 
 ## 9. Deviations
 
-None.
+1. 2026-10-18 — Success criterion raised from primary-set macro-F1 and
+   accuracy >= 0.70 to >= 0.75 (both), with 0.80 as a stated stretch goal.
+   Reason: the thesis author's target, set with the adviser. No analysis,
+   model, fold, band, seed or threshold changes. Real results seen: none
+   (results/ held only the section 8 QC images; verified 2026-10-18).
+   Clarification, same date: on the pilot (a technical check, never
+   reported), permutation tests run for the LR models only
+   (`PermutationConfig.pilot_models`); CNN-path tests run on the full run
+   only, as in section 4.

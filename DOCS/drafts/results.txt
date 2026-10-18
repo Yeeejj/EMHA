@@ -84,9 +84,10 @@ Use the frame that applies:
     distinguishable from what would be expected if handwriting and label
     were unrelated."
 
-State whether the pre-set target (macro-F1 and accuracy at or above the
-target in EVALUATION_PROTOCOL.md section 2) was met, as "met" or "not met",
-without further comment.
+State whether the target (macro-F1 and accuracy at or above 0.75,
+EVALUATION_PROTOCOL.md section 9, Deviation 1) was met, and whether the
+pre-registered 0.70 (section 2) was met, each as "met" or "not met", without
+further comment.
 
 Other models. Report each remaining row of Table 1 in one sentence each, in
 table order, with macro-F1 [CI], accuracy [CI], majority baseline, and

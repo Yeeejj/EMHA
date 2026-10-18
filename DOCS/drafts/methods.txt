@@ -291,7 +291,8 @@ balanced accuracy, precision and recall per class, and ROC-AUC (SAD as
 positive) are also reported. Metrics are computed once on the pooled
 out-of-fold predictions, and per fold for all folds. Accuracy is always shown
 next to the majority baseline. The target, not a hypothesis, is macro-F1 and
-accuracy of at least 0.70 on the primary set.
+accuracy of at least 0.75 on the primary set (Deviation 1, raised from the
+pre-registered 0.70 before any real result; stretch goal 0.80).
 
 Uncertainty. 95% percentile confidence intervals come from 2,000 bootstrap
 resamples of participants, seed 42 [CITE: Efron and Tibshirani, bootstrap].
