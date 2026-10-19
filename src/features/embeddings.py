@@ -40,6 +40,7 @@ from torchvision.models import ResNet18_Weights, resnet18
 
 from src.data.transforms import NORMALIZE_MEAN, NORMALIZE_STD, get_eval_transform
 from src.utils.config import config
+from src.utils.paths import read_manifest
 
 ARCH = "resnet18"
 EMBED_DIM = 512
@@ -150,7 +151,7 @@ def run(device: str | None = None) -> list:
         raise FileNotFoundError(
             f"{manifest_path} not found; run python -m src.preprocessing.pipeline."
         )
-    manifest = pd.read_csv(manifest_path, dtype={"participant_id": str})
+    manifest = read_manifest(manifest_path)
     manifest = manifest.sort_values(["participant_id", "cell"]).reset_index(drop=True)
 
     out_dir = config.paths.results_dir / config.embedding.output_subdir

@@ -27,6 +27,7 @@ from src.data.transforms import get_eval_transform, get_train_transform
 from src.preprocessing.pipeline import _load_qc_dropped
 from src.training.splits import assert_no_leakage
 from src.utils.config import config
+from src.utils.paths import read_manifest
 
 MANIFEST_COLUMNS = ("participant_id", "cell", "task_family", "processed_path")
 
@@ -147,9 +148,7 @@ def labels_csv_path(cfg):
 def load_tables(cfg) -> tuple:
     """(processed manifest, labels, dropped set) read from the data root."""
     meta = cfg.paths.metadata_dir
-    manifest = pd.read_csv(
-        meta / "processed_manifest.csv", dtype={"participant_id": str}
-    )
+    manifest = read_manifest(meta / "processed_manifest.csv", cfg)
     labels = pd.read_csv(labels_csv_path(cfg), dtype={"participant_id": str})
     return manifest, labels, _load_qc_dropped(meta)
 
