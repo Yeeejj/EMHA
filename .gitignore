@@ -42,6 +42,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# Downloaded Kaggle run outputs (results/models zips; never committed)
+kaggle_runs/
 
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
