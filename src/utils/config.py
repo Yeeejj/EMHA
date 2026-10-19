@@ -716,7 +716,8 @@ class PackageConfig:
     tabulation export are never copied. Columns whose lowercased name
     contains a forbidden_column_pattern fail the build, except an all-blank
     notes column, which is dropped (decided with the thesis author
-    2026-10-06). kaggle_user None = read from KAGGLE_USERNAME or
+    2026-10-06). kaggle_user is the account that owns the private dataset
+    (thesis author, 2026-10-19); None = read from KAGGLE_USERNAME or
     kaggle.json. dir_mode is the Kaggle CLI --dir-mode that keeps folders.
     """
 
@@ -726,7 +727,7 @@ class PackageConfig:
     include_crops: bool = True
     out_dir: str = "dist"
     mount_root: str = "/kaggle/input/emha-crops"
-    kaggle_user: Optional[str] = None
+    kaggle_user: Optional[str] = "edanocyrel"
     dir_mode: str = "zip"
     metadata_files: Tuple[str, ...] = (
         "labels.csv",

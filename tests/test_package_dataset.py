@@ -93,7 +93,7 @@ def test_package_has_no_scans_no_item_columns_and_keeps_layout(root, tmp_path):
             assert (pkg / p[len(MOUNT) + 1 :]).is_file()
 
     meta = json.loads((pkg / "dataset-metadata.json").read_text())
-    assert meta["id"] == "tester/emha-crops"
+    assert meta["id"] == "edanocyrel/emha-crops"  # PackageConfig wins over the env
     assert 6 <= len(meta["title"]) <= 50 and len(meta["licenses"]) == 1
     manifest = (pkg / "MANIFEST.txt").read_text()
     for name in ("folds.csv", "labels.csv"):
@@ -185,7 +185,14 @@ def test_audit_rejects_a_page_scan(root, tmp_path):
         audit_package(pkg)
 
 
+def test_configured_username_is_the_dataset_owner(monkeypatch):
+    assert config.package.kaggle_user == "edanocyrel"
+    monkeypatch.setenv("KAGGLE_USERNAME", "someone-else")
+    assert pkgmod.kaggle_username() == "edanocyrel"
+
+
 def test_username_from_kaggle_json_or_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.package, "kaggle_user", None)
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(tmp_path))
     with pytest.raises(PackageError, match="username"):
