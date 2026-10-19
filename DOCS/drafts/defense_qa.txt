@@ -23,8 +23,9 @@ test_one_row_per_participant_no_participant_in_two_folds.
 --------------------------------------------------------------------------------
 [PENDING: whether it is below; RESULTS.txt > PRIMARY RESULTS, ensemble/all.]
 If it is: the 80-85% figure is the proposal target (README.md). The
-pre-registered target is at least 0.70 macro-F1 and accuracy, and it is not a
-hypothesis (EVALUATION_PROTOCOL.md section 2; CLAUDE.md). The estimate is
+target is at least 0.75 macro-F1 and accuracy (Deviation 1, raised from the
+pre-registered 0.70 before any real result), and it is not a hypothesis
+(EVALUATION_PROTOCOL.md sections 2 and 9; CLAUDE.md). The estimate is
 deliberately conservative: participant-level folds, nothing tuned on test
 folds, a fixed 0.5 threshold, and every model reported (protocol sections 3
 and 7). For context, EMOTHAW reports 60% to 71% for its emotional states from

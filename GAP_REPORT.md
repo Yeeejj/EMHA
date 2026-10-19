@@ -1,3 +1,5 @@
+> Historical (early October 2026). Superseded; see EVALUATION_PROTOCOL.md and git history.
+
 # GAP_REPORT.md
 
 Evaluated against the current `CLAUDE.md` ("EMHA THESIS — MASTER BUILD BRIEF").
