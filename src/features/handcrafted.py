@@ -44,6 +44,7 @@ from src.features.strokes import (
 )
 from src.preprocessing.pipeline import _load_qc_dropped, flatten_background
 from src.utils.config import config
+from src.utils.paths import read_manifest
 
 COMMON_FEATURES = (
     "ink_ratio",
@@ -390,7 +391,7 @@ def run() -> Path:
             "python -m src.data.crop_manifest --apply-qc-status first."
         )
 
-    manifest = pd.read_csv(manifest_path, dtype={"participant_id": str})
+    manifest = read_manifest(manifest_path)
     manifest = manifest[manifest["participant_id"].isin(passed)]
     dropped = _load_qc_dropped(meta_dir)
     is_dropped = [

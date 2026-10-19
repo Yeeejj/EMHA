@@ -46,6 +46,7 @@ from PIL import Image
 
 from src.features.embeddings import resolve_device
 from src.utils.config import config
+from src.utils.paths import read_manifest
 
 EXPLORATORY = True
 
@@ -156,7 +157,7 @@ def run(device: str | None = None) -> list:
         raise FileNotFoundError(
             f"{manifest_path} not found; run python -m src.preprocessing.pipeline."
         )
-    manifest = pd.read_csv(manifest_path, dtype={"participant_id": str})
+    manifest = read_manifest(manifest_path)
     manifest = manifest.sort_values(["participant_id", "cell"]).reset_index(drop=True)
 
     out_dir = config.paths.results_dir / hcfg.output_subdir
