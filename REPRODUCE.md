@@ -83,6 +83,29 @@ Model runners refuse real data unless the `protocol-frozen` git tag exists.
 Steps 3a and 5c-5e resume or overwrite their own derived outputs only;
 `raw-3Page/` and `raw-4Page/` are never written.
 
+### Full run on Google Colab
+
+The same packaged dataset as on Kaggle (`python -m src.utils.package_dataset`,
+then `dist/emha-crops.zip` with `metadata/`, the crop folders and
+`MANIFEST.txt` at the top level of the zip):
+
+1. Upload the zip to Google Drive as `MyDrive/EMHA/emha-crops.zip`.
+2. In Colab, open `notebooks/colab_bootstrap.ipynb` from GitHub (main), add
+   the secret `GITHUB_TOKEN` (key icon, notebook access on), and choose
+   Runtime -> Change runtime type -> A100 GPU.
+3. Cell 1: `MODE = "run"`, `SUBSET = None`, `ANALYSIS = "primary,full"`,
+   `STEPS = None`, `REQUIRE_GPU = "A100"`, `AUTO_DISCONNECT = True`. Run all.
+   The notebook stops before any work on a different GPU, unzips the dataset
+   to the local disk, runs `python -m src.pipeline_runner`, and releases the
+   runtime when the run cell ends.
+4. Pay As You Go has no background execution: keep the browser tab open and
+   the PC awake. After a disconnect, Run all again with the same parameters;
+   the step markers on Drive skip everything already finished.
+5. Results, models, step markers and logs land on Drive under
+   `MyDrive/EMHA/run_outputs/` (`results/`, `models/`,
+   `logs/run_<UTC time>.log`). Download `results/` and `models/` from Drive
+   (right-click -> Download) when the run has finished.
+
 ## 3. Checking a reproduction
 
 Compare the new `results/final/RESULTS.txt` sections 1-4 (and
