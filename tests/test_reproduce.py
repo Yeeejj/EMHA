@@ -22,9 +22,49 @@ from src.utils.config import config
 
 REPO = Path(__file__).resolve().parents[1]
 LAUNCHER = REPO / "tests" / "reproduce_launcher.py"
-BASH, PWSH = shutil.which("bash"), shutil.which("pwsh") or shutil.which("powershell")
+# bash.exe in these folders starts WSL, not Git Bash
+WSL_LAUNCHER_DIRS = ("system32", "windowsapps")
+
+
+def _is_wsl_launcher(exe: Path) -> bool:
+    return exe.parent.name.lower() in WSL_LAUNCHER_DIRS
+
+
+def _find_bash(path=None):
+    """Git Bash on Windows (never the WSL launcher); plain bash elsewhere.
+
+    Returns (bash, skip_reason); bash is None when no usable bash exists.
+    """
+    if os.name != "nt":
+        return shutil.which("bash", path=path), "bash not found on PATH"
+    git = shutil.which("git", path=path)
+    if git:  # <git>\cmd\git.exe, <git>\bin\git.exe or <git>\mingw64\bin\git.exe
+        for parent in list(Path(git).resolve().parents)[:3]:
+            candidate = parent / "bin" / "bash.exe"
+            if candidate.is_file() and not _is_wsl_launcher(candidate):
+                return str(candidate), ""
+    wsl = []
+    search = os.environ.get("PATH", "") if path is None else path
+    for folder in filter(None, search.split(os.pathsep)):
+        candidate = Path(folder) / "bash.exe"
+        if not candidate.is_file():
+            continue
+        if not _is_wsl_launcher(candidate):
+            return str(candidate), ""
+        wsl.append(str(candidate))
+    if wsl:
+        return None, (
+            "only the WSL launcher was found (" + ", ".join(wsl) + "); "
+            "the [sh] tests need Git Bash: install Git for Windows or put "
+            "its bin folder on PATH"
+        )
+    return None, "Git Bash not found (no git install and no bash.exe on PATH)"
+
+
+BASH, BASH_SKIP = _find_bash()
+PWSH = shutil.which("pwsh") or shutil.which("powershell")
 SHELLS = {
-    "sh": ([BASH, str(REPO / "scripts" / "reproduce_full.sh")], BASH),
+    "sh": ([BASH, (REPO / "scripts" / "reproduce_full.sh").as_posix()], BASH),
     "ps1": (
         [PWSH, "-NoProfile", "-File", str(REPO / "scripts" / "reproduce_full.ps1")],
         PWSH,
@@ -51,7 +91,7 @@ def dataset(tmp_path_factory):
 def _run(kind, root, *extra):
     cmd, exe = SHELLS[kind]
     if exe is None:
-        pytest.skip(f"no shell for {kind}")
+        pytest.skip(BASH_SKIP if kind == "sh" else "no PowerShell found")
     env = {
         **os.environ,
         "EMHA_DATA_ROOT": root.as_posix(),
@@ -157,3 +197,26 @@ def test_launcher_refuses_a_real_data_root(tmp_path):
     )
     assert proc.returncode != 0 and "not a synthetic data root" in proc.stderr
     assert config.paths.data_root  # config untouched in this process
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows bash lookup")
+def test_find_bash_never_returns_the_wsl_launcher(tmp_path):
+    system32 = tmp_path / "System32"
+    system32.mkdir()
+    (system32 / "bash.exe").touch()
+    bash, reason = _find_bash(path=str(system32))
+    assert bash is None
+    assert "only the WSL launcher" in reason and str(system32) in reason
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows bash lookup")
+def test_find_bash_prefers_git_install_over_path(tmp_path):
+    git_root, system32 = tmp_path / "Git", tmp_path / "System32"
+    for folder in (git_root / "cmd", git_root / "bin", system32):
+        folder.mkdir(parents=True)
+    for exe in (git_root / "cmd" / "git.exe", git_root / "bin" / "bash.exe"):
+        exe.touch()
+    (system32 / "bash.exe").touch()
+    search = os.pathsep.join([str(system32), str(git_root / "cmd")])
+    bash, _ = _find_bash(path=search)
+    assert Path(bash) == (git_root / "bin" / "bash.exe").resolve()
