@@ -21,6 +21,16 @@ the final run with `python -m pip freeze > results/final/environment.txt`
 and install from that file to match it exactly. [AT FINAL RUN: Python
 version, `pip freeze` file, GPU model.]
 
+**Threads.** Every reported run pins BLAS/OpenMP to one thread, set before
+Python starts (EVALUATION_PROTOCOL.md section 9, Deviation 2):
+`export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1` (bash) or
+`$env:OMP_NUM_THREADS = "1"` (and the same for the other two; PowerShell).
+`scripts/reproduce_full.*` and both bootstrap notebooks set them, and the
+`pipeline_runner` header prints what the main process and a worker actually
+see. Without the pin, last-bit rounding depends on the machine's core count.
+The CNN-HMM fits run in `RunnerConfig.hmm_n_jobs` processes (default -1, all
+cores); results do not depend on it.
+
 Place the dataset (not in git; `.gitignore` excludes `DATASET/`) at
 `DATASET/`, or point `EMHA_DATA_ROOT` at it:
 

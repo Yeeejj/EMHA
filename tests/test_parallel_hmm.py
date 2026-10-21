@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from hmmlearn import hmm
+from threadpoolctl import threadpool_limits
 
 from src.analysis import permutation
 from src.data.dataloader import load_tables
@@ -210,3 +211,23 @@ def test_permutation_draw_serial_and_parallel_identical(image_root, monkeypatch)
     # the perm_<k>.csv contents, byte for byte
     assert serial.to_csv(index=False) == parallel.to_csv(index=False)
     assert _max_abs_diff(serial["prob_sad"], parallel["prob_sad"]) == 0.0
+
+
+def test_pinned_threads_n_jobs_minus1_matches_serial(sequence_sets, monkeypatch):
+    """Deviation 2: with BLAS/OpenMP pinned to one thread in the parent (as
+    OMP/MKL/OPENBLAS_NUM_THREADS = 1 do), all cores give the serial result."""
+    out = {}
+    for n_jobs in (1, -1):
+        monkeypatch.setattr(config.runner, "hmm_n_jobs", n_jobs)
+        with threadpool_limits(limits=1):
+            best, table = select_hmm(
+                sequence_sets["train"], sequence_sets["val"], seed=42
+            )
+            clf = fit_final(sequence_sets["train"], sequence_sets["val"], best, 42)
+            proba = clf.predict_proba(sequence_sets["test"].seqs)
+        out[n_jobs] = (best, table, proba, clf.restart_log)
+    assert out[1][0] == out[-1][0]
+    assert out[1][1] == out[-1][1]
+    assert np.array_equal(out[1][2], out[-1][2])
+    assert _max_abs_diff(out[1][2], out[-1][2]) == 0.0
+    assert out[1][3] == out[-1][3]
