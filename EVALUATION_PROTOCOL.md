@@ -223,7 +223,8 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    restart is the first with the highest training log-likelihood (strict >,
    in restart order), in both the serial and the parallel code. Evidence
    (synthetic 40-participant image root, real HMM grid and restarts; commit
-   0c29636): with threads pinned, n_jobs = 1 and n_jobs = -1 both reproduce
+   0c29636, re-verified by tests/test_parallel_hmm.py at commit 9a5c0ae):
+   with threads pinned, n_jobs = 1 and n_jobs = -1 both reproduce
    the pre-change code (main 19d8d48) bit for bit: run_hybrid
    predictions.csv SHA-256
    5a6c5951b3693cb34db2e48dee28374060d93aa8fde27fd2086aa6a1502a9bfc for all
