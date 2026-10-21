@@ -251,3 +251,29 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    pilot metric was read before this change. Because the change leaves
    outputs bit-identical under pinned threads, it cannot have been informed
    by any result.
+
+3. 2026-10-22 — Implementation only: the n_cnn = 20 CNN-path permutation
+   draws of the primary set may be computed on more than one machine.
+   `python -m src.analysis.permutation --draws START-END` (notebooks:
+   `DRAWS`) computes and caches only those draw indices and runs no test;
+   `python -m scripts.merge_draws SRC DST` copies one machine's cached
+   draws into the other's runs folder and refuses to merge when the two
+   `run_config.json` files differ (analysis, seed, folds SHA-256, CNN,
+   training, HMM, hybrid, baseline and aggregation settings). The test
+   itself (observed value, p, outputs) runs once, after all 20 draws are
+   cached, exactly as before. No change to n_cnn, seeds, shuffling, folds,
+   labels, models or any analysis setting: each draw is seeded only by
+   `permutation_seed(seed, draw, fold)` and cached as its own
+   `perm_<draw>.csv`, so which machine computes a draw does not change its
+   shuffled labels. As already stated for GPU training, a draw's retrained
+   models are not bit-identical across GPU types; the machine and GPU of
+   each draw range are recorded in REPRODUCE.md. A machine that computes
+   its own embeddings and handcrafted features for its draws (rather than
+   reading the main run's) feeds those to the draws' LR and ensemble
+   refits; those features differ from the main run's at most by GPU
+   floating-point differences (embeddings) and not at all for the CPU
+   handcrafted features under the same code. Reason: the 20 draws are
+   about 80% of the full run's compute (DOCS/plans/R4.5_full_run_plan.md),
+   and running them in turn on one machine did not fit the thesis
+   schedule. Real results seen: none from the full run (not started); no
+   pilot metric was read before this change.

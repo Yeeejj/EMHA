@@ -234,3 +234,65 @@ def test_shuffled_cnn_matches_the_lr_shuffle(cnn_root, monkeypatch):
     for fold, (train, _) in enumerate(ctx.splits):
         s = permutation_seed(42, 3, fold)
         assert [idx_to_label[i] for i in lr_y[fold]] == seen[s]
+
+
+# ── split draws (Deviation 3) ─────────────────────────────────────────────────
+
+
+def test_parse_draws_ranges():
+    assert permutation.parse_draws("10-19", 20) == list(range(10, 20))
+    assert permutation.parse_draws("7", 20) == [7]
+    for bad in ("19-10", "0-20", "-1", "a-b", "", "5-"):
+        with pytest.raises(ValueError):
+            permutation.parse_draws(bad, 20)
+
+
+def test_draws_only_refuses_lr_models_and_the_full_set(null_root, monkeypatch):
+    _point_at(monkeypatch, null_root)
+    with pytest.raises(ValueError, match="CNN-path models only"):
+        permutation.draws_only("lr_handcrafted", "primary", "0-1")
+    with pytest.raises(ValueError, match="run on"):
+        permutation.draws_only("ensemble", "full", "0-1")
+
+
+def test_draws_only_caches_just_its_range(cnn_root, monkeypatch):
+    """A range caches those draws, seeded by index, and runs no test."""
+    root, *_ = cnn_root
+    _point_at(monkeypatch, root)
+    run = permutation.runs_dir("primary", 42)
+    base = pd.read_csv(run / "perm_0000.csv", dtype={"participant_id": str})
+    calls = []
+
+    def fake(ctx, perm, seed, device, cfg=config):
+        calls.append((perm, seed))
+        return base.assign(perm=perm)
+
+    monkeypatch.setattr(permutation, "cnn_null_run", fake)
+    monkeypatch.setattr(permutation, "permutation_test", None)  # never called
+    before = (run / "perm_0000.csv").read_bytes()
+    try:
+        out = permutation.draws_only("cnn_hmm_fused", "primary", "0-2", n=3)
+        assert out == run
+        assert calls == [(1, 42), (2, 42)]  # draw 0 was already cached
+        assert (run / "perm_0000.csv").read_bytes() == before
+        for k in (1, 2):
+            frame = pd.read_csv(run / f"perm_{k:04d}.csv")
+            assert (frame["perm"] == k).all()
+        null = permutation.cnn_null("ensemble", "all", "primary", 3, 42, "cpu")
+        assert len(null) == 3 and calls == [(1, 42), (2, 42)]
+    finally:
+        for k in (1, 2):
+            (run / f"perm_{k:04d}.csv").unlink(missing_ok=True)
+
+
+def test_draws_only_cli(cnn_root, monkeypatch, capsys):
+    root, *_ = cnn_root
+    _point_at(monkeypatch, root)
+    run = permutation.runs_dir("primary", 42)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["permutation", "--model", "ensemble", "--draws", "0", "--n", "1"],
+    )
+    assert permutation.main() == 0
+    assert "1/1 draws present" in capsys.readouterr().out
+    assert sorted(p.name for p in run.glob("perm_*.csv")) == ["perm_0000.csv"]

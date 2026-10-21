@@ -116,6 +116,22 @@ then `dist/emha-crops.zip` with `metadata/`, the crop folders and
    `logs/run_<UTC time>.log`). Download `results/` and `models/` from Drive
    (right-click -> Download) when the run has finished.
 
+### Split permutation draws (Deviation 3)
+
+The full run used the session order in `DOCS/plans/R4.6_split_run_sheet.md`:
+the 20 CNN-path permutation draws were split between Colab and Kaggle
+(`DRAWS`), and the Kaggle draws were copied into the Drive runs folder with
+`python -m scripts.merge_draws`. Hardware per part:
+
+| Part | Machine | GPU | vCPUs (`nproc`) |
+|---|---|---|---|
+| handcrafted (S1) | [AT FINAL RUN] | none | |
+| embeddings → ensemble (S2) | [AT FINAL RUN] | | |
+| full LR permutation (S3) | [AT FINAL RUN] | none | |
+| draws 0–9 (S4) | [AT FINAL RUN] | | |
+| draws 10–19 (K1, K2) | [AT FINAL RUN] | | |
+| final runner session (S5) | [AT FINAL RUN] | | |
+
 ## 3. Checking a reproduction
 
 Compare the new `results/final/RESULTS.txt` sections 1-4 (and

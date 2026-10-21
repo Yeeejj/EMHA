@@ -51,6 +51,12 @@ pipeline runner's step); permutation_test() runs one.
     python -m src.analysis.permutation --model lr_handcrafted
         [--analysis primary] [--subset pilot] [--n 1000] [--n-jobs -1]
         [--seed 42] [--device auto]
+
+Split the CNN-path draws across machines (Deviation 3): each machine caches
+its own range, then scripts/merge_draws.py copies them into one runs folder.
+
+    python -m src.analysis.permutation --model cnn_head_fused --analysis primary
+        --draws 10-19 [--device cuda]
 """
 
 from __future__ import annotations
@@ -401,6 +407,38 @@ def cnn_null_run(ctx: _Context, perm: int, seed: int, device: str, cfg=config):
     return pd.concat(frames, ignore_index=True)[list(PRED_COLUMNS)].assign(perm=perm)
 
 
+def cache_draws(
+    analysis: str,
+    perms,
+    seed: int,
+    device: str,
+    cfg=config,
+    subset: str | None = None,
+) -> Path:
+    """Compute and cache the CNN-path draws `perms`; cached draws are skipped.
+
+    One draw is seeded only by (seed, perm, fold) (permutation_seed) and
+    cached as its own perm_<k>.csv, so disjoint ranges of draws can run on
+    different machines and be merged (scripts/merge_draws.py; Deviation 3).
+    Writes nothing outside runs_dir() except the draw's temporary checkpoints.
+    """
+    perms = list(perms)
+    ctx = _context(analysis, cfg, subset)
+    out = runs_dir(analysis, seed, cfg, subset)
+    run_cnn.check_resume(out, _settings(analysis, seed, cfg, subset))
+    for i, perm in enumerate(perms, start=1):
+        path = out / f"perm_{perm:04d}.csv"
+        if path.is_file():
+            print(f"resume: permutation {perm} already done")
+            continue
+        print(f"permutation {perm} ({i}/{len(perms)}): full retrain ({device})")
+        frame = cnn_null_run(ctx, perm, seed, device, cfg)
+        tmp = path.with_suffix(".tmp")
+        frame.to_csv(tmp, index=False)
+        tmp.replace(path)
+    return out
+
+
 def cnn_null(
     model: str,
     fs: str,
@@ -412,24 +450,60 @@ def cnn_null(
     subset: str | None = None,
 ) -> np.ndarray:
     """Null macro-F1 of a CNN-path model; draws are cached and resumed."""
-    ctx = _context(analysis, cfg, subset)
-    out = runs_dir(analysis, seed, cfg, subset)
-    run_cnn.check_resume(out, _settings(analysis, seed, cfg, subset))
+    out = cache_draws(analysis, range(n), seed, device, cfg, subset)
     null = []
     for perm in range(n):
-        path = out / f"perm_{perm:04d}.csv"
-        if path.is_file():
-            print(f"resume: permutation {perm} already done")
-        else:
-            print(f"permutation {perm + 1}/{n}: full retrain ({device})")
-            frame = cnn_null_run(ctx, perm, seed, device, cfg)
-            tmp = path.with_suffix(".tmp")
-            frame.to_csv(tmp, index=False)
-            tmp.replace(path)
-        frame = pd.read_csv(path, dtype={"participant_id": str})
+        frame = pd.read_csv(out / f"perm_{perm:04d}.csv", dtype={"participant_id": str})
         rows = frame[(frame["model"] == model) & (frame["feature_set"] == fs)]
         null.append(metrics(rows)["macro_f1"])
     return np.asarray(null, dtype=float)
+
+
+def parse_draws(text: str, n: int) -> list[int]:
+    """'10-19' (inclusive) or '7' -> draw indices, each in [0, n)."""
+    try:
+        lo, sep, hi = text.partition("-")
+        lo, hi = int(lo), int(hi if sep else lo)
+    except ValueError:
+        raise ValueError(f"--draws must look like 10-19 or 7, got {text!r}") from None
+    if not 0 <= lo <= hi < n:
+        raise ValueError(f"--draws {text}: need 0 <= start <= end < {n} (n_cnn)")
+    return list(range(lo, hi + 1))
+
+
+def draws_only(
+    model: str,
+    analysis: str,
+    draws: str,
+    n: int | None = None,
+    seed: int | None = None,
+    device: str = "auto",
+    cfg=config,
+) -> Path:
+    """Cache a range of CNN-path draws without running the test (Deviation 3).
+
+    The test itself (observed value, p, JSON, plot) runs later through
+    permutation_test / the runner once all n draws are cached.
+    """
+    require_frozen_or_synthetic(cfg, "permutation")
+    pcfg = cfg.permutation
+    if model not in dict(pcfg.cnn_models):
+        raise ValueError(f"--draws applies to the CNN-path models only, not {model}")
+    if analysis not in pcfg.cnn_analyses:
+        raise ValueError(
+            f"CNN-path permutation tests run on {pcfg.cnn_analyses} only "
+            "(EVALUATION_PROTOCOL.md section 4)"
+        )
+    n = n or pcfg.n_cnn
+    seed = cfg.training.seed if seed is None else seed
+    perms = parse_draws(draws, n)
+    out = cache_draws(analysis, perms, seed, resolve_device(device), cfg)
+    done = sorted(int(p.stem.split("_")[1]) for p in out.glob("perm_*.csv"))
+    print(
+        f"draws {perms[0]}-{perms[-1]} cached in {out}; {len(done)}/{n} draws "
+        f"present: {done}"
+    )
+    return out
 
 
 # ─── outputs ──────────────────────────────────────────────────────────────────
@@ -587,8 +661,19 @@ def main() -> int:
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--draws",
+        default=None,
+        help="CNN-path models only: cache draws START-END (inclusive) and stop "
+        "without running the test (Deviation 3)",
+    )
     args = parser.parse_args()
     try:
+        if args.draws is not None:
+            draws_only(
+                args.model, args.analysis, args.draws, args.n, args.seed, args.device
+            )
+            return 0
         permutation_test(
             args.model,
             args.analysis,
