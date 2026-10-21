@@ -8,7 +8,10 @@ build it with SmokeConfig's tiny settings). git is always mocked.
 import contextlib
 import importlib
 import inspect
+import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -376,3 +379,47 @@ def test_end_to_end_refuses_without_tag(e2e_root, monkeypatch, capsys):
     after = sorted(p for p in config.paths.results_dir.rglob("*") if p.is_file())
     assert before == after
     assert "REFUSED" in capsys.readouterr().out
+
+
+# ── thread report (EVALUATION_PROTOCOL.md section 9, Deviation 2) ────────────
+
+
+def test_thread_report_covers_main_process_and_a_loky_worker(monkeypatch):
+    monkeypatch.setattr(config.runner, "hmm_n_jobs", 2)
+    report = pr.thread_report()
+    main, worker = report["main"], report["worker"]
+    assert worker["pid"] != main["pid"]  # a real worker process
+    for state in (main, worker):
+        assert set(state["env"]) == set(pr.THREAD_ENV_VARS)
+        assert any(p.startswith("blas:") for p in state["pools"])
+        assert any(p.startswith("openmp:") for p in state["pools"])
+
+
+def test_pinned_env_is_seen_in_main_process_and_worker(tmp_path):
+    """A fresh process started with the pin: both sides report 1 thread."""
+    code = (
+        "import json; from src import pipeline_runner as pr; "
+        "from src.utils.config import config; config.runner.hmm_n_jobs = 2; "
+        "print(json.dumps(pr.thread_report()))"
+    )
+    env = {**os.environ, **{k: "1" for k in pr.THREAD_ENV_VARS}}
+    done = _REAL_RUN(
+        [sys.executable, "-c", code],
+        cwd=Path(pr.__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    report = json.loads(done.stdout.strip().splitlines()[-1])
+    assert report["worker"]["pid"] != report["main"]["pid"]
+    for state in report.values():
+        assert state["env"] == {k: "1" for k in pr.THREAD_ENV_VARS}
+        assert all(p.endswith("=1") for p in state["pools"]), state["pools"]
+
+
+def test_run_header_prints_thread_report(fakes, capsys):
+    pr.run("full", ["primary"], "cpu", ["baselines"])
+    out = capsys.readouterr().out
+    assert "threads (main pid" in out and "threads (worker pid" in out
+    assert "OMP_NUM_THREADS" in out and "blas:" in out

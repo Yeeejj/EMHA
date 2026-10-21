@@ -16,6 +16,11 @@ param(
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
+# BLAS/OpenMP pinned to one thread for every step, before Python starts
+# (EVALUATION_PROTOCOL.md section 9, Deviation 2).
+$env:OMP_NUM_THREADS = "1"
+$env:MKL_NUM_THREADS = "1"
+$env:OPENBLAS_NUM_THREADS = "1"
 
 $Py = if ($env:EMHA_PYTHON) { $env:EMHA_PYTHON } else { "python" }
 $Prefix = @()

@@ -12,6 +12,9 @@
 #                       script here; no spaces inside a single argument)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# BLAS/OpenMP pinned to one thread for every step, before Python starts
+# (EVALUATION_PROTOCOL.md section 9, Deviation 2).
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 DEVICE=auto
 SKIP_EXPLORATORY=0

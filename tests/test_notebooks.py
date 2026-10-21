@@ -1,5 +1,6 @@
 """Notebooks are bootstrap only: no def, class, stored outputs, or tokens."""
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -89,3 +90,28 @@ def test_colab_smoke_mode_kept():
     text = _colab_text()
     assert 'if MODE == "smoke":' in text and "smoke_test.py" in text
     assert "REAL_SAMPLE" in text and "DRIVE_DATA_ROOT" in text
+
+
+THREAD_PIN = {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+}
+RUNNER_LAUNCH = {
+    "colab_bootstrap.ipynb": '"-m", "src.pipeline_runner"',
+    "kaggle_bootstrap.ipynb": "!python -m src.pipeline_runner",
+}
+
+
+@pytest.mark.parametrize("name", BOOTSTRAPS)
+def test_threads_pinned_before_the_runner_starts(name):
+    """EVALUATION_PROTOCOL.md section 9, Deviation 2: OMP/MKL/OpenBLAS = 1 in the
+    environment the runner process inherits, set before it is launched."""
+    text = "\n".join(
+        "".join(c["source"])
+        for c in _cells(NOTEBOOK_DIR / name)
+        if c["cell_type"] == "code"
+    )
+    assert ast.literal_eval(_param(text, "THREAD_ENV")) == THREAD_PIN
+    pin = text.index("os.environ.update(THREAD_ENV)")
+    assert pin < text.index(RUNNER_LAUNCH[name])

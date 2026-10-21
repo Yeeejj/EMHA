@@ -18,6 +18,11 @@ reported as secondary and never fused) and outer fold k:
      calibrate it on inner-val crop scores, predict the outer test crops,
      and aggregate per participant (mean_prob).
 
+The candidate fits of step 3 and the restarts of step 4 run in parallel
+across CPU cores (RunnerConfig.hmm_n_jobs, joblib; speed only, results
+identical to the serial loop -- EVALUATION_PROTOCOL.md section 9, Deviation
+2).
+
 Outer test and middle-band participants are never used for fitting,
 selection, or calibration; assert_no_leakage runs on the outer and inner
 splits of every fold.
@@ -62,13 +67,21 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 
 from src.data.dataloader import CropDataset, labels_csv_path, load_tables
 from src.data.transforms import get_eval_transform
 from src.features.embeddings import resolve_device
-from src.models.hmm import HMMClassifier
+from src.models.hmm import (
+    PARALLEL_BACKEND,
+    HMMClassifier,
+    candidate_scores,
+    replay,
+    run_isolated,
+)
+from src.models.hmm import logger as hmm_logger
 from src.models.hybrid import cnn_checkpoint_path, crop_sequences, hmm_path, load_cnn
 from src.training.aggregate import aggregate_crops, fuse_task_families
 from src.training.run_baselines import PRED_COLUMNS
@@ -144,20 +157,45 @@ def _grid() -> list:
     ]
 
 
-def select_hmm(train: SequenceSet, val: SequenceSet, seed: int) -> tuple:
+def select_hmm(
+    train: SequenceSet, val: SequenceSet, seed: int, n_jobs: int | None = None
+) -> tuple:
     """(winning setting, table of all candidates) by inner-val participant F1.
 
     Candidates are fit on `train` only and scored on `val` only. Ties keep
-    the first setting in grid order.
+    the first setting in grid order. The candidate fits run in n_jobs joblib
+    processes (default RunnerConfig.hmm_n_jobs; speed only): results come
+    back in grid order, and their log lines, errors and the selection rule
+    are applied in that order, exactly as in a serial loop.
     """
-    table, best = [], None
-    for setting in _grid():
-        cfg = replace(
-            config.hmm, n_restarts=config.hybrid.selection_restarts, **setting
+    n_jobs = config.runner.hmm_n_jobs if n_jobs is None else n_jobs
+    threads = config.runner.hmm_threads_per_fit
+    grid = _grid()
+    level = hmm_logger.getEffectiveLevel()
+    outcomes = Parallel(n_jobs=n_jobs, backend=PARALLEL_BACKEND)(
+        delayed(run_isolated)(
+            candidate_scores,
+            (
+                replace(
+                    config.hmm, n_restarts=config.hybrid.selection_restarts, **setting
+                ),
+                seed,
+                train.seqs,
+                train.labels,
+                val.seqs,
+                threads,
+            ),
+            threads,
+            level,
         )
+        for setting in grid
+    )
+    table, best = [], None
+    for setting, (scores, records, caught) in zip(grid, outcomes):
+        replay(records, caught)
         try:
-            clf = HMMClassifier(cfg, seed).fit(train.seqs, train.labels)
-            scores = clf.decision_scores(val.seqs)
+            if isinstance(scores, Exception):
+                raise scores
             f1 = _participant_macro_f1(val.meta, 1.0 / (1.0 + np.exp(-scores)))
             table.append({**setting, "inner_val_macro_f1": f1})
         except (ValueError, RuntimeError) as exc:
@@ -172,9 +210,14 @@ def select_hmm(train: SequenceSet, val: SequenceSet, seed: int) -> tuple:
 
 
 def fit_final(train: SequenceSet, val: SequenceSet, setting: dict, seed: int):
-    """Refit the winner on train with full restarts; Platt-calibrate on val."""
+    """Refit the winner on train with full restarts; Platt-calibrate on val.
+
+    The restarts run in RunnerConfig.hmm_n_jobs processes (speed only).
+    """
     params = {k: setting[k] for k in ("n_states", "pca_components", "topology")}
-    clf = HMMClassifier(replace(config.hmm, **params), seed)
+    clf = HMMClassifier(
+        replace(config.hmm, **params), seed, n_jobs=config.runner.hmm_n_jobs
+    )
     clf.fit(train.seqs, train.labels)
     clf.fit_calibrator(clf.decision_scores(val.seqs), val.labels)
     return clf

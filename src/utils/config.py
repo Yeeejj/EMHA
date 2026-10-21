@@ -615,6 +615,15 @@ class RunnerConfig:
     predict_middle: primary-set runs also score the middle band
     (EVALUATION_PROTOCOL.md section 6.2). decision_file is relative to the
     repo root and must exist, like the protocol-frozen tag, before any run.
+
+    hmm_n_jobs and hmm_threads_per_fit are execution settings, not model
+    hyperparameters, which is why they live in this fingerprint-excluded
+    section: the CNN-HMM candidate fits (run_hybrid.select_hmm) and the
+    refit's restarts (HMMClassifier) run in hmm_n_jobs joblib processes
+    (-1 = all cores, 1 = serial), each fit with BLAS/OpenMP limited to
+    hmm_threads_per_fit threads on both paths. Every fit has its own
+    random_state, so results do not depend on hmm_n_jobs
+    (EVALUATION_PROTOCOL.md section 9, Deviation 2; tests/test_parallel_hmm.py).
     """
 
     default_steps: Tuple[str, ...] = (
@@ -636,6 +645,8 @@ class RunnerConfig:
     decision_file: str = "DOCS/decisions/analysis_design.txt"
     state_subdir: str = "pipeline"
     device: str = "auto"
+    hmm_n_jobs: int = -1
+    hmm_threads_per_fit: int = 1
     fingerprint_exclude: Tuple[str, ...] = (
         "paths",
         "runner",

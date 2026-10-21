@@ -44,6 +44,11 @@ Refuses to start unless the git tag `protocol-frozen` and the analysis-design
 decision file (RunnerConfig.decision_file) both exist — on synthetic roots
 too. Every runner additionally keeps its own protocol guard.
 
+The run header reports the thread settings actually in effect (thread
+env vars and threadpoolctl BLAS/OpenMP pool sizes) in the main process and
+in one loky worker: reported runs pin them to 1 (EVALUATION_PROTOCOL.md
+section 9, Deviation 2).
+
     python -m src.pipeline_runner --subset pilot|full [--analysis primary,full]
         [--steps baselines,cnn ...] [--device cuda]
 """
@@ -54,6 +59,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import os
 import sys
 import time
 import traceback
@@ -71,6 +77,9 @@ ANALYSES = ("primary", "full")
 ALL_ANALYSES = "all"  # marker name for steps that do not depend on the set
 
 EXIT_OK, EXIT_FAILED, EXIT_REFUSED = 0, 1, 2
+# Pinned to 1 for every reported run (EVALUATION_PROTOCOL.md section 9,
+# Deviation 2); the run header reports what each process actually sees.
+THREAD_ENV_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
 
 
 class StepNotBuiltError(RuntimeError):
@@ -183,6 +192,44 @@ def precondition_problems(repo_root: Path | None = None) -> list:
     if not decision.is_file():
         problems.append(f"analysis-design decision file {decision} not found")
     return problems
+
+
+# ── thread report ────────────────────────────────────────────────────────────
+
+
+def thread_state() -> dict:
+    """This process: pid, thread env vars, threadpoolctl BLAS/OpenMP pool sizes."""
+    import numpy  # noqa: F401  (loads the BLAS library)
+    import sklearn.cluster  # noqa: F401  (loads the OpenMP runtime)
+    from threadpoolctl import threadpool_info
+
+    pools = sorted(
+        {
+            f"{p['user_api']}:{p['internal_api']}={p['num_threads']}"
+            for p in threadpool_info()
+        }
+    )
+    return {
+        "pid": os.getpid(),
+        "env": {k: os.environ.get(k) for k in THREAD_ENV_VARS},
+        "pools": pools,
+    }
+
+
+def thread_report() -> dict:
+    """thread_state of the main process and of one loky worker.
+
+    The worker comes from a joblib pool of RunnerConfig.hmm_n_jobs processes,
+    as the CNN-HMM fits use (loky sets its own thread env vars in workers when
+    they are unset). With hmm_n_jobs = 1 joblib runs in-process: same pid.
+    """
+    from joblib import Parallel, delayed
+
+    from src.models.hmm import PARALLEL_BACKEND
+
+    pool = Parallel(n_jobs=config.runner.hmm_n_jobs, backend=PARALLEL_BACKEND)
+    (worker,) = pool(delayed(thread_state)() for _ in range(1))
+    return {"main": thread_state(), "worker": worker}
 
 
 # ── resume markers ───────────────────────────────────────────────────────────
@@ -356,6 +403,11 @@ def run(
     print(f"EMHA pipeline: subset {subset}, analyses {analyses}, device {device}")
     print(f"steps: {', '.join(steps)}")
     print(f"state: {state_dir(subset)}")
+    for role, state in thread_report().items():
+        print(
+            f"threads ({role} pid {state['pid']}): {state['env']} "
+            f"{', '.join(state['pools'])}"
+        )
     print("=" * 72)
     start = time.perf_counter()
     waiting = []

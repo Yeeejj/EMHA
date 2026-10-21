@@ -211,3 +211,43 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    reported), permutation tests run for the LR models only
    (`PermutationConfig.pilot_models`); CNN-path tests run on the full run
    only, as in section 4.
+
+2. 2026-10-21 — Implementation only: the CNN-HMM candidate fits
+   (`run_hybrid.select_hmm`) and the HMM restarts (`HMMClassifier`) run in
+   parallel across CPU cores (joblib, `RunnerConfig.hmm_n_jobs`), and every
+   reported run pins BLAS/OpenMP to one thread (`OMP_NUM_THREADS`,
+   `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` = 1, set before Python starts;
+   `RunnerConfig.hmm_threads_per_fit` = 1). No change to the grid, restarts,
+   seeds, selection rule, calibration, folds, labels or any analysis
+   setting: each restart's random_state is seed + restart, and the best
+   restart is the first with the highest training log-likelihood (strict >,
+   in restart order), in both the serial and the parallel code. Evidence
+   (synthetic 40-participant image root, real HMM grid and restarts; commit
+   0c29636, re-verified by tests/test_parallel_hmm.py at commit 9a5c0ae):
+   with threads pinned, n_jobs = 1 and n_jobs = -1 both reproduce
+   the pre-change code (main 19d8d48) bit for bit: run_hybrid
+   predictions.csv SHA-256
+   5a6c5951b3693cb34db2e48dee28374060d93aa8fde27fd2086aa6a1502a9bfc for all
+   three (tests/test_parallel_hmm.py). Without the pin, the pre-change
+   code's output depends on the thread count: default threads vs one thread
+   differ by at most 5.0e-16 in crop prob_sad, with 0/120 participant
+   predictions and 0/15 fold-level macro-F1 values changed. Without the
+   environment pin, the branch also differs from the pre-change code, by at
+   most 1.1e-16 in crop prob_sad with 0/120 participant predictions and 0/15
+   fold-level macro-F1 values changed, which is consistent with it limiting
+   each HMM fit to one BLAS/OpenMP thread internally
+   (`RunnerConfig.hmm_threads_per_fit` = 1) while the pre-change code does
+   not; with the pin, both match bit for bit. This was checked on the
+   synthetic root only, not on real data. Reported runs therefore pin
+   threads to 1, so results do not depend on the machine's core count.
+   Section 7.4 (original and deviated analyses both reported) does not
+   apply: under pinned threads the parallel path is bit-identical to the
+   serial path, and the pin removes only the thread-count effect described
+   above, so no unpinned second run is made. Reason: serial CNN-HMM fitting
+   made the full run about 59 compute-hours
+   (DOCS/plans/R4.5_full_run_plan.md at commit 0352fb0 (branch
+   docs/full-run-plan)). Real results seen: pilot outputs on real data
+   exist (section 7.3, technical check, never reported), but no
+   pilot metric was read before this change. Because the change leaves
+   outputs bit-identical under pinned threads, it cannot have been informed
+   by any result.

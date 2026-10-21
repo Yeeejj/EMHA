@@ -38,6 +38,14 @@ calibrated.
 
 save / load persist the scaler, PCA, both HMMs, priors, and the calibrator
 (joblib).
+
+Parallel execution (speed only; EVALUATION_PROTOCOL.md section 9, Deviation
+2): the restarts of a class run in n_jobs joblib processes (1 = serial).
+Every restart has its own random_state and no fit touches a global RNG, so
+the result does not depend on n_jobs. run_isolated runs one fit with
+BLAS/OpenMP limited to RunnerConfig.hmm_threads_per_fit threads (on the
+serial path too) and returns its log records, warnings and exception, which
+the caller replays in the original order.
 """
 
 from __future__ import annotations
@@ -50,13 +58,77 @@ from pathlib import Path
 import joblib
 import numpy as np
 from hmmlearn import hmm
+from joblib import Parallel, delayed
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+from threadpoolctl import threadpool_limits
 
 logger = logging.getLogger(__name__)
 
 TOPOLOGIES = ("ergodic", "left_right")
+PARALLEL_BACKEND = "loky"
+
+
+class _RecordList(logging.Handler):
+    """Collects log records instead of emitting them."""
+
+    def __init__(self, records: list):
+        super().__init__()
+        self.records = records
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+def run_isolated(fn, args: tuple, threads: int, log_level: int) -> tuple:
+    """fn(*args) with BLAS/OpenMP limited to `threads`.
+
+    Returns (result or the exception it raised, this module's log records,
+    [(message, category)] of Python warnings), so that a joblib worker's
+    output can be replayed by the parent in task order (see replay).
+    """
+    records: list = []
+    handler = _RecordList(records)
+    level, propagate = logger.level, logger.propagate
+    logger.addHandler(handler)
+    logger.setLevel(log_level)
+    logger.propagate = False
+    try:
+        with threadpool_limits(limits=threads), warnings.catch_warnings(
+            record=True
+        ) as caught:
+            try:
+                result = fn(*args)
+            except Exception as exc:  # re-raised by the caller, in task order
+                result = exc
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+        logger.propagate = propagate
+    return result, records, [(w.message, w.category) for w in caught]
+
+
+def replay(records: list, caught: list) -> None:
+    """Emit a run_isolated call's log records and warnings in this process."""
+    for record in records:
+        logger.handle(record)
+    for message, category in caught:
+        warnings.warn(message, category, stacklevel=2)
+
+
+def _fit_restart(model, X, lengths) -> tuple:
+    """Fit one restart: (fitted model, training log-likelihood)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model.fit(X, lengths)
+    return model, float(model.score(X, lengths))
+
+
+def candidate_scores(cfg, seed, train_seqs, train_labels, val_seqs, threads):
+    """Fit one HMMClassifier setting on train; its decision scores on val."""
+    clf = HMMClassifier(cfg, seed, threads=threads).fit(train_seqs, train_labels)
+    return clf.decision_scores(val_seqs)
 
 
 class UncalibratedWarning(UserWarning):
@@ -95,13 +167,23 @@ class LeftRightGaussianHMM(hmm.GaussianHMM):
 class HMMClassifier:
     """Two GaussianHMMs (HAPPY, SAD) on scaled + PCA-reduced frame sequences."""
 
-    def __init__(self, cfg=None, seed: int | None = None):
+    def __init__(
+        self,
+        cfg=None,
+        seed: int | None = None,
+        n_jobs: int = 1,
+        threads: int | None = None,
+    ):
         from src.utils.config import config
 
         self.cfg = cfg or config.hmm
         if self.cfg.topology not in TOPOLOGIES:
             raise ValueError(f"topology must be one of {TOPOLOGIES}")
         self.seed = config.training.seed if seed is None else seed
+        # execution only (module docstring): restarts in n_jobs processes,
+        # each limited to `threads` BLAS/OpenMP threads
+        self.n_jobs = n_jobs
+        self.threads = config.runner.hmm_threads_per_fit if threads is None else threads
         label_to_index = config.data.label_to_index
         self.happy, self.sad = label_to_index["HAPPY"], label_to_index["SAD"]
         self.classes_ = np.array(sorted((self.happy, self.sad)))
@@ -156,14 +238,23 @@ class HMMClassifier:
         X = np.concatenate(sequences)
         lengths = [len(s) for s in sequences]
         n_states = max(1, min(self.cfg.n_states, min(lengths)))
+        seeds = [self.seed + restart for restart in range(self.cfg.n_restarts)]
+        level = logger.getEffectiveLevel()
+        fits = Parallel(n_jobs=self.n_jobs, backend=PARALLEL_BACKEND)(
+            delayed(run_isolated)(
+                _fit_restart,
+                (self._new_hmm(n_states, seed, len(X)), X, lengths),
+                self.threads,
+                level,
+            )
+            for seed in seeds
+        )
         best, best_ll, runs = None, -np.inf, []
-        for restart in range(self.cfg.n_restarts):
-            seed = self.seed + restart
-            model = self._new_hmm(n_states, seed, len(X))
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                model.fit(X, lengths)
-            ll = float(model.score(X, lengths))
+        for restart, (seed, (result, records, caught)) in enumerate(zip(seeds, fits)):
+            replay(records, caught)
+            if isinstance(result, Exception):
+                raise result
+            model, ll = result
             history = list(model.monitor_.history)
             # stopped on the tolerance (last gain < tol), not on the n_iter cap;
             # hmmlearn 0.3 keeps the whole log-likelihood history
