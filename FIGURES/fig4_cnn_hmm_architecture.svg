@@ -317,8 +317,9 @@ z
     <text style="font-weight: 700; font-size: 8px; font-family: 'DejaVu Sans'; fill: #111111" transform="translate(56.188125 196.288313)">&gt;= 0.5</text>
    </g>
    <g id="text_12">
-    <text style="font-size: 7px; font-family: 'DejaVu Sans'; fill: #6b6b6b" transform="translate(581.94 149.04759)">states, PCA size, topology</text>
-    <text style="font-size: 7px; font-family: 'DejaVu Sans'; fill: #6b6b6b" transform="translate(581.94 157.449504)">chosen on inner validation</text>
+    <text style="font-size: 7px; font-family: 'DejaVu Sans'; fill: #6b6b6b" transform="translate(641.373281 151.81959)">states, PCA size,</text>
+    <text style="font-size: 7px; font-family: 'DejaVu Sans'; fill: #6b6b6b" transform="translate(641.367812 160.221504)">topology chosen</text>
+    <text style="font-size: 7px; font-family: 'DejaVu Sans'; fill: #6b6b6b" transform="translate(633.485156 168.623418)">on inner validation</text>
    </g>
   </g>
  </g>
