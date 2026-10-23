@@ -33,9 +33,6 @@ def _max_abs_diff(a, b) -> float:
     return float(np.max(np.abs(np.asarray(a) - np.asarray(b))))
 
 
-# ── sequences from two known HMMs (overlapping, so F1 is not trivial) ─────────
-
-
 def _generator(shift: float, seed: int) -> hmm.GaussianHMM:
     g = hmm.GaussianHMM(n_components=3, covariance_type="diag", random_state=seed)
     g.startprob_ = np.array([0.6, 0.3, 0.1])
@@ -88,12 +85,12 @@ def _select(sets, n_jobs):
 def test_select_hmm_serial_and_parallel_identical(sequence_sets):
     best_1, table_1 = _select(sequence_sets, 1)
     best_n, table_n = _select(sequence_sets, PARALLEL)
-    assert len(table_1) == len(run_hybrid._grid())  # the real 24-setting grid
-    assert table_1 == table_n  # every column of every row, same order
+    assert len(table_1) == len(run_hybrid._grid())
+    assert table_1 == table_n
     assert best_1 == best_n
     f1_1 = [row["inner_val_macro_f1"] for row in table_1]
     f1_n = [row["inner_val_macro_f1"] for row in table_n]
-    assert len(set(f1_1)) > 1  # the candidates really differ
+    assert len(set(f1_1)) > 1
     assert _max_abs_diff(f1_1, f1_n) == 0.0
 
 
@@ -105,7 +102,6 @@ def test_select_hmm_log_lines_identical_and_in_grid_order(sequence_sets, caplog)
             _select(sequence_sets, n_jobs)
         messages[n_jobs] = [(r.levelname, r.getMessage()) for r in caplog.records]
     restarts = config.hybrid.selection_restarts
-    # per candidate and class: one line per restart + the winner line
     assert len(messages[1]) == len(run_hybrid._grid()) * 2 * (restarts + 1)
     assert messages[1] == messages[PARALLEL]
 
@@ -135,9 +131,6 @@ def test_restart_error_is_raised_in_restart_order(sequence_sets, monkeypatch):
         clf = hmm_module.HMMClassifier(config.hmm, 7, n_jobs=n_jobs)
         with pytest.raises(ValueError, match="restart seed 7 failed"):
             clf.fit(sequence_sets["train"].seqs, sequence_sets["train"].labels)
-
-
-# ── one (family, fold) and one CNN-path permutation draw on an image root ────
 
 
 @pytest.fixture(scope="module")
@@ -208,7 +201,6 @@ def test_permutation_draw_serial_and_parallel_identical(image_root, monkeypatch)
         frames[n_jobs] = permutation.cnn_null_run(ctx, 0, 42, "cpu")
     serial, parallel = frames[1], frames[PARALLEL]
     assert set(serial["model"]) >= {m for m, _ in config.permutation.cnn_models}
-    # the perm_<k>.csv contents, byte for byte
     assert serial.to_csv(index=False) == parallel.to_csv(index=False)
     assert _max_abs_diff(serial["prob_sad"], parallel["prob_sad"]) == 0.0
 

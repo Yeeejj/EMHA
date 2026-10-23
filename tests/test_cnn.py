@@ -34,10 +34,10 @@ def _down(n, k, s, p):
 
 
 def _resnet_layer3_width(w):
-    w = _down(w, 7, 2, 3)  # conv1
-    w = _down(w, 3, 2, 1)  # maxpool
-    w = _down(w, 3, 2, 1)  # layer2
-    return _down(w, 3, 2, 1)  # layer3
+    w = _down(w, 7, 2, 3)
+    w = _down(w, 3, 2, 1)
+    w = _down(w, 3, 2, 1)
+    return _down(w, 3, 2, 1)
 
 
 @pytest.mark.parametrize("family", FAMILIES)
@@ -136,7 +136,7 @@ def test_unknown_backbone_rejected():
 
 def test_input_rescaled_to_imagenet_gray_statistics():
     bb = EmotionCNN(_cfg()).extractor.backbone
-    white = torch.ones(1, 1, 2, 2)  # eval transform output for pixel 255
+    white = torch.ones(1, 1, 2, 2)
     expected = (1.0 - IMAGENET_GRAY_MEAN) / IMAGENET_GRAY_STD
     assert torch.allclose(bb._prepare(white), torch.full_like(white, expected))
     raw = EmotionCNN(_cfg(imagenet_input_norm=False)).extractor.backbone
@@ -172,7 +172,7 @@ def test_pretrained_conv1_is_summed_imagenet_filters():
 
     try:
         reference = resnet18(weights=ResNet18_Weights[config.cnn.weights])
-    except Exception as exc:  # no network and no local cache
+    except Exception as exc:
         pytest.skip(f"pretrained weights unavailable: {exc}")
     model = EmotionCNN(replace(config.cnn, use_pretrained=True))
     conv1 = model.extractor.backbone.conv1.weight

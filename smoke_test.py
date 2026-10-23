@@ -59,7 +59,6 @@ TITLES = {
     "H": "evaluator, permutation, secondary, Grad-CAM, report",
 }
 FAIL_TAIL_LINES = 25
-# F runner module -> its results folder
 RUNNERS = {
     "src.training.run_baselines": "baselines",
     "src.training.run_cnn": "cnn",
@@ -153,9 +152,6 @@ def _overrides(stack: contextlib.ExitStack, root: Path) -> None:
         stack.enter_context(patch.object(obj, name, value))
 
 
-# ── stages ───────────────────────────────────────────────────────────────────
-
-
 def stage_a(ctx: dict) -> str:
     import torch
 
@@ -201,7 +197,7 @@ def stage_b(ctx: dict) -> str:
     )
     meta = config.paths.metadata_dir
     synthetic = pd.read_csv(meta / "labels.csv", dtype={"participant_id": str})
-    (meta / "labels.csv").unlink()  # the labeler must rebuild it from the export
+    (meta / "labels.csv").unlink()
     _run_cli(labeler)
     labels = pd.read_csv(meta / "labels.csv", dtype={"participant_id": str})
     check(labels.equals(synthetic), "labeler output differs from the export's labels")
@@ -255,7 +251,7 @@ def _real_sample(ctx: dict, real_sizes: dict) -> str:
     for p in files:
         dest = real_root / p.relative_to(src)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(p, dest)  # read-only on the source
+        shutil.copyfile(p, dest)
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch.object(config.paths, "data_root", real_root))
         stack.enter_context(patch.object(config.paths, "output_root", real_root))
@@ -422,7 +418,6 @@ def stage_h(ctx: dict) -> str:
         set(comparison["analysis"]) == set(ANALYSES),
         f"model_comparison.csv analyses {sorted(set(comparison['analysis']))}",
     )
-    # LR tests only: the CNN-path permutation (full retrains) has its own tests
     with patch.object(pcfg, "n_lr", s.permutation_n), patch.object(
         pcfg, "cnn_analyses", ()
     ):
@@ -464,9 +459,6 @@ def stage_h(ctx: dict) -> str:
         f"{len(comparison)} model rows, {len(jsons)} permutation tests, "
         f"{len(overlays)} Grad-CAM files, RESULTS.txt (synthetic)"
     )
-
-
-# ── driver ───────────────────────────────────────────────────────────────────
 
 
 def _steps(wanted: list) -> list:
@@ -522,7 +514,7 @@ def main(stages: str = "A-H", real_sample: Path | None = None) -> int:
                     ):
                         detail = fn(ctx)
                     status = "PASS"
-                except (Exception, SystemExit) as exc:  # report, then stop
+                except (Exception, SystemExit) as exc:
                     status, detail = "FAIL", f"{type(exc).__name__}: {exc}"
                     failed = True
                 dt = time.perf_counter() - t0

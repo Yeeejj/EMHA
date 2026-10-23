@@ -64,8 +64,6 @@ def build_rows_for_participant(participant: dict, staging_dir: Path) -> list[dic
 
     png_files = sorted(p for p in png_dir.iterdir() if p.is_file())
 
-    # PDFs are paired by sorted position (chronological order), since PNG and
-    # PDF stems carry independent scanner timestamps and never match.
     if pdf_dir.is_dir():
         pdf_files = sorted(p for p in pdf_dir.iterdir() if p.is_file())
     else:
@@ -77,8 +75,6 @@ def build_rows_for_participant(participant: dict, staging_dir: Path) -> list[dic
 
     rows: list[dict] = []
     for index, png_path in enumerate(png_files):
-        # Roles only exist for the first 4 positions; extras get a blank
-        # role so the mismatch is visible rather than crashing.
         role = PAGE_ROLES[index] if index < len(PAGE_ROLES) else ""
 
         if index < len(pdf_files):

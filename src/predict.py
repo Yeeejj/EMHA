@@ -55,8 +55,8 @@ def preprocess_image(image: np.ndarray, skip_skew: bool) -> torch.Tensor:
         denoise_kernel_size=cfg.denoise_kernel_size,
         skip_skew=skip_skew,
     )
-    processed = pipeline.process(image)  # float32 in [0, 1]
-    tensor = torch.from_numpy(processed).unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+    processed = pipeline.process(image)
+    tensor = torch.from_numpy(processed).unsqueeze(0).unsqueeze(0)
     return tensor.float()
 
 

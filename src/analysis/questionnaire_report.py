@@ -19,7 +19,7 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # headless rendering
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
@@ -27,7 +27,6 @@ import pandas as pd  # noqa: E402
 from src.data.labeler import LabelLoader, _normalize_id  # noqa: E402
 from src.utils.config import config  # noqa: E402
 
-# The FINALE instrument's fixed 1-5 Likert response range.
 LIKERT_MIN = 1
 LIKERT_MAX = 5
 
@@ -108,7 +107,7 @@ def build_report() -> Path:
     lbl = config.labeling
     rep = config.report
 
-    df = LabelLoader.load()  # participant_id, total_score, label (verbatim)
+    df = LabelLoader.load()
 
     labels_path = config.paths.metadata_dir / "labels.csv"
     if not labels_path.is_file():

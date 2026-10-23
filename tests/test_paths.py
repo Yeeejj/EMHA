@@ -68,16 +68,13 @@ def _mounted_root(tmp_path, monkeypatch):
     return root
 
 
-# ── resolve_data_path / read_manifest ────────────────────────────────────────
-
-
 def test_existing_local_paths_are_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(config.package, "mount_root", FAKE_MOUNT)
     f = tmp_path / "a.png"
     f.write_bytes(b"x")
     assert resolve_data_path(str(f)) == str(f)
     monkeypatch.chdir(tmp_path)
-    assert resolve_data_path("a.png") == "a.png"  # relative local path kept
+    assert resolve_data_path("a.png") == "a.png"
 
 
 def test_missing_path_outside_mount_root_is_unchanged(monkeypatch):
@@ -102,7 +99,7 @@ def test_read_manifest_resolves_both_path_columns_and_keeps_blanks(
 ):
     root = _mounted_root(tmp_path, monkeypatch)
     frame = read_manifest(root / "metadata" / "processed_manifest.csv")
-    assert frame["participant_id"].tolist()[:3] == ["001"] * 3  # dtype kept
+    assert frame["participant_id"].tolist()[:3] == ["001"] * 3
     for col in ("path", "processed_path"):
         assert all(p.startswith(str(root)) for p in frame[col])
         assert all(os.path.isfile(p) for p in frame[col])
@@ -111,11 +108,7 @@ def test_read_manifest_resolves_both_path_columns_and_keeps_blanks(
     assert read_manifest(tmp_path / "blank.csv")["path"].isna().all()
 
 
-# ── every loader finds the files under the new mount ─────────────────────────
-
-
 def test_dataloader_load_tables_and_loaders(tmp_path, monkeypatch):
-    # load_tables also feeds run_cnn, run_hybrid, gradcam, predict, permutation
     _mounted_root(tmp_path, monkeypatch)
     manifest, _, _ = dataloader.load_tables(config)
     assert all(os.path.isfile(p) for p in manifest["processed_path"])

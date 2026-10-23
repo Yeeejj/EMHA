@@ -99,7 +99,7 @@ class _ResNetBackbone(nn.Module):
     def train(self, mode: bool = True):
         super().train(mode)
         for name in self.frozen_names:
-            getattr(self, name).eval()  # frozen BatchNorm keeps ImageNet stats
+            getattr(self, name).eval()
         return self
 
     def _prepare(self, x: torch.Tensor) -> torch.Tensor:
@@ -155,7 +155,7 @@ class _SimpleBackbone(nn.Module):
 
     @property
     def gradcam_layer(self) -> nn.Module:
-        return self.conv_blocks[-3]  # last Conv2d
+        return self.conv_blocks[-3]
 
 
 class CNNFeatureExtractor(nn.Module):

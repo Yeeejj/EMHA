@@ -129,7 +129,7 @@ def test_build_loaders_disjoint_participants_one_family(tmp_path, monkeypatch):
     assert _ids(train) == {"001", "002", "003"}
     assert _ids(val) == {"004"}
     assert not _ids(train) & _ids(val)
-    assert len(train.dataset) == 3 * 2 - 1  # one dropped crop
+    assert len(train.dataset) == 3 * 2 - 1
     for loader in (train, val):
         for batch in loader:
             assert set(batch["task_family"]) == {"word"}

@@ -78,9 +78,6 @@ class DemoRefusal(RuntimeError):
     """The participant cannot be shown without a model that trained on them."""
 
 
-# ── fold and participant ─────────────────────────────────────────────────────
-
-
 def _run_dir_name(cfg) -> str:
     d = cfg.demo
     return d.analysis if d.subset is None else f"{d.analysis}_{d.subset}"
@@ -143,9 +140,6 @@ def check_held_out(state: dict, code: str, fold: int, path: Path) -> None:
         )
 
 
-# ── crops ────────────────────────────────────────────────────────────────────
-
-
 def load_crops(code: str, cfg=config) -> dict:
     """{family: (cells, uint8 array (N, H, W))} of processed crops.
 
@@ -170,9 +164,6 @@ def load_crops(code: str, cfg=config) -> dict:
             images.append(gray)
         out[family] = (list(part["cell"]), np.stack(images))
     return out
-
-
-# ── components ───────────────────────────────────────────────────────────────
 
 
 def lr_component(model: str, code: str, fold: int, train: list, cfg=config):
@@ -234,12 +225,9 @@ def _check_match(model, fs, subdir, code, fold, live, cfg) -> None:
         )
 
 
-# ── grad-cam ─────────────────────────────────────────────────────────────────
-
-
 def save_gradcams(hybrid, crops, crop_probs, label, out_dir, cfg=config) -> list:
     """Overlays for the n_gradcam crops that most support `label`."""
-    if hybrid is None:  # LR-only models have no CNN to explain
+    if hybrid is None:
         return []
     ranked = [
         (p, family, cell, img)
@@ -253,9 +241,6 @@ def save_gradcams(hybrid, crops, crop_probs, label, out_dir, cfg=config) -> list
         out = out_dir / f"gradcam_{cell}.png"
         paths.append(str(save_overlay(hybrid.cnns[family], image, out)))
     return paths
-
-
-# ── predict ──────────────────────────────────────────────────────────────────
 
 
 def _label(prob_sad: float, cfg) -> str:

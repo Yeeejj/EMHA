@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple
 from pathlib import Path
 
-# src/utils/config.py -> src/utils -> src -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -71,8 +70,6 @@ class PathsConfig:
 class DataConfig:
     """Non-path dataset configuration. See Config.paths for filesystem roots."""
 
-    # CropDataset (src/data/dataloader.py): label string -> class index, and
-    # DataLoader worker processes.
     label_to_index: dict = field(default_factory=lambda: {"HAPPY": 0, "SAD": 1})
     num_workers: int = 2
     image_size: Tuple[int, int] = (224, 224)
@@ -102,7 +99,7 @@ class PreprocessingConfig:
     """
 
     background_blur_ksize: int = 51
-    denoise: str = "median3"  # "median3" | "none"
+    denoise: str = "median3"
     scale_factor: dict = field(
         default_factory=lambda: {"drawing": 0.44, "word": 1.0, "cursive": 0.33}
     )
@@ -115,7 +112,7 @@ class PreprocessingConfig:
     )
     invert: bool = True
     min_crop_size: Tuple[int, int] = (80, 80)
-    blank_threshold: float = 245.0  # grayscale mean above this = blank
+    blank_threshold: float = 245.0
 
 
 @dataclass
@@ -133,13 +130,13 @@ class CNNConfig:
     pretrained stem.
     """
 
-    backbone: str = "resnet18"  # "resnet18" | "simple"
+    backbone: str = "resnet18"
     use_pretrained: bool = True
     weights: str = "IMAGENET1K_V1"
     trainable_blocks: Tuple[str, ...] = ("layer3", "layer4")
-    seq_layer: str = "layer3"  # "layer3" | "layer4"
+    seq_layer: str = "layer3"
     imagenet_input_norm: bool = True
-    input_channels: int = 1  # Grayscale
+    input_channels: int = 1
     num_features: int = 256
     num_classes: int = 2
     dropout_rate: float = 0.5
@@ -164,7 +161,7 @@ class HMMConfig:
     tol: float = 1e-3
     min_covar: float = 1e-3
     n_restarts: int = 5
-    topology: str = "ergodic"  # "ergodic" | "left_right"
+    topology: str = "ergodic"
     pca_components: int = 16
     standardize: bool = True
 
@@ -230,21 +227,14 @@ class TrainingConfig:
     batch_size: int = 32
     epochs: int = 100
     learning_rate: float = 0.001
-    # CNN fine-tuning (Trainer.fit, protocol section 5): AdamW with separate
-    # learning rates for the trainable backbone blocks and the head, cosine
-    # schedule over `epochs`, early stopping on inner-validation participant
-    # macro-F1 (patience / min_delta), class-balanced cross-entropy.
     lr_head: float = 1e-3
     lr_backbone: float = 1e-4
-    class_weight: Optional[str] = "balanced"  # "balanced" | None
+    class_weight: Optional[str] = "balanced"
     weight_decay: float = 1e-4
     patience: int = 10
     min_delta: float = 0.001
     n_folds: int = 5
     random_state: int = 42
-    # Global reproducibility seed for src.utils.seed.set_seed() (random, numpy,
-    # torch). Distinct from random_state, which is passed directly into
-    # individual sklearn calls (StratifiedKFold, train_test_split, etc.).
     seed: int = 42
     save_best_only: bool = True
 
@@ -270,9 +260,6 @@ class CVConfig:
 
     n_splits: int = 5
     inner_val_fraction: float = 0.15
-    # --subset pilot: participants whose 3-digit code is in this inclusive
-    # range (decided with the thesis author 2026-10-05), intersected with the
-    # analysis set.
     pilot_id_range: Tuple[int, int] = (1, 100)
     stratify_columns: Tuple[str, ...] = ("label", "in_middle_band")
     folds_filename: str = "folds.csv"
@@ -308,8 +295,6 @@ class BaselineConfig:
     class_weight: Optional[str] = "balanced"
     max_iter: int = 5000
     pca_components: int = 64
-    # Exact SVD: faster than "auto" (randomized) on ~100 participants x
-    # 512-1536 dims, and fully deterministic.
     pca_svd_solver: str = "full"
     scoring: str = "f1_macro"
     output_subdir: str = "baselines"
@@ -332,12 +317,7 @@ class LabelingConfig:
     label_column: str = "label"
     label_map: dict = field(default_factory=lambda: {"HAPPY": "HAPPY", "SAD": "SAD"})
     cutoff: float = 72.0
-    analysis_design: str = "extreme_groups"  # "extreme_groups" | "full_sample"
-    # Set 2026-10-04 per DOCS/decisions/analysis_design.txt: 0.30 (the prior
-    # default) left SAD's primary count below min_per_class; 0.20 is the
-    # only candidate fraction in the preview table that clears it for both
-    # classes. Decided from labels.csv score data only, before any model
-    # result existed.
+    analysis_design: str = "extreme_groups"
     middle_band_fraction: float = 0.20
     min_per_class: int = 100
 
@@ -391,11 +371,7 @@ class EvalConfig:
     reliability_model: str = "ensemble"
     reliability_feature_set: str = "all"
     reliability_bins: int = 10
-    # H3 secondary analyses: handcrafted features shown by |mean coefficient|
     top_features: int = 10
-    # Runner output folders read under results/, in report order. The
-    # ensemble folder has no subset suffix (run_ensemble), so it is read only
-    # when no subset is given.
     sources: Tuple[str, ...] = ("baselines", "cnn", "hybrid", "ensemble")
     analyses: Tuple[str, ...] = ("primary", "full")
     output_subdir: str = "final"
@@ -453,8 +429,6 @@ class PermutationConfig:
     pilot_models: Tuple[str, ...] = ("lr_handcrafted", "lr_embeddings")
     alpha: float = 0.05
     hist_bins: int = 30
-    # Per-permutation participant predictions of the CNN-path draws (resume
-    # unit on Kaggle), under results/<EvalConfig.output_subdir>/.
     runs_subdir: str = "permutation_runs"
 
 
@@ -472,7 +446,7 @@ class GradCAMConfig:
     target_layer: str = "layer4"
     n_examples: int = 4
     analysis: str = "primary"
-    output_subdir: str = "gradcam"  # under results/<EvalConfig.output_subdir>
+    output_subdir: str = "gradcam"
     overlay_alpha: float = 0.6
     match_atol: float = 1e-3
 
@@ -515,7 +489,7 @@ class CropConfig:
             **{f"CS{k}": (1342, 174) for k in range(1, 6)},
         }
     )
-    ink_threshold: int = 128  # for statistics only; never used to binarize a crop
+    ink_threshold: int = 128
 
 
 @dataclass
@@ -573,28 +547,9 @@ class FeaturesConfig:
     xheight_profile_frac: float = 0.5
     xheight_merge_gap_px: int = 3
     xheight_min_band_px: int = 3
-    # Stroke-level features (src/features/strokes.py). Skeleton paths shorter
-    # than skeleton_min_path_px (~1.3 mm) are treated as spurs and ignored.
-    # tremor_window_px is the coarse Gaussian scale (px of arc length) that
-    # defines the smooth "intended" trajectory; tremor_fine_sigma_px only
-    # removes pixel-staircase quantization. Tremor needs paths of at least
-    # 4 * tremor_window_px so the edge-trimmed core is non-empty.
     skeleton_min_path_px: int = 10
     tremor_window_px: int = 6
     tremor_fine_sigma_px: float = 1.5
-    # Drawing features. faint_gray_range is [lo, hi) on the flattened crop:
-    # lighter than ink (ink_threshold) but darker than paper (~255). Faint
-    # pixels within erasure_ink_margin_px of ink (antialiased stroke edges)
-    # are excluded, and only regions surviving an erasure_open_px square
-    # opening count -- smudges are areal; faint thin strokes (seen as light
-    # hatching on real drawings) are removed by the opening. Erasure is read
-    # from the crop flattened at erasure_background_ksize (~25 mm): the
-    # model-path kernel (51 px, ~6.5 mm) flattens smudges of its own size
-    # back to paper white.
-    # erasure_open_px = 9 (~1.1 mm) and excluding the border band: with 5 px
-    # and no band, 22/400 real drawings scored > 0, all from scan-blurred
-    # light strokes ~5-6 px wide or the scan-edge shadow; with 9 px + band,
-    # 1/400 (checked on crop images only, no labels).
     faint_gray_range: Tuple[int, int] = (170, 240)
     erasure_background_ksize: int = 201
     erasure_ink_margin_px: int = 2
@@ -797,7 +752,6 @@ class PackageConfig:
         "qc_log.csv",
         "folds.csv",
     )
-    # copied byte-identical (their SHA-256 must match the frozen protocol)
     verbatim_files: Tuple[str, ...] = ("labels.csv", "participants.csv", "folds.csv")
     path_columns: Tuple[str, ...] = ("path", "processed_path")
     forbidden_column_patterns: Tuple[str, ...] = ("name", "email", "note")
@@ -865,29 +819,16 @@ class Config:
         self.paths.models_dir.mkdir(parents=True, exist_ok=True)
 
 
-# Default configuration instance
 config = Config()
 
 
-# ---------------------------------------------------------------------------
-# Crop coordinate maps — fractional (0.0–1.0) relative to scan dimensions.
-# Reference scan: ~1700 px wide × ~2200 px tall (anisotropic ~74.5 DPI H,
-# ~81.1 DPI V).  Tune against real scans with src/data/preview_crops.py.
-# Format: (x1_frac, y1_frac, x2_frac, y2_frac)
-# ---------------------------------------------------------------------------
-
-# page_drawing (page index 2): 2×2 grid below the header band.
-# Row heights are unequal: top row (Circles, Dots) is shorter than bottom row.
 DRAWING_CROPS = {
-    "draw_circles": (0.0706, 0.2318, 0.4765, 0.5500),  # top-left
-    "draw_dots": (0.5235, 0.2318, 0.9294, 0.5500),  # top-right
-    "draw_person": (0.0706, 0.6273, 0.4765, 0.9455),  # bottom-left
-    "draw_house": (0.5235, 0.6273, 0.9294, 0.9455),  # bottom-right
+    "draw_circles": (0.0706, 0.2318, 0.4765, 0.5500),
+    "draw_dots": (0.5235, 0.2318, 0.9294, 0.5500),
+    "draw_person": (0.0706, 0.6273, 0.4765, 0.9455),
+    "draw_house": (0.5235, 0.6273, 0.9294, 0.9455),
 }
 
-# page_writing (page index 3), section 1: 5×3 word table (15 cells).
-# Rows: content, melancholic, optimistic, disconnected, vibrant.
-# Columns: left-hand, right-hand, uppercase.
 WORD_CROPS = {
     "word_content_left": (0.2529, 0.2000, 0.4706, 0.2655),
     "word_content_right": (0.4765, 0.2000, 0.6941, 0.2655),
@@ -906,8 +847,6 @@ WORD_CROPS = {
     "word_vibrant_upper": (0.7000, 0.4982, 0.9235, 0.5636),
 }
 
-# page_writing (page index 3), section 2: 5 cursive sentence rows.
-# Each row includes its pre-printed prompt line.
 CURSIVE_CROPS = {
     "cursive_01": (0.0765, 0.6318, 0.9235, 0.6909),
     "cursive_02": (0.0765, 0.6955, 0.9235, 0.7545),

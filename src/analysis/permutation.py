@@ -101,7 +101,6 @@ from src.utils.protocol_guard import require_frozen_or_synthetic
 plt.switch_backend("Agg")
 
 SAD, HAPPY = "SAD", "HAPPY"
-# Runner output folder of each tested model (observed predictions).
 SOURCES = {
     "lr_handcrafted": "baselines",
     "lr_embeddings": "baselines",
@@ -130,16 +129,13 @@ def p_value(null, observed: float) -> float:
     return float((1 + np.sum(null >= observed)) / (1 + len(null)))
 
 
-# ─── context ──────────────────────────────────────────────────────────────────
-
-
 @dataclass
 class _Context:
     analysis: str
-    labels: pd.DataFrame  # labels.csv, true labels
+    labels: pd.DataFrame
     ids: list
     folds: pd.DataFrame
-    splits: list  # [(train_ids, test_ids)] per outer fold
+    splits: list
 
     def true_index(self, ids, cfg=config) -> np.ndarray:
         return _label_index(self.labels, ids, cfg)
@@ -185,9 +181,6 @@ def permuted_train_labels(ctx: _Context, perm: int, seed: int, cfg=config) -> li
     ]
 
 
-# ─── observed ─────────────────────────────────────────────────────────────────
-
-
 def observed_macro_f1(
     model: str, fs: str, analysis: str, cfg=config, subset: str | None = None
 ) -> float:
@@ -202,9 +195,6 @@ def observed_macro_f1(
     if set(rows["fold"]) != set(range(cfg.cv.n_splits)):
         raise ValueError(f"{path}: {model}/{fs} does not cover all folds")
     return metrics(rows)["macro_f1"]
-
-
-# ─── LR path ──────────────────────────────────────────────────────────────────
 
 
 def _lr_features(model: str, fs: str, ids: list, cfg=config) -> tuple:
@@ -310,9 +300,6 @@ def lr_predictions(
             )
         )
     return pd.concat(frames, ignore_index=True)[list(PRED_COLUMNS)]
-
-
-# ─── CNN path ─────────────────────────────────────────────────────────────────
 
 
 def runs_dir(analysis: str, seed: int, cfg=config, subset: str | None = None) -> Path:
@@ -504,9 +491,6 @@ def draws_only(
         f"present: {done}"
     )
     return out
-
-
-# ─── outputs ──────────────────────────────────────────────────────────────────
 
 
 def _plot(null, observed, p, title: str, path: Path, cfg=config) -> None:

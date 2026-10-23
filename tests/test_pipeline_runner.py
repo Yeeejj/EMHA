@@ -24,7 +24,6 @@ from src.training.run_baselines import PRED_COLUMNS
 from src.utils import protocol_guard
 from src.utils.config import config
 
-# The preparation and model steps (no evaluation gate).
 BUILT = [
     "embeddings",
     "handcrafted",
@@ -111,7 +110,6 @@ def test_gated_steps_wait_for_every_analysis(fakes, capsys):
         assert not pr.marker_path("pilot", pr.ALL_ANALYSES, step).exists()
     assert "waiting for the other analysis set" in out
 
-    # a later command that adds the full set runs the waiting steps
     fakes.clear()
     assert pr.run("pilot", ["primary", "full"], "cpu", steps) == pr.EXIT_OK
     ran = [s for s, _ in fakes]
@@ -126,7 +124,6 @@ def test_gate_uses_the_commands_model_steps(fakes, capsys):
     assert [s for s, _ in fakes][-1] == "evaluate"
     assert "[WAIT]" not in capsys.readouterr().out
 
-    # a command naming no model step is gated on every default model step
     marker = pr.marker_path("pilot", pr.ALL_ANALYSES, "evaluate")
     marker.unlink()
     fakes.clear()
@@ -162,10 +159,9 @@ def test_rerun_skips_finished_steps(fakes, capsys):
     assert pr.run("pilot", ["primary"], "cpu", BUILT) == pr.EXIT_OK
     n = len(fakes)
     assert pr.run("pilot", ["primary"], "cpu", BUILT) == pr.EXIT_OK
-    assert len(fakes) == n  # nothing called again
+    assert len(fakes) == n
     assert capsys.readouterr().out.count("[SKIP]") == len(BUILT)
 
-    # a step whose recorded output vanished is redone; the others stay skipped
     marker = pr.marker_path("pilot", "primary", "hybrid")
     Path(pr.json.loads(marker.read_text())["outputs"][0]).unlink()
     assert pr.run("pilot", ["primary"], "cpu", BUILT) == pr.EXIT_OK
@@ -238,7 +234,7 @@ def test_every_step_matches_the_real_run_signature(step):
     signature = inspect.signature(real)
 
     def bind_only(*args, **kwargs):
-        signature.bind(*args, **kwargs)  # TypeError on any mismatch
+        signature.bind(*args, **kwargs)
         return None
 
     for ctx in _ctx_variants():
@@ -288,9 +284,6 @@ def test_cli_parses_lists(monkeypatch):
     assert seen["analyses"] == list(config.runner.default_analyses)
 
 
-# ── end to end on the synthetic fixture ─────────────────────────────────────
-
-
 @pytest.fixture(scope="module")
 def e2e_root(tmp_path_factory):
     """Smoke-sized synthetic root after stages A-E (labels, crops, folds).
@@ -336,7 +329,7 @@ def test_end_to_end_on_synthetic_fixture(e2e_root, monkeypatch, capsys):
     )
     assert tuple(ens.columns) == PRED_COLUMNS
     assert set(ens["analysis"]) == {"primary"}
-    assert ens["in_middle_band"].any()  # predict_middle on the primary set
+    assert ens["in_middle_band"].any()
     assert ens["prob_sad"].between(0, 1).all()
     for analysis, step in plan:
         assert pr.marker_path("pilot", analysis, step).is_file(), step
@@ -352,9 +345,8 @@ def test_end_to_end_on_synthetic_fixture(e2e_root, monkeypatch, capsys):
     assert (final / config.gradcam.output_subdir).is_dir()
     report = (final / "RESULTS.txt").read_text(encoding="utf-8")
     assert "SYNTHETIC DATA ROOT" in report and "SUBSET PILOT" in report
-    assert not (results / "final").exists()  # pilot never writes the full run's
+    assert not (results / "final").exists()
 
-    # rerun the evaluator after the permutation tests: p-values survive
     from src.training import evaluator
 
     evaluator.run(None, "pilot")
@@ -363,7 +355,6 @@ def test_end_to_end_on_synthetic_fixture(e2e_root, monkeypatch, capsys):
         perm_lines
     )
 
-    # rerun: every step skipped, no module run function called
     def no_call(step):
         raise AssertionError(f"{step} resolved on a finished run")
 
@@ -381,14 +372,11 @@ def test_end_to_end_refuses_without_tag(e2e_root, monkeypatch, capsys):
     assert "REFUSED" in capsys.readouterr().out
 
 
-# ── thread report (EVALUATION_PROTOCOL.md section 9, Deviation 2) ────────────
-
-
 def test_thread_report_covers_main_process_and_a_loky_worker(monkeypatch):
     monkeypatch.setattr(config.runner, "hmm_n_jobs", 2)
     report = pr.thread_report()
     main, worker = report["main"], report["worker"]
-    assert worker["pid"] != main["pid"]  # a real worker process
+    assert worker["pid"] != main["pid"]
     for state in (main, worker):
         assert set(state["env"]) == set(pr.THREAD_ENV_VARS)
         assert any(p.startswith("blas:") for p in state["pools"])

@@ -22,13 +22,10 @@ def _one(df, method="mean_prob"):
     return out.iloc[0]
 
 
-# ── aggregate_crops ───────────────────────────────────────────────────────────
-
-
 def test_brief_example_mean_prob_is_half_and_sad_at_threshold():
     row = _one(_crops([0.2, 0.4, 0.9]))
     assert row["prob_sad"] == pytest.approx(0.5)
-    assert row["pred"] == "SAD"  # prob_sad >= threshold -> SAD
+    assert row["pred"] == "SAD"
     assert row["n_crops"] == 3
 
 
@@ -62,15 +59,15 @@ def test_majority_vote_share_and_no_tie():
 @pytest.mark.parametrize(
     "probs,expected",
     [
-        ([0.9, 0.6, 0.1, 0.2], "HAPPY"),  # 2-2 tie, mean 0.45
-        ([0.55, 0.55, 0.45, 0.45], "SAD"),  # 2-2 tie, mean 0.50 (>= threshold)
-        ([0.51, 0.51, 0.0, 0.0], "HAPPY"),  # 2-2 tie, mean 0.255
-        ([0.95, 0.9, 0.3, 0.4], "SAD"),  # 2-2 tie, mean 0.6375
+        ([0.9, 0.6, 0.1, 0.2], "HAPPY"),
+        ([0.55, 0.55, 0.45, 0.45], "SAD"),
+        ([0.51, 0.51, 0.0, 0.0], "HAPPY"),
+        ([0.95, 0.9, 0.3, 0.4], "SAD"),
     ],
 )
 def test_majority_vote_tie_broken_by_mean_prob(probs, expected):
     row = _one(_crops(probs), "majority_vote")
-    assert row["prob_sad"] == 0.5  # the tie stays visible
+    assert row["prob_sad"] == 0.5
     assert row["tie_broken"]
     assert row["pred"] == expected
 
@@ -128,15 +125,12 @@ def test_participant_ids_kept_as_strings():
     assert out["participant_id"].tolist() == ["7"]
 
 
-# ── fuse_task_families ────────────────────────────────────────────────────────
-
-
 def _family_df():
     return pd.concat(
         [
-            _crops([0.2, 0.4], ["word", "word"], pid="001"),  # word 0.3
-            _crops([0.9], ["cursive"], pid="001"),  # cursive 0.9
-            _crops([0.6], ["drawing"], pid="001"),  # drawing 0.6
+            _crops([0.2, 0.4], ["word", "word"], pid="001"),
+            _crops([0.9], ["cursive"], pid="001"),
+            _crops([0.6], ["drawing"], pid="001"),
         ]
     )
 

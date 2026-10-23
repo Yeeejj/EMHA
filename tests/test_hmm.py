@@ -82,7 +82,7 @@ def test_decision_score_is_length_normalised_ll_difference_plus_prior(fitted, da
         + fitted.log_prior_ratio
     )
     assert fitted.decision_scores([x])[0] == pytest.approx(expected)
-    assert fitted.log_prior_ratio == pytest.approx(0.0)  # balanced training
+    assert fitted.log_prior_ratio == pytest.approx(0.0)
 
 
 def test_log_prior_ratio_from_training_labels(data):
@@ -128,11 +128,11 @@ def test_best_restart_is_kept(fitted):
 
 def test_convergence_logged_with_winning_restart(data, caplog):
     seqs, labels = data["train"]
-    cfg = replace(config.hmm, n_restarts=2, n_iter=1)  # cannot converge in 1 step
+    cfg = replace(config.hmm, n_restarts=2, n_iter=1)
     with caplog.at_level(logging.INFO, logger="src.models.hmm"):
         HMMClassifier(cfg, seed=0).fit(seqs, labels)
     winning = [r for r in caplog.records if "winning restart" in r.getMessage()]
-    assert len(winning) == 2  # one per class
+    assert len(winning) == 2
     assert all(r.levelno == logging.WARNING for r in winning)
     assert all("converged=False" in r.getMessage() for r in winning)
 
@@ -160,10 +160,9 @@ def test_uncalibrated_predict_proba_warns(data):
 @pytest.mark.filterwarnings("error::FutureWarning")
 def test_platt_calibrator_is_unpenalized_without_deprecation_warning(fitted, data):
     scores = fitted.decision_scores(data["val"][0])
-    fitted.fit_calibrator(scores, data["val"][1])  # FutureWarning -> error
+    fitted.fit_calibrator(scores, data["val"][1])
     cal = fitted.calibrator
     assert np.isinf(cal.C)
-    # unpenalized maximum likelihood: the log-loss gradient vanishes at the fit
     y = (data["val"][1] == SAD).astype(float)
     p = cal.predict_proba(scores.reshape(-1, 1))[:, 1]
     gradient = [np.mean(p - y), np.mean((p - y) * scores)]

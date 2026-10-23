@@ -26,9 +26,7 @@ from skimage.morphology import skeletonize
 
 from src.preprocessing.pipeline import flatten_background
 
-# 8-neighbourhood in clockwise order (P2..P9), used for the crossing number.
 _RING = ((-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1))
-# Same neighbours, orthogonal first: preferred continuation when tracing.
 _STEP_ORDER = ((-1, 0), (0, 1), (1, 0), (0, -1), (-1, 1), (1, 1), (1, -1), (-1, -1))
 
 STROKE_FEATURES = (
@@ -79,7 +77,6 @@ def _trace_component(pixels: set) -> list:
         ]
 
     while remaining:
-        # Start at an end (fewest neighbours) so open paths are walked whole.
         start = min(remaining, key=lambda p: (len(neighbours(p)), p))
         remaining.remove(start)
         walk = [start]
@@ -96,8 +93,6 @@ def _trace_component(pixels: set) -> list:
 
 
 def _paths_from_skeleton(skel: np.ndarray, cn: np.ndarray, min_px: int) -> list:
-    # Cut junction pixels AND their 8-neighbours: removing the junction pixel
-    # alone leaves its arms touching diagonally, i.e. still one piece.
     junction_zone = ndimage.binary_dilation(cn >= 3, structure=np.ones((3, 3)))
     pieces = skel & ~junction_zone
     labels, n = ndimage.label(pieces, structure=np.ones((3, 3), dtype=bool))

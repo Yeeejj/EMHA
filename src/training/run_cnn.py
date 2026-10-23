@@ -238,7 +238,6 @@ def _fit_fold(
             "family": family,
             "fold": fold,
             "cnn": asdict(cnn_cfg),
-            # recorded so run_hybrid can assert it rebuilds the same split
             "inner_train_ids": list(inner_train),
             "inner_val_ids": list(inner_val),
             "test_ids": list(test),
@@ -266,7 +265,7 @@ def _participant_predictions(crops: pd.DataFrame, analysis: str) -> pd.DataFrame
     fused = []
     for fold, part in preds.groupby("fold"):
         if set(part["feature_set"]) != set(FAMILIES):
-            continue  # fuse only when all three families are done
+            continue
         long = part[
             [
                 "participant_id",
@@ -387,7 +386,7 @@ def run(
         predict_middle=predict_middle,
         stage=stage,
     )
-    if task_family is not None:  # earlier families were logged by their own runs
+    if task_family is not None:
         preds = preds[
             (preds["feature_set"] == task_family) | (preds["model"] == FUSED_MODEL)
         ]

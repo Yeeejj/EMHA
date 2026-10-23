@@ -51,9 +51,6 @@ def _pooled(summary, key):
     return summary["models"][key]["pooled_test"]["macro_f1"]
 
 
-# ── acceptance ────────────────────────────────────────────────────────────────
-
-
 def test_runs_on_synthetic_fixture_under_a_minute(null_run):
     _, elapsed = null_run
     assert elapsed < 60, f"run took {elapsed:.1f}s"
@@ -96,7 +93,7 @@ def test_clearly_above_chance_with_signal(signal_run):
     summary = _summary(signal_run)
     for key in ("lr_handcrafted/all", "lr_embeddings/concat"):
         assert _pooled(summary, key) > 0.80, key
-    assert _pooled(summary, "majority/all") < 0.5  # majority macro-F1 ~ 0.36
+    assert _pooled(summary, "majority/all") < 0.5
 
 
 def test_no_scaler_or_pca_ever_sees_a_validation_id(
@@ -148,15 +145,12 @@ def test_no_scaler_or_pca_ever_sees_a_validation_id(
     trains = [set(fold_ids(folds, k, ids)[0]) for k in range(config.cv.n_splits)]
     tests = [set(fold_ids(folds, k, ids)[1]) for k in range(config.cv.n_splits)]
 
-    n_lr_sets = 9  # 4 handcrafted + 4 embeddings + 1 handwriting
+    n_lr_sets = 9
     assert len(calls) == n_lr_sets * config.cv.n_splits
     for i, seen in enumerate(calls):
         fold = i // n_lr_sets
         assert seen == trains[fold]
         assert not seen & tests[fold] and not seen & middle
-
-
-# ── outputs ───────────────────────────────────────────────────────────────────
 
 
 def test_outputs_schema_and_files(null_run, synthetic_root):
@@ -204,9 +198,6 @@ def test_pilot_subset_restricts_to_codes(synthetic_root, use_root):
     assert pred_path.parent.name == "primary_pilot"
 
 
-# ── guards and helpers ────────────────────────────────────────────────────────
-
-
 def test_predict_middle_only_for_primary(synthetic_root, use_root):
     use_root(synthetic_root)
     with pytest.raises(ValueError, match="primary analysis only"):
@@ -214,7 +205,7 @@ def test_predict_middle_only_for_primary(synthetic_root, use_root):
 
 
 def test_refuses_real_data_before_protocol_tag(tmp_path, use_root, monkeypatch):
-    use_root(tmp_path)  # no synthetic marker
+    use_root(tmp_path)
     monkeypatch.setattr(
         "src.utils.protocol_guard.protocol_frozen", lambda *a, **k: False
     )

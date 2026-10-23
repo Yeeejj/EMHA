@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
-# Reproduce every EMHA result from a clean clone plus the dataset.
-# Runs the REPRODUCE.md commands in order and stops on the first error.
-#
-#   scripts/reproduce_full.sh [--device auto|cpu|cuda] [--skip-exploratory]
-#                             [--dry-run]
-#
-# Environment:
-#   EMHA_DATA_ROOT / EMHA_OUTPUT_ROOT  data and output roots (see config.py)
-#   EMHA_PYTHON         python executable (default: python)
-#   EMHA_PYTHON_PREFIX  extra arguments before "-m" (tests use a launcher
-#                       script here; no spaces inside a single argument)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# BLAS/OpenMP pinned to one thread for every step, before Python starts
-# (EVALUATION_PROTOCOL.md section 9, Deviation 2).
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 DEVICE=auto
@@ -43,7 +30,7 @@ sha() {
   "$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"
 }
 
-check_hash() {  # check_hash <file name in metadata/> [expected hash]
+check_hash() {
   echo "==> verify $1 SHA-256"
   if [ "$DRY_RUN" = 1 ]; then return 0; fi
   local h
@@ -61,21 +48,17 @@ check_hash() {  # check_hash <file name in metadata/> [expected hash]
   fi
 }
 
-# 0. Frozen inputs
 check_hash folds.csv
 check_hash labels.csv
 LABELS_SHA="$([ "$DRY_RUN" = 1 ] || sha "$META/labels.csv")"
 FOLDS_SHA="$([ "$DRY_RUN" = 1 ] || sha "$META/folds.csv")"
 
-# 1. Labels (Stage B): labels.csv must come back byte-identical
 step src.data.labeler
 check_hash labels.csv "$LABELS_SHA"
 step src.analysis.questionnaire_report
 
-# 2. Raw scans (Stage C); crop_manifest.csv and qc_log.csv are frozen inputs
 step src.data.ingest
 
-# 3. Preprocessing and features (Stage D)
 step src.preprocessing.pipeline --overwrite
 step src.features.handcrafted
 step src.features.embeddings --device "$DEVICE"
@@ -83,11 +66,9 @@ if [ "$SKIP_EXPLORATORY" = 0 ]; then
   step src.features.embeddings_handwriting --device "$DEVICE"
 fi
 
-# 4. Folds (Stage E): must equal the frozen folds.csv
 step src.training.splits
 check_hash folds.csv "$FOLDS_SHA"
 
-# 5. Models (Stage F)
 step src.training.run_baselines --analysis primary --predict-middle
 step src.training.run_baselines --analysis full
 step src.training.run_cnn --analysis primary --predict-middle --device "$DEVICE"
@@ -95,7 +76,6 @@ step src.training.run_cnn --analysis primary --backbone simple --device "$DEVICE
 step src.training.run_hybrid --analysis primary --predict-middle --device "$DEVICE"
 step src.training.run_ensemble --analysis primary
 
-# 6. Results (Stage H)
 step src.training.evaluator
 for analysis in primary full; do
   for model in lr_handcrafted lr_embeddings; do

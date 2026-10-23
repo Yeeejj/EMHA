@@ -49,7 +49,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL = _REPO_ROOT / "EVALUATION_PROTOCOL.md"
 DESIGN = _REPO_ROOT / "DOCS" / "decisions" / "analysis_design.txt"
 DEVIATIONS_HEADING = "## 9. Deviations"
-# results/questionnaire/report.txt is quoted whole except this per-item block.
 ITEM_BLOCK = "Alpha if item deleted:"
 DESIGN_KEYS = ("Date", "Design", "Middle-band fraction")
 RULE = "=" * 78
@@ -57,9 +56,6 @@ PRIMARY_NOTE = (
     "Primary model per EVALUATION_PROTOCOL.md section 9, Deviation 4 "
     "(was ensemble/all)."
 )
-
-
-# ─── sources ──────────────────────────────────────────────────────────────────
 
 
 def _read(path: Path) -> str | None:
@@ -119,9 +115,6 @@ def permutation_results(final: Path) -> dict:
         r = json.loads(path.read_text())
         out[(r["analysis"], r["model"], r["feature_set"])] = r
     return out
-
-
-# ─── tables ───────────────────────────────────────────────────────────────────
 
 
 def _ci(row, m: str) -> str:
@@ -195,9 +188,6 @@ def figures(results: Path, final: Path | None = None) -> list:
             f"({len(items)} per-crop Grad-CAM overlays)"
         )
     return lines or ["  no figures found"]
-
-
-# ─── build ────────────────────────────────────────────────────────────────────
 
 
 def build(subset: str | None = None) -> Path:

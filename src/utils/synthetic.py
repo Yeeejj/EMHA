@@ -54,19 +54,16 @@ from src.utils.protocol_guard import SYNTHETIC_MARKER
 CELLS = {"drawing": DRAWING_CELLS, "word": WORD_CELLS, "cursive": CURSIVE_CELLS}
 EMBED_DIM = 512
 HANDWRITING_DIM = 32
-# Page-shaped placeholder scans: ingest checks DPI and sizes relative to the
-# median page, never an absolute page size.
 SCAN_SIZE_PX = (170, 220)
 PAPER = 255
 N_STROKES = 6
-# (ink grey level, stroke thickness px) for raw crops
 RAW_INK = {"SAD": (40, 3), "HAPPY": (90, 1)}
 ITEM_NOISE_SD = 0.7
 
 
 def _labels(n: int, rng: np.random.Generator, cfg) -> pd.DataFrame:
     cutoff = cfg.labeling.cutoff
-    scores = np.round(rng.normal(cutoff, 15.0, size=n)) + 0.5  # never == cutoff
+    scores = np.round(rng.normal(cutoff, 15.0, size=n)) + 0.5
     labels = np.where(scores > cutoff, "HAPPY", "SAD")
     distance = np.abs(scores - cutoff)
     n_mid = int(round(cfg.labeling.middle_band_fraction * n))
@@ -94,7 +91,6 @@ def _handcrafted(labels, rng, signal, n_signal, shift) -> pd.DataFrame:
     values = rng.normal(0.0, 1.0, size=(len(labels), len(columns)))
     if signal:
         sad = (labels["label"] == "SAD").to_numpy()
-        # spread the signal over families: first n_signal columns of each
         for family in FAMILIES:
             idx = [i for i, c in enumerate(columns) if c.startswith(f"{family}__")]
             values[np.ix_(sad, idx[:n_signal])] += shift

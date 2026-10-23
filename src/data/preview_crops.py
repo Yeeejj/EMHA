@@ -24,7 +24,7 @@ import cv2
 import matplotlib
 import numpy as np
 
-matplotlib.use("Agg")  # headless: render to file, no display needed
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from src.utils.config import (  # noqa: E402
@@ -34,11 +34,10 @@ from src.utils.config import (  # noqa: E402
     WORD_CROPS,
 )
 
-# All 24 task codes in extraction order: drawing, word table, cursive.
 TASK_CODES = list(DRAWING_CROPS) + list(WORD_CROPS) + list(CURSIVE_CROPS)
 
 N_COLS = 6
-N_ROWS = 4  # 6 x 4 = 24 panels
+N_ROWS = 4
 
 
 def imread_unicode(path: Path) -> "np.ndarray | None":
@@ -79,7 +78,6 @@ def build_preview(pid: str, extracted_dir: Path, out_path: Path) -> int:
         else:
             ax.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
-    # Hide any unused panels (none for 24, but defensive).
     for ax in axes[len(TASK_CODES) :]:
         ax.axis("off")
 

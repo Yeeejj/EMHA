@@ -74,11 +74,9 @@ from src.utils.config import config
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SUBSET_CHOICES = ("pilot", "full")
 ANALYSES = ("primary", "full")
-ALL_ANALYSES = "all"  # marker name for steps that do not depend on the set
+ALL_ANALYSES = "all"
 
 EXIT_OK, EXIT_FAILED, EXIT_REFUSED = 0, 1, 2
-# Pinned to 1 for every reported run (EVALUATION_PROTOCOL.md section 9,
-# Deviation 2); the run header reports what each process actually sees.
 THREAD_ENV_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
 
 
@@ -93,24 +91,21 @@ class ResumeMismatchError(RuntimeError):
 @dataclass(frozen=True)
 class Ctx:
     analysis: str
-    subset: str | None  # None = all participants (the full run)
+    subset: str | None
     run_name: str
     predict_middle: bool
     device: str
 
 
-# Plan phases, run in this order. Steps of a per-analysis phase run for
-# primary, then full; the others run once per subset.
 PREPARE, MODELS, EVALUATE, PERMUTATION, REPORT = range(5)
 PER_ANALYSIS_PHASES = (MODELS, PERMUTATION)
-# Once-only steps that read every analysis set's model outputs.
 GATED_PHASES = (EVALUATE, REPORT)
 
 
 @dataclass(frozen=True)
 class Step:
     module: str
-    call: Callable  # (run_fn, Ctx) -> output path(s) or None
+    call: Callable
     phase: int = MODELS
 
     @property
@@ -157,7 +152,6 @@ STEPS = {
         "src.training.run_ensemble",
         lambda f, c: f(analysis=c.analysis, subset=c.subset),
     ),
-    # analysis None: one model_comparison table holding every analysis set
     "evaluate": Step(
         "src.training.evaluator",
         lambda f, c: f(analysis=None, subset=c.subset),
@@ -176,9 +170,6 @@ STEPS = {
 }
 
 
-# ── preconditions ────────────────────────────────────────────────────────────
-
-
 def precondition_problems(repo_root: Path | None = None) -> list:
     """Reasons the run may not start (empty list = may start)."""
     repo_root = REPO_ROOT if repo_root is None else repo_root
@@ -192,9 +183,6 @@ def precondition_problems(repo_root: Path | None = None) -> list:
     if not decision.is_file():
         problems.append(f"analysis-design decision file {decision} not found")
     return problems
-
-
-# ── thread report ────────────────────────────────────────────────────────────
 
 
 def thread_state() -> dict:
@@ -230,9 +218,6 @@ def thread_report() -> dict:
     pool = Parallel(n_jobs=config.runner.hmm_n_jobs, backend=PARALLEL_BACKEND)
     (worker,) = pool(delayed(thread_state)() for _ in range(1))
     return {"main": thread_state(), "worker": worker}
-
-
-# ── resume markers ───────────────────────────────────────────────────────────
 
 
 def config_fingerprint() -> str:
@@ -294,16 +279,13 @@ def write_marker(marker: Path, step: str, settings: dict, result, seconds: float
     tmp.replace(marker)
 
 
-# ── steps ────────────────────────────────────────────────────────────────────
-
-
 def resolve(step: str) -> Callable:
     """Import a step's module and return its run function."""
     spec = STEPS[step]
     try:
         module = importlib.import_module(spec.module)
     except ModuleNotFoundError as exc:
-        if exc.name != spec.module:  # a missing dependency is a real error
+        if exc.name != spec.module:
             raise
         raise StepNotBuiltError(f"{spec.module} is not built yet") from exc
     fn = getattr(module, "run", None)
@@ -439,7 +421,7 @@ def run(
         except ResumeMismatchError as exc:
             print(f"[FAIL] {label}: {exc}")
             return EXIT_REFUSED
-        except (Exception, SystemExit) as exc:  # stop on the first error
+        except (Exception, SystemExit) as exc:
             traceback.print_exc()
             print(f"[FAIL] {label}: {type(exc).__name__}: {exc}")
             print("       Finished steps are kept; rerun the same command to resume.")

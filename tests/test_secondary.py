@@ -155,9 +155,6 @@ def _digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-# ── acceptance ────────────────────────────────────────────────────────────────
-
-
 def test_runs_and_never_writes_model_comparison(at_root, monkeypatch):
     evaluator.run(stage="smoke")
     out = at_root / "results" / "final"
@@ -193,9 +190,6 @@ def test_runs_and_never_writes_model_comparison(at_root, monkeypatch):
         assert (out / name).is_file()
 
 
-# ── sections ─────────────────────────────────────────────────────────────────
-
-
 def _rows(at_root):
     secondary.run()
     return pd.read_csv(at_root / "results" / "final" / "secondary_metrics.csv")
@@ -219,7 +213,6 @@ def test_middle_band_only_for_predict_middle_models(at_root):
     mid = rows[rows["block"] == "middle_band"]
     assert list(zip(mid["model"], mid["feature_set"])) == [("lr_handcrafted", "all")]
     assert mid.iloc[0]["n_participants"] == N_MID
-    # primary-band rows are never in the middle-band block
     prim = evaluator.load_predictions("primary")
     m = prim[prim["in_middle_band"]]
     assert mid.iloc[0]["accuracy"] == pytest.approx(evaluator.metrics(m)["accuracy"])
@@ -286,14 +279,13 @@ def test_majority_vote_aggregation_by_hand():
     ).set_index("feature_set")
     assert out.loc["word", "prob_sad"] == pytest.approx(2 / 3)
     assert out.loc["cursive", "prob_sad"] == pytest.approx(0.0)
-    assert out.loc["fused", "prob_sad"] == pytest.approx(1 / 3)  # equal weights
+    assert out.loc["fused", "prob_sad"] == pytest.approx(1 / 3)
     assert out.loc["fused", "pred"] == "HAPPY"
 
 
 def test_top_features_ranked_by_absolute_mean(at_root):
     top = secondary.top_features()
     assert len(top) == config.evaluation.top_features
-    # coef = (j - 7) * 0.1 + 0.01 * fold -> mean (j - 7) * 0.1 + 0.02
     assert top.iloc[0]["feature"] == "f14"
     assert top.iloc[0]["mean"] == pytest.approx(0.72)
     assert top.iloc[1]["feature"] == "f00"

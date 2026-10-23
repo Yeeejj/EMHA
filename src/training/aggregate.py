@@ -107,7 +107,7 @@ def aggregate_crops(df: pd.DataFrame, method: str = "mean_prob") -> pd.DataFrame
         mean_logit = logit.groupby(crops["participant_id"]).mean()
         out["prob_sad"] = 1 / (1 + np.exp(-mean_logit))
         pred = _pred(out["prob_sad"], acfg.threshold)
-    else:  # majority_vote
+    else:
         votes = (crops["prob_sad"] >= acfg.threshold).astype(float)
         share = votes.groupby(crops["participant_id"]).mean()
         out["prob_sad"] = share

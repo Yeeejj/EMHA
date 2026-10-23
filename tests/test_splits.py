@@ -19,7 +19,6 @@ from src.utils.config import config
 
 N = config.cv.n_splits
 SEED = config.training.seed
-# Real group sizes from labels.csv (2026-10-05).
 GROUPS = (
     ("HAPPY", False, 126),
     ("SAD", False, 102),
@@ -46,9 +45,6 @@ def _participants(labels, failed=()):
     return pd.DataFrame({"participant_id": labels["participant_id"], "status": status})
 
 
-# ── assert_no_leakage ─────────────────────────────────────────────────────────
-
-
 def test_assert_no_leakage_passes_on_disjoint_lists():
     assert_no_leakage(["001", "002"], ["003"], ["004"], [])
     assert_no_leakage()
@@ -70,9 +66,6 @@ def test_assert_no_leakage_raises_on_overlap(lists, pair):
 def test_leakage_ids_compared_as_strings_and_is_assertion_error():
     with pytest.raises(AssertionError):
         assert_no_leakage([1], ["1"])
-
-
-# ── make_outer_folds ──────────────────────────────────────────────────────────
 
 
 def test_one_row_per_participant_no_participant_in_two_folds():
@@ -123,9 +116,6 @@ def test_validate_folds_catches_corruption():
         validate_folds(pd.concat([folds, folds.iloc[[0]].assign(outer_fold=1)]), N)
     with pytest.raises(ValueError, match="outer_fold"):
         validate_folds(folds.assign(outer_fold=folds["outer_fold"] + N), N)
-
-
-# ── fold_ids / inner_split ────────────────────────────────────────────────────
 
 
 def test_fold_ids_partition_the_analysis_set():
@@ -179,7 +169,6 @@ def test_inner_split_falls_back_when_a_stratum_is_tiny():
 
 
 def test_inner_split_falls_back_when_holdout_smaller_than_strata():
-    # 19 training participants, 4 strata, 15% -> 3 held out: cannot stratify on 4
     labels = _labels(
         (("HAPPY", False, 8), ("SAD", False, 7), ("HAPPY", True, 2), ("SAD", True, 2))
     )
@@ -199,12 +188,9 @@ def test_inner_split_unchanged_where_full_strata_work():
     assert inner_split(train, labels, 0.15, 3) == tuple(sorted(x) for x in expected)
 
 
-# ── analysis_ids ──────────────────────────────────────────────────────────────
-
-
 def test_analysis_ids_primary_and_full_require_qc_passed():
     labels = _labels()
-    failed = {"001", "250"}  # 001 primary, 250 middle band
+    failed = {"001", "250"}
     parts = _participants(labels, failed=failed)
     full = analysis_ids(labels, parts, "full")
     primary = analysis_ids(labels, parts, "primary")
@@ -221,9 +207,6 @@ def test_analysis_ids_empty_when_nobody_qc_passed():
     labels = _labels()
     parts = _participants(labels, failed=set(labels["participant_id"]))
     assert analysis_ids(labels, parts, "full") == []
-
-
-# ── run / CLI ─────────────────────────────────────────────────────────────────
 
 
 def _setup(tmp_path, monkeypatch):
@@ -263,7 +246,7 @@ def test_run_refuses_overwrite_without_force(tmp_path, monkeypatch):
 
 
 def test_flags_read_as_text_parse_strictly():
-    labels = _labels().astype(str)  # "True"/"False" strings, as from dtype=str
+    labels = _labels().astype(str)
     parts = _participants(_labels())
     assert analysis_ids(labels, parts, "primary") == analysis_ids(
         _labels(), parts, "primary"

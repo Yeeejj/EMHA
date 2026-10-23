@@ -21,7 +21,7 @@ from src.utils.config import config
 @pytest.fixture(autouse=True)
 def _no_download(monkeypatch):
     monkeypatch.setattr(config.embedding, "weights", None)
-    monkeypatch.setattr(config.embedding, "batch_size", 3)  # forces 2 batches
+    monkeypatch.setattr(config.embedding, "batch_size", 3)
 
 
 def _write_crops(root: Path, family: str, n: int, seed: int = 0) -> list:
@@ -29,7 +29,7 @@ def _write_crops(root: Path, family: str, n: int, seed: int = 0) -> list:
     rng = np.random.default_rng(seed)
     paths = []
     for k in range(n):
-        img = np.zeros((h, w), dtype=np.uint8)  # inverted canvas: dark paper
+        img = np.zeros((h, w), dtype=np.uint8)
         img[h // 4 : h // 2, 10 + 5 * k : 30 + 5 * k] = rng.integers(150, 255)
         path = root / f"{k:03d}_{family}.png"
         Image.fromarray(img).save(path)
@@ -64,7 +64,7 @@ def test_embeddings_follow_path_order_across_batches(tmp_path):
 
 
 def test_input_is_three_channel_imagenet_normalized():
-    white = torch.ones(1, 4, 4)  # eval-transform output for pixel 255
+    white = torch.ones(1, 4, 4)
     x = _to_imagenet_input(white)
     assert x.shape == (3, 4, 4)
     expected = (1.0 - torch.tensor(embeddings.IMAGENET_MEAN)) / torch.tensor(

@@ -81,7 +81,7 @@ def test_size_within_five_percent(bar_h):
 
 def test_letter_height_ignores_sparse_ascenders():
     img = _vertical_bars(bar_w=4, bar_h=30, gap=26, y0=50)
-    img[20:50, 40:44] = 40  # one tall ascender on the first bar
+    img[20:50, 40:44] = 40
     feats = crop_features(img, _row(), config)
     assert feats["letter_height_mm"] == pytest.approx(30 * PX_TO_MM, rel=0.05)
     assert feats["ink_bbox_height_mm"] == pytest.approx(60 * PX_TO_MM, rel=0.05)
@@ -99,9 +99,9 @@ def test_gap_margin_and_component_count():
 
 def test_gap_not_measured_across_text_lines():
     img = _paper(height=174, width=600)
-    img[20:50, 100:110] = 40  # line 1: two bars 30 px apart
+    img[20:50, 100:110] = 40
     img[20:50, 140:150] = 40
-    img[110:140, 300:310] = 40  # line 2: two bars 30 px apart
+    img[110:140, 300:310] = 40
     img[110:140, 340:350] = 40
     feats = crop_features(img, _row("cursive"), config)
     assert feats["inter_component_gap_mm"] == pytest.approx(30 * PX_TO_MM, rel=0.05)
@@ -200,7 +200,6 @@ def test_imputation_falls_back_when_participant_family_all_missing():
     assert (out.loc[target, "inter_component_gap_mm"] == 0.0).all()
     assert log["rule"].tolist() == ["fallback_value"]
     assert log["n_values"].tolist() == [2]
-    # the other participant's values are never used
     other = (out["participant_id"] == "001") & (out["task_family"] == "cursive")
     assert (out.loc[other, "inter_component_gap_mm"] != 0.0).all()
 

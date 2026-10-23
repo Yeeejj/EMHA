@@ -42,7 +42,7 @@ from src.utils.protocol_guard import is_synthetic_root
 
 LOG_NAME = "RUN_LOG.csv"
 STAGES = ("smoke", "pilot", "full")
-ALL_PARTICIPANTS = "full"  # subset column value when no subset is given
+ALL_PARTICIPANTS = "full"
 CI_KEYS = ("macro_f1_ci_low", "macro_f1_ci_high")
 METRIC_KEYS = (
     "model",

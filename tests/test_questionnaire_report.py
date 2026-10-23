@@ -16,9 +16,6 @@ from src.utils.config import config
 
 
 def test_cronbach_alpha_hand_computed_example():
-    # item_a = [1,2,3,4], item_b = [2,2,3,5], item_c = [1,3,2,4]
-    # Hand-computed: sum(item variances) = 16/3, total variance = 14,
-    # alpha = (3/2) * (1 - (16/3)/14) = 13/14.
     items = pd.DataFrame(
         {
             "item_a": [1, 2, 3, 4],
@@ -163,7 +160,6 @@ def test_build_report_fails_loudly_on_stale_labels_csv(tmp_path, monkeypatch):
     df = LabelLoader.load()
     LabelLoader.write(df)
 
-    # Mutate the export after labels.csv was written, so counts now disagree.
     _write_fake_export(export_path, n_happy=6, n_sad=5)
 
     with pytest.raises(AssertionError):

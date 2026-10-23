@@ -55,9 +55,6 @@ def _preds(labels_by_fold, pred=None, middle=()):
     return pd.DataFrame(rows)
 
 
-# ── append-only ───────────────────────────────────────────────────────────────
-
-
 def test_two_calls_append_two_rows_and_never_truncate(out_root):
     log_run("smoke", "cmd one", "primary", None, METRICS)
     path = out_root / "results" / "RUN_LOG.csv"
@@ -65,7 +62,7 @@ def test_two_calls_append_two_rows_and_never_truncate(out_root):
     log_run("pilot", "cmd two", "full", "pilot", {**METRICS, "model": "majority"})
     second = path.read_bytes()
 
-    assert second.startswith(first)  # never truncated or rewritten
+    assert second.startswith(first)
     rows = _rows(out_root)
     assert len(rows) == 2
     assert tuple(rows[0]) == COLUMNS
@@ -73,7 +70,7 @@ def test_two_calls_append_two_rows_and_never_truncate(out_root):
     assert [r["stage"] for r in rows] == ["smoke", "pilot"]
     assert [r["subset"] for r in rows] == [run_log.ALL_PARTICIPANTS, "pilot"]
     assert rows[1]["model"] == "majority"
-    assert path.read_text(encoding="utf-8").count("timestamp,") == 1  # one header
+    assert path.read_text(encoding="utf-8").count("timestamp,") == 1
 
 
 def test_row_records_commit_and_utc_timestamp(out_root, monkeypatch):
@@ -104,9 +101,6 @@ def test_bad_stage_or_metrics_rejected_before_writing(out_root):
     assert not (out_root / "results" / "RUN_LOG.csv").exists()
 
 
-# ── CIs: empty from runners, filled only by the H1 evaluator ─────────────────
-
-
 def test_runner_rows_leave_ci_empty(out_root):
     preds = _preds([["SAD", "HAPPY"]] * config.cv.n_splits)
     assert log_predictions("smoke", "cmd", "primary", None, preds) == 1
@@ -132,9 +126,6 @@ def test_runners_never_compute_or_pass_a_ci(module):
     assert "log_predictions(" in source
 
 
-# ── point metrics ─────────────────────────────────────────────────────────────
-
-
 def test_point_metrics_exclude_middle_band():
     labels = [["SAD", "HAPPY", "SAD"]] * config.cv.n_splits
     preds = _preds(labels, middle={"000"})
@@ -144,9 +135,6 @@ def test_point_metrics_exclude_middle_band():
 
 
 def test_majority_baseline_uses_training_folds_only():
-    # fold 0 is all SAD, the other folds all HAPPY: fold 0's training majority
-    # is HAPPY (wrong for all of fold 0); every other fold's training set is
-    # split 3 SAD / 9 HAPPY, so HAPPY is right for them.
     n = config.cv.n_splits
     labels = [["SAD"] * 3] + [["HAPPY"] * 3] * (n - 1)
     test = _preds(labels)
@@ -156,7 +144,6 @@ def test_majority_baseline_uses_training_folds_only():
 def test_majority_tie_goes_to_sad():
     n = config.cv.n_splits
     test = _preds([["SAD", "HAPPY"]] * n)
-    # every training set is exactly half SAD -> predict SAD -> half right
     assert run_log.majority_baseline(test) == pytest.approx(0.5)
 
 
@@ -167,15 +154,12 @@ def test_partial_folds_are_not_logged(out_root, capsys):
     assert not (out_root / "results" / "RUN_LOG.csv").exists()
 
 
-# ── stage and command ─────────────────────────────────────────────────────────
-
-
 def test_default_stage(out_root, synthetic_root, monkeypatch):
     assert run_log.default_stage(None) == "full"
     assert run_log.default_stage("pilot") == "pilot"
     monkeypatch.setattr(config.paths, "data_root", synthetic_root)
     assert run_log.default_stage("pilot") == "smoke"
-    assert run_log.resolve_stage("full", None) == "full"  # explicit wins
+    assert run_log.resolve_stage("full", None) == "full"
     with pytest.raises(ValueError):
         run_log.resolve_stage("final", None)
 
@@ -202,4 +186,4 @@ def test_git_commit_unknown_when_git_fails(monkeypatch):
     monkeypatch.setattr(run_log.subprocess, "run", fail)
     assert run_log.git_commit() == "unknown"
     monkeypatch.undo()
-    assert len(run_log.git_commit()) == 40  # this checkout's HEAD
+    assert len(run_log.git_commit()) == 40

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # headless rendering
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc  # noqa: E402
