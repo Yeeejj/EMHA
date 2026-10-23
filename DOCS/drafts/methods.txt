@@ -305,9 +305,9 @@ test participants are scored against their true labels [CITE: Ojala and
 Garriga, permutation tests for classifiers]. The p-value is
 (1 + number of permuted macro-F1 at or above the observed) / (1 + number of
 permutations). The two logistic regressions in the ensemble get 1,000
-permutations. The CNN models and the ensemble get 100 full retrains on the
-primary set; the smallest attainable p-value is then 0.0099. The
-significance level is 0.05.
+permutations. The CNN models and the ensemble get N = 20 full retrains on
+the primary set (protocol section 4, Revision 3); the smallest attainable
+p-value is then 1/21 = 0.0476. The significance level is 0.05.
 
 The pilot (participants 001 to 100) is a technical check only and is not
 reported as a result. Any change after the pilot is logged as a deviation.
@@ -317,23 +317,30 @@ Sources: EVALUATION_PROTOCOL.md sections 2 to 4 and 7; src/utils/config.py
 src/training/evaluator.py; src/analysis/permutation.py.
 
 ================================================================================
-9. ENSEMBLE AND PRIMARY CLAIM
+9. PRIMARY MODEL AND SUPPORTING ENSEMBLE
 ================================================================================
 
-The ensemble is the equal-weight mean of three participant probabilities:
-the handcrafted logistic regression (all features), the embedding logistic
-regression (family means side by side), and the fused CNN-HMM. No weights
-are learned, and no component can be added or dropped. Exploratory models
-are never included.
+The primary model is the fused CNN-HMM, the method named in the thesis
+title. The primary claim is its participant-level macro-F1 on the primary
+set, with its 95% confidence interval, shown against the majority baseline,
+with its paired difference against the handcrafted logistic regression (all
+features) and its permutation p-value from N = 20 full retrains. All other
+models and sets are secondary.
 
-The single confirmatory claim is the ensemble's participant-level macro-F1
-on the primary set, with its 95% confidence interval, shown against the
-majority baseline, with its paired comparison against the handcrafted
-logistic regression and its permutation p-value from 100 retrains. All other
-models and sets are secondary. No model is promoted to the headline after
-results are seen.
+The ensemble is a fixed supporting model: the equal-weight mean of three
+participant probabilities, from the handcrafted logistic regression (all
+features), the embedding logistic regression (family means side by side),
+and the fused CNN-HMM. No weights are learned, and no component can be
+added or dropped. Exploratory models are never included. It is reported in
+full beside the CNN-HMM, with the same metrics, paired comparison, and
+permutation test.
 
-Sources: EVALUATION_PROTOCOL.md section 5; src/training/run_ensemble.py.
+The frozen protocol named the ensemble as the primary model; the change to
+the CNN-HMM was made after the results were seen and is logged as
+Deviation 4 (EVALUATION_PROTOCOL.md section 9).
+
+Sources: EVALUATION_PROTOCOL.md sections 5 and 9 (Deviation 4);
+src/training/run_hybrid.py; src/training/run_ensemble.py.
 
 ================================================================================
 10. SECONDARY AND EXPLORATORY ANALYSES

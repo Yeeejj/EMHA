@@ -189,3 +189,46 @@ def test_missing_sources_are_reported_not_invented(tmp_path, monkeypatch):
     text = report.build().read_text(encoding="utf-8")
     assert "not found" in text and "model_comparison.csv" in text
     assert "folds.csv: not found" in text
+
+
+def test_tags_one_primary_model_and_the_ensemble_as_supporting():
+    metrics = ("macro_f1", "accuracy", "balanced_accuracy", "roc_auc")
+    base = {"n_participants": 10, "majority_baseline": 0.5, "exploratory": False}
+    for m in metrics:
+        base.update({m: 0.5, f"{m}_ci_low": 0.4, f"{m}_ci_high": 0.6})
+    models = [
+        ("lr_handcrafted", "all"),
+        ("cnn_hmm", "word"),
+        ("cnn_hmm_fused", "fused"),
+        ("ensemble", "all"),
+    ]
+    comp = pd.DataFrame(
+        [
+            {**base, "analysis": a, "model": m, "feature_set": fs}
+            for a in ("primary", "full")
+            for m, fs in models
+        ]
+    )
+    primary = report.results_table(comp, "primary", {})
+    assert primary[1].strip() == report.PRIMARY_NOTE
+    tagged = [ln for ln in primary if "[PRIMARY MODEL]" in ln]
+    assert len(tagged) == 1
+    assert tagged[0].split()[0] == "cnn_hmm_fused/fused"
+    supporting = [ln for ln in primary if "[supporting]" in ln]
+    assert len(supporting) == 1 and supporting[0].split()[0] == "ensemble/all"
+    full = "\n".join(report.results_table(comp, "full", {}))
+    assert "[PRIMARY MODEL]" not in full and "[supporting]" not in full
+    assert (config.headline.model, config.headline.feature_set) == (
+        "cnn_hmm_fused",
+        "fused",
+    )
+    assert config.demo.default_model == "cnn_hmm"
+
+
+def test_headline_label_leaves_the_run_fingerprint_unchanged(monkeypatch):
+    from src.pipeline_runner import config_fingerprint
+
+    before = config_fingerprint()
+    monkeypatch.setattr(config.headline, "model", "ensemble")
+    monkeypatch.setattr(config.headline, "feature_set", "all")
+    assert config_fingerprint() == before

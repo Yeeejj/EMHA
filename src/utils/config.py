@@ -347,8 +347,10 @@ class EvalConfig:
     TrainingConfig.seed), ci_level percentile intervals, and the paired
     macro-F1 difference of every model against reference_model /
     reference_feature_set on the same resamples. The reliability curve is
-    drawn for the pre-registered primary model (reliability_model /
-    reliability_feature_set, the ensemble), never one chosen from results.
+    drawn for the model pre-registered as primary in the frozen protocol
+    (reliability_model / reliability_feature_set, the ensemble), never one
+    chosen from results; Deviation 4 did not change it (the primary model
+    is HeadlineConfig).
     """
 
     n_bootstrap: int = 2000
@@ -367,6 +369,20 @@ class EvalConfig:
     analyses: Tuple[str, ...] = ("primary", "full")
     output_subdir: str = "final"
     dpi: int = 300
+
+
+@dataclass
+class HeadlineConfig:
+    """The model tagged [PRIMARY MODEL] in RESULTS.txt (src/analysis/report.py).
+
+    The fused CNN-HMM since EVALUATION_PROTOCOL.md section 9, Deviation 4 (it
+    was ensemble/all, now tagged [supporting]). A reporting label only: it
+    changes no result, so RunnerConfig.fingerprint_exclude lists it and the
+    full run's resume markers stay valid.
+    """
+
+    model: str = "cnn_hmm_fused"
+    feature_set: str = "fused"
 
 
 @dataclass
@@ -653,6 +669,7 @@ class RunnerConfig:
         "demo",
         "smoke",
         "package",
+        "headline",
     )
 
 
@@ -677,7 +694,7 @@ class DemoConfig:
     refuses. n_gradcam crops get Grad-CAM overlays when H4 exists.
     """
 
-    default_model: str = "ensemble"
+    default_model: str = "cnn_hmm"
     output_dir: str = "demo"
     analysis: str = "primary"
     subset: Optional[str] = None
@@ -774,6 +791,7 @@ class Config:
     labeling: LabelingConfig = field(default_factory=LabelingConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     evaluation: EvalConfig = field(default_factory=EvalConfig)
+    headline: HeadlineConfig = field(default_factory=HeadlineConfig)
     permutation: PermutationConfig = field(default_factory=PermutationConfig)
     gradcam: GradCAMConfig = field(default_factory=GradCAMConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)

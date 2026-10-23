@@ -1,5 +1,6 @@
 """
-The fixed ensemble named in EVALUATION_PROTOCOL.md (primary claim) — Stage F.
+The fixed ensemble (supporting model; named primary in the frozen protocol,
+changed by Deviation 4) — Stage F.
 
 Components and weights are fixed by the protocol; there is no weights
 argument and no way to add or drop a component:

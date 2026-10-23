@@ -21,7 +21,8 @@ test_one_row_per_participant_no_participant_in_two_folds.
 --------------------------------------------------------------------------------
 2. Why is accuracy below the proposal's 80-85%? [PENDING]
 --------------------------------------------------------------------------------
-[PENDING: whether it is below; RESULTS.txt > PRIMARY RESULTS, ensemble/all.]
+[PENDING: whether it is below; RESULTS.txt > PRIMARY RESULTS,
+cnn_hmm_fused/fused (primary model, Deviation 4).]
 If it is: the 80-85% figure is the proposal target (README.md). The
 target is at least 0.75 macro-F1 and accuracy (Deviation 1, raised from the
 pre-registered 0.70 before any real result), and it is not a hypothesis
@@ -101,8 +102,9 @@ majority label (src/training/evaluator.py, majority_hits). Second, a
 permutation test shuffles training labels within each outer fold, refits the
 whole pipeline, and scores test participants on their true labels;
 p = (1 + #null >= observed) / (1 + N) (src/analysis/permutation.py). N is
-1,000 for the two ensemble logistic regressions and 100 full retrains for
-the CNN models and the ensemble (PermutationConfig). The test is checked on
+1,000 for the two ensemble logistic regressions and 20 full retrains for
+the CNN models and the ensemble (PermutationConfig; protocol section 4,
+Revision 3; smallest attainable p = 1/21 = 0.0476). The test is checked on
 synthetic data: not significant without signal, and the smallest attainable
 p with signal (tests/test_permutation.py). Real values: [PENDING: RESULTS.txt
 > PRIMARY RESULTS, permutation column].
@@ -149,3 +151,28 @@ secondary analyses without multiplicity correction (protocol section 4).
     timing and pressure features (CITATIONS/EMOTHAW_...pdf).
   - Test on a second site or population; this sample is right-handed
     students aged 18 to 25 (CLAUDE.md).
+
+--------------------------------------------------------------------------------
+11. Why is the CNN-HMM primary if the protocol named the ensemble?
+--------------------------------------------------------------------------------
+The CNN-HMM is the proposed method: it is named in the thesis title and in
+the approved proposal, and the ensemble was added by the protocol as a
+combined reference. The change is Deviation 4 (EVALUATION_PROTOCOL.md
+section 9). It was made after the full run's results were read, it is
+disclosed there and in the paper, and nothing was recomputed: same models,
+folds, band, seeds, threshold, and metrics. It does not favour the
+headline: on the primary set the CNN-HMM's macro-F1 is 0.434 against the
+ensemble's 0.516 (RESULTS.txt > PRIMARY RESULTS). The ensemble is still
+reported in full as the supporting model, with its CI, paired comparison,
+and permutation p.
+
+--------------------------------------------------------------------------------
+12. Why is the CNN-HMM's accuracy 53.4% but balanced accuracy 50.1%?
+--------------------------------------------------------------------------------
+It predicted HAPPY for 281 of the 320 primary-set respondents: 153 of 174
+HAPPY and 18 of 146 SAD were correct. Its participant P(SAD) ranged only
+from 0.34 to 0.58, and its ROC-AUC was 0.485. Accuracy therefore sits near
+the majority rate (0.544), which comes from the larger HAPPY class;
+balanced accuracy, the mean of the two per-class recalls, is near 0.5.
+Source: results/hybrid/primary/predictions.csv, cnn_hmm_fused/fused rows
+with in_middle_band == False; RESULTS.txt > PRIMARY RESULTS.

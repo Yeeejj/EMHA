@@ -21,8 +21,8 @@ used, so the demo never shows a participant to a model trained on them:
      The ensemble is the equal-weight mean of its three components
      (src.training.run_ensemble.COMPONENTS).
 
-Models: ensemble (default), cnn_hmm (= cnn_hmm_fused), lr_handcrafted,
-lr_embeddings. Grad-CAM overlays (src.analysis.gradcam.save_overlay, H4)
+Models: cnn_hmm (= cnn_hmm_fused; default, the primary model), ensemble,
+lr_handcrafted, lr_embeddings. Grad-CAM overlays (src.analysis.gradcam.save_overlay, H4)
 are saved for DemoConfig.n_gradcam crops of the CNN-path models; the
 LR-only models have none.
 
@@ -331,7 +331,7 @@ def _probs(d: dict) -> str:
 
 
 def print_result(r: dict) -> None:
-    band = "  (middle band: outside the primary claim)" if r["in_middle_band"] else ""
+    band = "  (middle band: outside the primary set)" if r["in_middle_band"] else ""
     print(f"Participant   : {r['participant_id']}{band}")
     print(f"Model         : {r['model']}  (outer fold {r['fold']} models)")
     print(f"Held out      : yes; the fold-{r['fold']} models never trained on them")

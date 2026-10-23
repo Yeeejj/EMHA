@@ -53,6 +53,10 @@ DEVIATIONS_HEADING = "## 9. Deviations"
 ITEM_BLOCK = "Alpha if item deleted:"
 DESIGN_KEYS = ("Date", "Design", "Middle-band fraction")
 RULE = "=" * 78
+PRIMARY_NOTE = (
+    "Primary model per EVALUATION_PROTOCOL.md section 9, Deviation 4 "
+    "(was ensemble/all)."
+)
 
 
 # ─── sources ──────────────────────────────────────────────────────────────────
@@ -128,18 +132,26 @@ def results_table(comp: pd.DataFrame, analysis: str, perms: dict) -> list:
     part = comp[comp["analysis"] == analysis]
     if part.empty:
         return [f"  no {analysis} results in model_comparison.csv"]
+    primary = (config.headline.model, config.headline.feature_set)
     lines = [
         "  model/feature_set              n   macro-F1 [CI]          "
         "accuracy [CI]          majority  balanced acc. [CI]     "
         "ROC-AUC [CI]           permutation"
     ]
+    if analysis == "primary":
+        lines.append(f"  {PRIMARY_NOTE}")
     for _, r in part.iterrows():
         key = (analysis, r["model"], r["feature_set"])
         perm = perms.get(key)
         p = f"p = {perm['p_value']:.4f} (N = {perm['n']})" if perm else "not run"
         name = f"{r['model']}/{r['feature_set']}"
-        if (r["model"], r["feature_set"]) == (ENSEMBLE, ENSEMBLE_FS):
-            name += " [PRIMARY CLAIM]" if analysis == "primary" else ""
+        if analysis == "primary" and (r["model"], r["feature_set"]) == primary:
+            name += " [PRIMARY MODEL]"
+        elif analysis == "primary" and (r["model"], r["feature_set"]) == (
+            ENSEMBLE,
+            ENSEMBLE_FS,
+        ):
+            name += " [supporting]"
         elif str(r["exploratory"]) == "True":
             name += " [exploratory]"
         lines.append(

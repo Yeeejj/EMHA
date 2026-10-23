@@ -534,8 +534,9 @@ def text_report(rows: pd.DataFrame, comparison, top, qc, cfg=config) -> str:
     out = [
         "EMHA secondary analyses (EVALUATION_PROTOCOL.md section 6)",
         "Every result below is SECONDARY (or EXPLORATORY where marked) and is "
-        "reported without multiplicity correction. The primary claim is in "
-        "model_comparison.txt.",
+        "reported without multiplicity correction. The primary model is the "
+        "CNN-HMM (EVALUATION_PROTOCOL.md section 9, Deviation 4); its results "
+        "are in model_comparison.txt.",
         f"CIs: {ev.n_bootstrap} participant bootstrap resamples, seed "
         f"{cfg.training.seed}, {round(ev.ci_level * 100)}% percentile.",
         "",

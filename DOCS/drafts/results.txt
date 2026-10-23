@@ -63,26 +63,33 @@ Source: RESULTS.txt > PRIMARY RESULTS. One row per model:
     lr_handcrafted/all         [FILL] [FILL]         [FILL]          [FILL]     [FILL]
     lr_embeddings/concat       [FILL] [FILL]         [FILL]          [FILL]     [FILL]
     cnn_head_fused/fused       [FILL] [FILL]         [FILL]          [FILL]     [FILL]
-    cnn_hmm_fused/fused        [FILL] [FILL]         [FILL]          [FILL]     [FILL]
-    ensemble/all (primary)     [FILL] [FILL]         [FILL]          [FILL]     [FILL]
+    cnn_hmm_fused/fused (primary) [FILL] [FILL]      [FILL]          [FILL]     [FILL]
+    ensemble/all (supporting)  [FILL] [FILL]         [FILL]          [FILL]     [FILL]
 
 Add balanced accuracy [CI] and ROC-AUC [CI] for every row from the same
 table. Copy the bootstrap description line from RESULTS.txt > PRIMARY
 RESULTS as the table note.
 
-Primary claim. The ensemble reached a participant-level macro-F1 of
-[FILL: RESULTS.txt > PRIMARY RESULTS > ensemble/all > macro-F1 [CI]] and an
-accuracy of [FILL: ... > accuracy [CI]] on the primary set, against a
-majority baseline accuracy of [FILL: ... > majority]. The permutation test
-gave p = [FILL: ... > permutation p] (N = [FILL: N]).
+Primary claim. The CNN-HMM (primary model; EVALUATION_PROTOCOL.md section 9,
+Deviation 4) reached a participant-level macro-F1 of [FILL: RESULTS.txt >
+PRIMARY RESULTS > cnn_hmm_fused/fused > macro-F1 [CI]] and an accuracy of
+[FILL: ... > accuracy [CI]] on the primary set, against a majority baseline
+accuracy of [FILL: ... > majority]. Its macro-F1 differed from the
+handcrafted logistic regression by [FILL: RESULTS.txt > PAIRED COMPARISONS >
+primary > cnn_hmm_fused/fused > difference [CI]]. The permutation test gave
+p = [FILL: ... > permutation p] (N = [FILL: N]).
 
 Use the frame that applies:
   - If p is at or below the significance level in the protocol: "Under the
-    permutation test, the ensemble's macro-F1 was higher than expected if
+    permutation test, the CNN-HMM's macro-F1 was higher than expected if
     handwriting and label were unrelated."
-  - Otherwise: "Under the permutation test, the ensemble's macro-F1 was not
+  - Otherwise: "Under the permutation test, the CNN-HMM's macro-F1 was not
     distinguishable from what would be expected if handwriting and label
     were unrelated."
+
+Supporting model. Report ensemble/all in the same form (macro-F1 [CI],
+accuracy [CI], majority baseline, paired difference, permutation p), labelled
+as the supporting model that the frozen protocol named as primary.
 
 State whether the target (macro-F1 and accuracy at or above 0.75,
 EVALUATION_PROTOCOL.md section 9, Deviation 1) was met, and whether the
