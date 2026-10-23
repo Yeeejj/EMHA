@@ -40,7 +40,6 @@ def test_parse_stages():
 
 
 def test_stages_a_to_c_pass_with_real_sample_read_only(tmp_path, capsys):
-    # stand-in for a real data root: raw crops at the real sizes, no marker use
     real = make_synthetic_root(tmp_path / "real", n_participants=10, raw=True)
     before, config_before = _hashes(real), _snapshot()
     assert smoke_test.main("A-C", real_sample=real) == 0
@@ -50,7 +49,7 @@ def test_stages_a_to_c_pass_with_real_sample_read_only(tmp_path, capsys):
     assert "real sample ['001', '002', '003']" in out
     assert "ALL STAGES PASSED" in out
     assert _hashes(real) == before
-    assert _snapshot() == config_before  # every override restored
+    assert _snapshot() == config_before
 
 
 def test_stops_at_first_failure(monkeypatch, capsys):

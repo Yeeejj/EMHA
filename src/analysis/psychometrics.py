@@ -56,19 +56,15 @@ def run_psychometrics(scores_path: Path, report_path: Path) -> None:
 
     cfg = config.labeling
 
-    # Overall alpha
     alpha_overall = cronbach_alpha(df_items)
 
-    # Subscale alpha
     h_cols = [f"item_{i:02d}" for i in cfg.happiness_items]
     s_cols = [f"item_{i:02d}" for i in cfg.sadness_items]
     alpha_happiness = cronbach_alpha(df_items[h_cols])
     alpha_sadness = cronbach_alpha(df_items[s_cols])
 
-    # Item-total correlations
     itc = item_total_correlations(df_items)
 
-    # Score distribution
     h_sums = df_items[h_cols].sum(axis=1)
     s_sums = df_items[s_cols].sum(axis=1)
     adj_totals = h_sums + (72 - s_sums)

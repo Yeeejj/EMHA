@@ -22,7 +22,6 @@ from src.utils.config import config
 
 REPO = Path(__file__).resolve().parents[1]
 LAUNCHER = REPO / "tests" / "reproduce_launcher.py"
-# bash.exe in these folders starts WSL, not Git Bash
 WSL_LAUNCHER_DIRS = ("system32", "windowsapps")
 
 
@@ -38,7 +37,7 @@ def _find_bash(path=None):
     if os.name != "nt":
         return shutil.which("bash", path=path), "bash not found on PATH"
     git = shutil.which("git", path=path)
-    if git:  # <git>\cmd\git.exe, <git>\bin\git.exe or <git>\mingw64\bin\git.exe
+    if git:
         for parent in list(Path(git).resolve().parents)[:3]:
             candidate = parent / "bin" / "bash.exe"
             if candidate.is_file() and not _is_wsl_launcher(candidate):
@@ -81,9 +80,9 @@ def dataset(tmp_path_factory):
     with contextlib.ExitStack() as stack:
         smoke_test._overrides(stack, root)
         ctx = {"root": root}
-        smoke_test.stage_b(ctx)  # export, labeler, labels.csv, folds.csv
-        smoke_test.stage_c(ctx)  # ingest, registry, crop manifest, QC status
-    for derived in ("results", "models"):  # outputs never ship with the data
+        smoke_test.stage_b(ctx)
+        smoke_test.stage_c(ctx)
+    for derived in ("results", "models"):
         shutil.rmtree(root / derived, ignore_errors=True)
     return root
 
@@ -122,7 +121,7 @@ def test_both_scripts_list_the_same_steps(dataset):
     assert steps == _steps(ps1.stdout)
     modules = [s.split()[3] for s in steps if s.startswith("==> python -m")]
     assert modules[0] == "src.data.labeler" and modules[-1] == "src.analysis.report"
-    assert "src.data.crop_manifest" not in modules  # would reset qc_log.csv
+    assert "src.data.crop_manifest" not in modules
 
 
 @pytest.fixture(scope="module")
@@ -178,7 +177,7 @@ def test_two_fresh_runs_reproduce_the_same_numbers(reproduced):
 def test_script_stops_at_the_first_failing_step(dataset, tmp_path, kind):
     root = tmp_path / "broken"
     shutil.copytree(dataset, root)
-    (root / "metadata" / "questionnaire_export.csv").unlink()  # labeler fails
+    (root / "metadata" / "questionnaire_export.csv").unlink()
     proc = _run(kind, root)
     assert proc.returncode != 0
     steps = _steps(proc.stdout)
@@ -196,7 +195,7 @@ def test_launcher_refuses_a_real_data_root(tmp_path):
         text=True,
     )
     assert proc.returncode != 0 and "not a synthetic data root" in proc.stderr
-    assert config.paths.data_root  # config untouched in this process
+    assert config.paths.data_root
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows bash lookup")

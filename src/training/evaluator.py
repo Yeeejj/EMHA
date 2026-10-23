@@ -103,7 +103,6 @@ METRICS = (
     "roc_auc",
 )
 
-# Chart tokens: light chart surface, ink, and one sequential blue hue.
 _SURFACE = "#fcfcfb"
 _INK = "#0b0b0b"
 _INK_2 = "#52514e"
@@ -111,10 +110,7 @@ _MUTED = "#898781"
 _GRID = "#e1e0d9"
 _SERIES = "#2a78d6"
 _SEQUENTIAL = LinearSegmentedColormap.from_list("emha_blue", ["#cde2fb", "#104281"])
-_PNG_META = {"Software": None}  # no version string -> byte-identical reruns
-
-
-# ─── loading and validation ───────────────────────────────────────────────────
+_PNG_META = {"Software": None}
 
 
 def _analyses(analysis: str | None, cfg=config) -> tuple:
@@ -219,9 +215,6 @@ def analysis_frame(df: pd.DataFrame, analysis: str) -> pd.DataFrame:
     if analysis == "primary":
         frame = frame[~frame["in_middle_band"]]
     return frame
-
-
-# ─── metrics ──────────────────────────────────────────────────────────────────
 
 
 def _arrays(df: pd.DataFrame) -> tuple:
@@ -359,15 +352,12 @@ def majority_hits(df: pd.DataFrame, cfg=config) -> pd.Series:
     return hits
 
 
-# ─── evaluation ───────────────────────────────────────────────────────────────
-
-
 @dataclass
 class Evaluation:
     comparison: pd.DataFrame
     per_fold: pd.DataFrame
     confusion: pd.DataFrame
-    groups: dict = field(default_factory=dict)  # (analysis, model, fs) -> frame
+    groups: dict = field(default_factory=dict)
     skipped: list = field(default_factory=list)
 
 
@@ -466,9 +456,6 @@ def evaluate(df: pd.DataFrame, cfg=config) -> Evaluation:
     return result
 
 
-# ─── text report ──────────────────────────────────────────────────────────────
-
-
 def _ci(row, m: str) -> str:
     return f"{row[m]:.3f} [{row[f'{m}_ci_low']:.3f}, {row[f'{m}_ci_high']:.3f}]"
 
@@ -535,9 +522,6 @@ def _text_report(result: Evaluation, missing: list, subset, cfg=config) -> str:
         lines += ["Prediction files not found:"] + [f"  {m}" for m in missing]
         lines.append("")
     return "\n".join(lines)
-
-
-# ─── figures ──────────────────────────────────────────────────────────────────
 
 
 def _style(ax) -> None:
@@ -644,8 +628,6 @@ def _plot_reliability(group: pd.DataFrame, key: tuple, path: Path, cfg=config):
     _save(fig, path, cfg)
 
 
-# ─── permutation section of model_comparison.txt ─────────────────────────────
-
 PERMUTATION_HEADER = "Permutation tests (EVALUATION_PROTOCOL.md section 4):"
 
 
@@ -677,9 +659,6 @@ def write_comparison_text(out: Path, body: str | None = None, cfg=config) -> Pat
     out.mkdir(parents=True, exist_ok=True)
     path.write_text(text.lstrip("\n"), encoding="utf-8")
     return path
-
-
-# ─── run ──────────────────────────────────────────────────────────────────────
 
 
 def output_dir(subset: str | None = None, cfg=config) -> Path:

@@ -107,7 +107,7 @@ def test_end_to_end_word_and_cursive(fresh):
 
     labels, ids = _ids(fresh)
     fused = preds[(preds["model"] == "cnn_hmm_fused") & ~preds["in_middle_band"]]
-    assert sorted(fused["participant_id"]) == sorted(ids)  # each tested once
+    assert sorted(fused["participant_id"]) == sorted(ids)
     assert preds["in_middle_band"].any()
 
     selection = json.loads((out / "selection.json").read_text())
@@ -147,7 +147,7 @@ def test_no_outer_val_id_used_for_fitting_selection_or_calibration(fresh, monkey
     labels, ids = _ids(fresh)
     folds = load_folds(config)
     middle = set(labels.loc[labels["in_middle_band"], "participant_id"])
-    assert len(seen) == 2 * 2 * config.cv.n_splits  # select + final, 2 families
+    assert len(seen) == 2 * 2 * config.cv.n_splits
     for step, seed, train_ids, val_ids in seen:
         fold = seed - config.training.seed
         train, test = fold_ids(folds, fold, ids)
@@ -174,7 +174,6 @@ def test_include_drawing_is_secondary_and_not_fused(fresh):
     selection = json.loads((pred_path.parent / "selection.json").read_text())
     drawing = [r for r in selection if r["family"] == "drawing"]
     assert drawing and all(r["secondary"] for r in drawing)
-    # fused = word + cursive only
     fused = preds[preds["model"] == "cnn_hmm_fused"].set_index(
         ["fold", "participant_id"]
     )

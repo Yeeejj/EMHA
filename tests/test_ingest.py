@@ -21,7 +21,6 @@ def _make_clean_fixture(tmp_path):
     raw3 = tmp_path / "raw-3Page"
     raw4 = tmp_path / "raw-4Page"
 
-    # Crops carry no DPI metadata in the real data -- only page scans do.
     for code in ("001", "002"):
         _save(raw3 / f"EMHA-P3_DrawingExercise_{code}.png")
         _save(
@@ -44,7 +43,6 @@ def test_scan_raw_describes_every_file(tmp_path):
 
     df = scan_raw(raw3, raw4)
 
-    # 2 participants x (1 p3_scan + 1 D1 crop + 1 p4_scan + 1 CS1 crop) = 8
     assert len(df) == 8
     assert set(df["participant_id"]) == {"001", "002"}
     assert set(df["kind"]) == {"p3_scan", "p4_scan", "crop"}
@@ -67,8 +65,6 @@ def test_validate_scans_clean_fixture_has_no_problems(tmp_path):
 
 def test_validate_scans_flags_bilevel_and_wrong_name(tmp_path):
     raw3, raw4 = _make_clean_fixture(tmp_path)
-    # Deliberately broken: bilevel mode AND a filename that doesn't match
-    # the expected EMHA-P3_DrawingExercise_003.png pattern.
     _save(raw3 / "EMHA-P3_DrawingExercise_003_bad.png", mode="1", dpi=(200, 200))
     _save(raw4 / "EMHA-P4_WritingExercise_003.png")
 
@@ -83,7 +79,6 @@ def test_validate_scans_flags_missing_p4_scan(tmp_path):
     raw3 = tmp_path / "raw-3Page"
     raw4 = tmp_path / "raw-4Page"
     _save(raw3 / "EMHA-P3_DrawingExercise_001.png")
-    # no P4 scan for 001 at all
 
     df = scan_raw(raw3, raw4)
     errors = validate_scans(df)
@@ -105,7 +100,6 @@ def test_validate_scans_flags_dpi_mismatch(tmp_path, monkeypatch):
 
 def test_validate_scans_flags_size_outlier(tmp_path):
     raw3, raw4 = _make_clean_fixture(tmp_path)
-    # Participant 003's P3 scan is a very different size from 001/002's.
     _save(raw3 / "EMHA-P3_DrawingExercise_003.png", size=(10, 10))
     _save(raw4 / "EMHA-P4_WritingExercise_003.png")
 
@@ -128,7 +122,6 @@ def test_compare_hashes_flags_a_changed_file(tmp_path):
     raw3, raw4 = _make_clean_fixture(tmp_path)
     old = scan_raw(raw3, raw4)
 
-    # Simulate a raw file being modified after the fact.
     _save(raw3 / "EMHA-P3_DrawingExercise_001.png", size=(999, 999))
     new = scan_raw(raw3, raw4)
 

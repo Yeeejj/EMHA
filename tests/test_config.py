@@ -88,7 +88,7 @@ def test_ensure_output_dirs_handles_read_only_data_root(monkeypatch, tmp_path, c
 
     monkeypatch.setattr(Path, "mkdir", fake_mkdir)
 
-    cfg.ensure_output_dirs()  # must not raise
+    cfg.ensure_output_dirs()
 
     assert not cfg.paths.metadata_dir.exists()
     assert not cfg.paths.processed_dir.exists()

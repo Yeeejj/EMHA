@@ -85,7 +85,7 @@ def test_every_results_row_matches_model_comparison_csv(built):
     checked = 0
     for _, r in comp.iterrows():
         key = f"{r['model']}/{r['feature_set']}"
-        n, rest = rows[key].pop(0)  # primary rows come first, then full
+        n, rest = rows[key].pop(0)
         nums = [float(x) for x in re.findall(NUM, rest)]
         expected = [
             r[c]

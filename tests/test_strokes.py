@@ -62,7 +62,7 @@ def test_tremor_does_not_depend_on_large_scale_curvature():
 
 def test_uniform_width_stroke_has_width_cv_near_zero():
     img = _paper()
-    img[55:60, 30:340] = 40  # 5 px wide bar
+    img[55:60, 30:340] = 40
     feats = stroke_features(*_prep(img), config)
     assert feats["stroke_width_cv"] < 0.05
 
@@ -102,7 +102,7 @@ def test_skeleton_paths_straight_line_is_one_ordered_path():
     assert len(paths) == 1
     assert path_length_px(paths[0]) == pytest.approx(160, rel=0.05)
     steps = np.abs(np.diff(paths[0], axis=0)).max(axis=1)
-    assert (steps == 1).all()  # consecutive pixels are 8-neighbours
+    assert (steps == 1).all()
 
 
 def test_skeleton_paths_cross_splits_into_four_arms():
@@ -130,7 +130,7 @@ def test_endpoint_and_junction_density_of_a_cross():
 def test_crossing_number_classifies_end_interior_and_junction():
     skel = np.zeros((7, 7), dtype=bool)
     skel[3, 1:6] = True
-    skel[1:3, 3] = True  # T junction at (3, 3)
+    skel[1:3, 3] = True
     cn = crossing_number(skel)
     assert cn[3, 1] == 1
     assert cn[3, 2] == 2
@@ -149,8 +149,8 @@ def _drawing_feats(img):
 
 def _drawing(with_smudge=False, with_faint_line=False):
     img = _paper(400, 300)
-    cv2.circle(img, (200, 280), 60, 40, 3)  # figure in the lower right
-    cv2.circle(img, (180, 265), 4, 40, -1)  # two "eyes" inside
+    cv2.circle(img, (200, 280), 60, 40, 3)
+    cv2.circle(img, (180, 265), 4, 40, -1)
     cv2.circle(img, (220, 265), 4, 40, -1)
     if with_smudge:
         cv2.ellipse(img, (80, 100), (30, 18), 0, 0, 360, 205, -1)

@@ -51,10 +51,10 @@ def _make_participant(
 def _make_fixture(tmp_path):
     raw3 = tmp_path / "raw-3Page"
     raw4 = tmp_path / "raw-4Page"
-    _make_participant(raw3, raw4, "001")  # clean
-    _make_participant(raw3, raw4, "002", skip_cell="CS5")  # missing crop
-    _make_participant(raw3, raw4, "003", wrong_size_cell="D1")  # wrong size
-    _make_participant(raw3, raw4, "004", bad_name_cell="W2_RH")  # bad name
+    _make_participant(raw3, raw4, "001")
+    _make_participant(raw3, raw4, "002", skip_cell="CS5")
+    _make_participant(raw3, raw4, "003", wrong_size_cell="D1")
+    _make_participant(raw3, raw4, "004", bad_name_cell="W2_RH")
     return raw3, raw4
 
 
@@ -64,7 +64,6 @@ def test_build_manifest_describes_every_crop(tmp_path, monkeypatch):
 
     df = build_manifest()
 
-    # 4 participants x 24 - 1 skipped (002's CS5) = 95
     assert len(df) == 95
     assert set(df["participant_id"]) == {"001", "002", "003", "004"}
     assert set(df["task_family"]) == {"drawing", "word", "cursive"}
@@ -78,7 +77,6 @@ def test_build_manifest_describes_every_crop(tmp_path, monkeypatch):
     assert w1_lh["task"] == "content"
     assert w1_lh["style"] == "LH"
 
-    # baseline_angle_deg only for word/cursive, never drawing
     assert pd.isna(d1["baseline_angle_deg"])
     assert not pd.isna(w1_lh["baseline_angle_deg"])
 
@@ -106,8 +104,6 @@ def test_verify_clean_participant_has_no_problems(tmp_path, monkeypatch):
 
 
 def test_verify_does_not_flag_non_grayscale_or_edge_ink(tmp_path, monkeypatch):
-    # Every real crop is RGB -- this must never become a "problem" or
-    # "zero problems on the first 100 participants" would be impossible.
     monkeypatch.setattr(config.paths, "data_root", tmp_path)
     _make_fixture(tmp_path)
     df = build_manifest()

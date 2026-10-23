@@ -20,7 +20,7 @@ from torchvision import transforms
 
 NORMALIZE_MEAN = [0.5]
 NORMALIZE_STD = [0.5]
-BLUR_KERNEL_SIZE = 3  # light blur only; sigma is the real control (cfg.blur_sigma)
+BLUR_KERNEL_SIZE = 3
 
 
 class RandomIntegerTranslate:

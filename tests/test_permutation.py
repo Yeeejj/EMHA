@@ -26,7 +26,7 @@ from src.training.evaluator import metrics
 from src.utils.config import config
 from src.utils.synthetic import make_synthetic_root
 
-N_SMALL = 24  # smallest attainable p = 1/25 = 0.04 < alpha
+N_SMALL = 24
 
 
 def _point_at(mp, root):
@@ -51,13 +51,10 @@ def signal_root(synthetic_root_signal):
     return synthetic_root_signal
 
 
-# ── formula and shuffling ─────────────────────────────────────────────────────
-
-
 def test_p_value_formula():
     assert p_value([0.1, 0.2, 0.3], 0.25) == pytest.approx(2 / 4)
     assert p_value([0.1, 0.2, 0.3], 0.9) == pytest.approx(1 / 4)
-    assert p_value([0.5, 0.5], 0.5) == pytest.approx(3 / 3)  # ties count
+    assert p_value([0.5, 0.5], 0.5) == pytest.approx(3 / 3)
 
 
 def test_shuffle_stays_inside_outer_train(null_root, monkeypatch):
@@ -66,7 +63,7 @@ def test_shuffle_stays_inside_outer_train(null_root, monkeypatch):
     shuffled = permuted_train_labels(ctx, perm=0, seed=42)
     true = [ctx.true_index(train) for train, _ in ctx.splits]
     for s, t in zip(shuffled, true):
-        assert sorted(s) == sorted(t) and len(s) == len(t)  # same labels, permuted
+        assert sorted(s) == sorted(t) and len(s) == len(t)
     assert any((s != t).any() for s, t in zip(shuffled, true))
     assert permutation_seed(42, 0, 1) != permutation_seed(42, 1, 0)
 
@@ -88,9 +85,6 @@ def test_unshuffled_lr_reproduces_the_observed_run(null_root, monkeypatch):
     assert len(merged) == len(obs) == len(mine)
     np.testing.assert_allclose(merged["prob_sad"], merged["prob_sad_obs"], atol=1e-9)
     assert (merged["label"] == merged["label_obs"]).all()
-
-
-# ── acceptance ────────────────────────────────────────────────────────────────
 
 
 def test_not_significant_on_null_root(null_root, monkeypatch):
@@ -119,7 +113,7 @@ def test_seeded_nulls_are_reproducible(signal_root, monkeypatch):
     _point_at(monkeypatch, signal_root)
     args = ("lr_handcrafted", "all", "primary", 4)
     a = lr_null(*args, n_jobs=1, seed=7)
-    b = lr_null(*args, n_jobs=2, seed=7)  # worker count never changes a draw
+    b = lr_null(*args, n_jobs=2, seed=7)
     c = lr_null(*args, n_jobs=1, seed=8)
     np.testing.assert_array_equal(a, b)
     assert not np.array_equal(a, c)
@@ -135,8 +129,6 @@ def test_refuses_untested_models_and_cnn_on_full(null_root, monkeypatch, capsys)
     with pytest.raises(SystemExit):
         permutation.main()
 
-
-# ── CNN path: one full-retrain draw ───────────────────────────────────────────
 
 SMALL_CANVAS = {"drawing": (32, 48), "word": (48, 32), "cursive": (64, 32)}
 
@@ -158,8 +150,6 @@ def cnn_root(tmp_path_factory):
             tmp_path_factory.mktemp("perm_cnn") / "root", n_participants=40, images=True
         )
         _point_at(mp, root)
-        # observed runs for the ensemble and CNN-HMM need word + cursive only;
-        # the permutation draw itself retrains all three families
         for family in config.hybrid.families:
             run_cnn.run(task_family=family, device="cpu")
         run_hybrid.run(device="cpu")
@@ -180,7 +170,7 @@ def cnn_root(tmp_path_factory):
 
 def test_cnn_draw_runs_once_and_feeds_every_cnn_model(cnn_root):
     root, first, second, calls = cnn_root
-    assert calls == [0]  # second test resumed from the cached draw
+    assert calls == [0]
     run = root / "results" / "final" / "permutation_runs" / "primary" / "seed_42"
     frame = pd.read_csv(run / "perm_0000.csv", dtype={"participant_id": str})
     models = set(zip(frame["model"], frame["feature_set"]))
@@ -236,9 +226,6 @@ def test_shuffled_cnn_matches_the_lr_shuffle(cnn_root, monkeypatch):
         assert [idx_to_label[i] for i in lr_y[fold]] == seen[s]
 
 
-# ── split draws (Deviation 3) ─────────────────────────────────────────────────
-
-
 def test_parse_draws_ranges():
     assert permutation.parse_draws("10-19", 20) == list(range(10, 20))
     assert permutation.parse_draws("7", 20) == [7]
@@ -268,12 +255,12 @@ def test_draws_only_caches_just_its_range(cnn_root, monkeypatch):
         return base.assign(perm=perm)
 
     monkeypatch.setattr(permutation, "cnn_null_run", fake)
-    monkeypatch.setattr(permutation, "permutation_test", None)  # never called
+    monkeypatch.setattr(permutation, "permutation_test", None)
     before = (run / "perm_0000.csv").read_bytes()
     try:
         out = permutation.draws_only("cnn_hmm_fused", "primary", "0-2", n=3)
         assert out == run
-        assert calls == [(1, 42), (2, 42)]  # draw 0 was already cached
+        assert calls == [(1, 42), (2, 42)]
         assert (run / "perm_0000.csv").read_bytes() == before
         for k in (1, 2):
             frame = pd.read_csv(run / f"perm_{k:04d}.csv")

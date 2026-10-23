@@ -153,7 +153,7 @@ def inner_split(
     sub = table.loc[ids].reset_index()
 
     strata = _strata(sub, config.cv.stratify_columns)
-    n_val = math.ceil(val_fraction * len(ids))  # sklearn's float test_size rule
+    n_val = math.ceil(val_fraction * len(ids))
     n_strata = len(set(strata))
     too_few = min(n_val, len(ids) - n_val) < n_strata
     if pd.Series(strata).value_counts().min() < 2 or too_few:

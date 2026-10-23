@@ -48,9 +48,6 @@ LOG_FIELDS = [
 ]
 
 
-# ─── handcrafted features (LR baseline) ──────────────────────────────────────
-
-
 def _image_features(img_path: str) -> np.ndarray:
     """Return [mean_intensity, pixel_density, slant_angle] for one image."""
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
@@ -69,7 +66,7 @@ def _image_features(img_path: str) -> np.ndarray:
             angle = cv2.minAreaRect(pts)[-1]
             if angle < -45:
                 angle += 90.0
-            slant = angle / 90.0  # normalise to [-0.5, 0.5]
+            slant = angle / 90.0
 
     return np.array([mean_intensity, pixel_density, slant], dtype=np.float32)
 
@@ -84,9 +81,6 @@ def gather_lr_features(
     )
     labels = dataset.table["label_index"].to_numpy()
     return feats, labels
-
-
-# ─── sequence features (CNN → HMM) ───────────────────────────────────────────
 
 
 def extract_sequences(
@@ -111,7 +105,7 @@ def extract_sequences(
         for batch in loader:
             images = batch["image"].to(device)
             labels = batch["label"]
-            seq = cnn.extractor.extract_spatial_features(images)  # (B, T, F)
+            seq = cnn.extractor.extract_spatial_features(images)
             for i in range(seq.shape[0]):
                 s = seq[i].cpu().numpy()
                 all_seqs.append(s)
@@ -123,9 +117,6 @@ def extract_sequences(
         np.concatenate(all_labels),
         all_lengths,
     )
-
-
-# ─── Trainer (CNN) ───────────────────────────────────────────────────────────
 
 
 class Trainer:
@@ -272,9 +263,6 @@ class Trainer:
         )
 
 
-# ─── log helpers ─────────────────────────────────────────────────────────────
-
-
 def _log_row(
     run_ts: str,
     epoch: int | str,
@@ -304,9 +292,6 @@ def _write_log(log_path: Path, rows: list[dict]) -> None:
         writer = csv.DictWriter(fh, fieldnames=LOG_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
-
-
-# ─── main orchestration ───────────────────────────────────────────────────────
 
 
 def run_training(epochs: int | None = None) -> None:

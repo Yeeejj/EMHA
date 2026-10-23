@@ -23,7 +23,6 @@ import pandas as pd
 
 from src.utils.config import config
 
-# Trailing run of digits in an id, e.g. "P001" -> "001", "P7" -> "7".
 ID_DIGITS_PATTERN = re.compile(r"(\d+)$")
 VALID_ID_PATTERN = re.compile(r"^\d{3}$")
 

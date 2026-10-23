@@ -25,8 +25,6 @@ import pandas as pd
 
 from src.utils.config import config
 
-# Exactly 3 digits, not part of a longer run (so the single-digit crop-slot
-# suffix in e.g. "_D1" or "_W1_LH" is never mistaken for the code).
 CODE_PATTERN = re.compile(r"(?<!\d)(\d{3})(?!\d)")
 VALID_ID_PATTERN = re.compile(r"^\d{3}$")
 

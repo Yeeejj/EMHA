@@ -60,7 +60,6 @@ from src.utils.protocol_guard import require_frozen_or_synthetic
 plt.switch_backend("Agg")
 
 SAD, HAPPY = "SAD", "HAPPY"
-# (category, true label, predicted label, most confident = highest prob_sad?)
 CATEGORIES = (
     ("correct_HAPPY", HAPPY, HAPPY, False),
     ("correct_SAD", SAD, SAD, True),
@@ -69,9 +68,6 @@ CATEGORIES = (
 )
 _SURFACE, _INK, _INK_2, _HEAT = "#fcfcfb", "#0b0b0b", "#52514e", "#eb6834"
 _PNG_META = {"Software": None}
-
-
-# ─── Grad-CAM ────────────────────────────────────────────────────────────────
 
 
 def resolve_layer(model: torch.nn.Module, name: str) -> torch.nn.Module:
@@ -92,7 +88,7 @@ def gradcam(
     x = image if image.dim() == 4 else image.unsqueeze(0)
     if x.shape[0] != 1:
         raise ValueError("gradcam explains one image at a time")
-    x = x.detach().clone().requires_grad_(True)  # graph exists even if frozen
+    x = x.detach().clone().requires_grad_(True)
     layer = resolve_layer(model, target_layer)
     store = {}
     fwd = layer.register_forward_hook(lambda _m, _i, out: store.update(act=out))
@@ -166,9 +162,6 @@ def save_overlay(
     return out_path
 
 
-# ─── selection ────────────────────────────────────────────────────────────────
-
-
 def crop_predictions_path(cfg=config, subset: str | None = None) -> Path:
     name = run_name(cfg.gradcam.analysis, subset, "resnet18")
     return cfg.paths.results_dir / "cnn" / name / "crop_predictions.csv"
@@ -191,9 +184,6 @@ def select_examples(crops: pd.DataFrame, family: str, cfg=config) -> pd.DataFram
         )
         chosen.append(rows.head(cfg.gradcam.n_examples).assign(category=name))
     return pd.concat(chosen, ignore_index=True)
-
-
-# ─── run ──────────────────────────────────────────────────────────────────────
 
 
 def _caption(row) -> str:

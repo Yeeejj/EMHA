@@ -97,7 +97,6 @@ ROW_COLUMNS = (
     "delta_ci_low",
     "delta_ci_high",
 )
-# Row label -> {family or COMBINED: (model, feature_set)} for section 1.
 FAMILY_TABLE = {
     "lr_handcrafted": {
         **{f: ("lr_handcrafted", f) for f in FAMILIES},
@@ -120,7 +119,6 @@ FAMILY_TABLE = {
         COMBINED: ("cnn_hmm_fused", "fused"),
     },
 }
-# (block, reference, compared, exploratory) for section 3 (non-aggregation).
 ABLATIONS = (
     ("backbone", ("cnn_hmm_fused", "fused"), ("cnn_head_fused", "fused"), False),
     (
@@ -134,7 +132,6 @@ ABLATIONS = (
     ("ensemble", ("ensemble", "all"), ("cnn_hmm_fused", "fused"), False),
     ("embeddings", ("lr_embeddings", "concat"), ("lr_handwriting", "concat"), True),
 )
-# Crop-level models: (source folder, crop model, fused model, fused families).
 CROP_MODELS = (
     ("cnn", "cnn_head", "cnn_head_fused", FAMILIES),
     ("hybrid", "cnn_hmm", "cnn_hmm_fused", tuple(config.hybrid.families)),
@@ -149,9 +146,6 @@ _SURFACE, _INK, _INK_2, _MUTED, _GRID, _SERIES = (
     "#2a78d6",
 )
 _PNG_META = {"Software": None}
-
-
-# ─── loading ──────────────────────────────────────────────────────────────────
 
 
 def _complete(frame: pd.DataFrame, cfg=config) -> bool:
@@ -228,9 +222,6 @@ def aggregate_with(
         )
     out = pd.concat([preds] + fused_rows, ignore_index=True)
     return out[list(PRED_COLUMNS)]
-
-
-# ─── metric rows ──────────────────────────────────────────────────────────────
 
 
 def _row(block, analysis, frame, key, cfg=config, **extra) -> dict:
@@ -405,9 +396,6 @@ def qc_balance(cfg=config, subset: str | None = None) -> dict | None:
     }
 
 
-# ─── figures ──────────────────────────────────────────────────────────────────
-
-
 def _style(ax) -> None:
     ax.set_facecolor(_SURFACE)
     for spine in ax.spines.values():
@@ -508,9 +496,6 @@ def plot_top_features(top: pd.DataFrame, path: Path, cfg=config) -> None:
         f"{SECONDARY}: top {len(top)} handcrafted features (lr_handcrafted/all)",
         cfg,
     )
-
-
-# ─── text ─────────────────────────────────────────────────────────────────────
 
 
 def _fmt(r) -> str:
@@ -629,9 +614,6 @@ def text_report(rows: pd.DataFrame, comparison, top, qc, cfg=config) -> str:
     return "\n".join(out) + "\n"
 
 
-# ─── run ──────────────────────────────────────────────────────────────────────
-
-
 def run(subset: str | None = None) -> Path:
     """Write secondary.txt, secondary_metrics.csv and PNGs; return the txt path."""
     require_frozen_or_synthetic(config, "secondary")
@@ -644,7 +626,6 @@ def run(subset: str | None = None) -> Path:
     rows = pd.DataFrame(
         family_rows(df) + middle_band_rows(df) + ablation_rows(df, config, subset)
     )
-    # every column present even when a block (e.g. paired ablations) is empty
     rows = rows.reindex(columns=list(dict.fromkeys([*ROW_COLUMNS, *rows.columns])))
     top = top_features(config, subset)
     qc = qc_balance(config, subset)

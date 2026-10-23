@@ -59,14 +59,12 @@ def test_package_has_no_scans_no_item_columns_and_keeps_layout(root, tmp_path):
     assert pkg == tmp_path / "dist" / "emha-crops"
     audit_package(pkg)
 
-    # no page scans: every raw file sits in a cell folder; the source has scans
     assert list((root / "raw-3Page").glob("EMHA-P3_DrawingExercise_*.png"))
     for tree in ("raw-3Page", "raw-4Page"):
         assert not [p for p in (pkg / tree).iterdir() if p.is_file()]
     assert len(_files(pkg, "raw-3Page")) + len(_files(pkg, "raw-4Page")) == 24 * N
     assert len(_files(pkg, "processed")) == 24 * N
 
-    # no item-level answers anywhere
     assert not list(pkg.rglob("questionnaire_export.csv"))
     items = set(config.report.item_columns)
     for csv in _files(pkg, "metadata"):
@@ -81,7 +79,6 @@ def test_package_has_no_scans_no_item_columns_and_keeps_layout(root, tmp_path):
             root / "metadata" / name
         ).read_bytes()
 
-    # manifest paths point at packaged files under the Kaggle mount root
     for name, col in (
         ("crop_manifest.csv", "path"),
         ("processed_manifest.csv", "processed_path"),
@@ -93,7 +90,7 @@ def test_package_has_no_scans_no_item_columns_and_keeps_layout(root, tmp_path):
             assert (pkg / p[len(MOUNT) + 1 :]).is_file()
 
     meta = json.loads((pkg / "dataset-metadata.json").read_text())
-    assert meta["id"] == "edanocyrel/emha-crops"  # PackageConfig wins over the env
+    assert meta["id"] == "edanocyrel/emha-crops"
     assert 6 <= len(meta["title"]) <= 50 and len(meta["licenses"]) == 1
     manifest = (pkg / "MANIFEST.txt").read_text()
     for name in ("folds.csv", "labels.csv"):
@@ -131,7 +128,6 @@ def test_forbidden_column_fails(root, tmp_path, column):
 def test_notes_with_text_fail(root, tmp_path):
     path = root / "metadata" / "qc_log.csv"
     qc = _read(path)
-    # an all-blank notes column reads as float; pandas 3 refuses text in it
     qc["notes"] = qc["notes"].astype(object)
     qc.loc[0, "notes"] = "reviewer comment"
     qc.to_csv(path, index=False)
@@ -207,5 +203,5 @@ def test_cli(root, tmp_path, monkeypatch, capsys):
     )
     assert pkgmod.main() == 0
     assert "Package written" in capsys.readouterr().out
-    assert pkgmod.main() == 1  # second build refuses to overwrite
+    assert pkgmod.main() == 1
     assert "already exists" in capsys.readouterr().out

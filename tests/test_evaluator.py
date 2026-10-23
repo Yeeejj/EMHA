@@ -54,11 +54,7 @@ def _majority_frame(labels, folds, **kw):
     return _frame(list(labels), probs, model="majority", folds=list(folds), **kw)
 
 
-# ── metrics ──────────────────────────────────────────────────────────────────
-
-
 def test_metrics_hand_computed():
-    # TP 2 (.9, .7), FN 2 (.3, .2), FP 1 (.8), TN 1 (.1)
     df = _frame(
         ["SAD", "SAD", "SAD", "SAD", "HAPPY", "HAPPY"], [0.9, 0.7, 0.3, 0.2, 0.8, 0.1]
     )
@@ -68,10 +64,8 @@ def test_metrics_hand_computed():
     assert m["recall_sad"] == pytest.approx(2 / 4)
     assert m["precision_happy"] == pytest.approx(1 / 3)
     assert m["recall_happy"] == pytest.approx(1 / 2)
-    # F1 SAD = 2*2/(4+1+2) = 4/7, F1 HAPPY = 2*1/(2+2+1) = 2/5
     assert m["macro_f1"] == pytest.approx((4 / 7 + 2 / 5) / 2)
     assert m["balanced_accuracy"] == pytest.approx((1 / 2 + 1 / 2) / 2)
-    # SAD > HAPPY pairs: .9>.8,.1  .7>.1  .3>.1  .2>.1 -> 5 of 8
     assert m["roc_auc"] == pytest.approx(5 / 8)
     assert set(m) == set(METRICS)
 
@@ -98,9 +92,6 @@ def test_vectorized_resamples_match_sklearn():
 
 
 def test_majority_model_macro_f1_matches_analytic_value():
-    # 24 SAD / 16 HAPPY, folds balanced: every training fold is 60% SAD, so
-    # the majority model predicts SAD for everyone. F1_SAD = 2s/(2s+h),
-    # F1_HAPPY = 0 -> macro-F1 = s / (2s + h) = s / (n + s).
     s, h = 24, 16
     labels = ["SAD"] * s + ["HAPPY"] * h
     folds = [i % N_FOLDS for i in range(s)] + [i % N_FOLDS for i in range(h)]
@@ -118,9 +109,6 @@ def test_majority_hits_agree_with_run_log():
     labels = ["SAD" if v else "HAPPY" for v in rng.random(40) < 0.45]
     df = _frame(labels, [0.5] * 40)
     assert majority_hits(df).mean() == pytest.approx(run_log.majority_baseline(df))
-
-
-# ── bootstrap ────────────────────────────────────────────────────────────────
 
 
 def _noisy(n=60, seed=1, model="m", fs="all", flip=0.3):
@@ -155,9 +143,6 @@ def test_paired_difference():
         paired_diff_ci(a, b.iloc[1:], "macro_f1", 10, 0)
 
 
-# ── validation and analysis sets ─────────────────────────────────────────────
-
-
 def test_validate_rejects_bad_files():
     good = _frame(["SAD", "HAPPY"], [0.7, 0.2])
     v = evaluator.validate
@@ -188,9 +173,6 @@ def test_incomplete_folds_are_skipped():
     df = _frame(["SAD", "HAPPY"] * 4, [0.9, 0.1] * 4, folds=[0, 1] * 4)
     result = evaluate(df)
     assert result.comparison.empty and "need all" in result.skipped[0]
-
-
-# ── run ──────────────────────────────────────────────────────────────────────
 
 
 def _root_with_predictions(tmp_path, monkeypatch, n=40):
@@ -264,7 +246,7 @@ def test_run_writes_outputs_and_fills_run_log_ci(tmp_path, monkeypatch):
         "cnn_hmm_fused",
         "ensemble",
     }
-    assert (prim["n_participants"] == 40).all()  # middle band excluded
+    assert (prim["n_participants"] == 40).all()
     assert math.isnan(prim.loc["lr_handcrafted", "delta_macro_f1_vs_reference"])
     assert prim["delta_macro_f1_ci_low"].drop("lr_handcrafted").notna().all()
     for name in (
@@ -281,7 +263,7 @@ def test_run_writes_outputs_and_fills_run_log_ci(tmp_path, monkeypatch):
     per_fold = pd.read_csv(out / "per_fold_metrics.csv")
     assert len(per_fold) == len(comp) * N_FOLDS
     text = (out / "model_comparison.txt").read_text(encoding="utf-8")
-    assert "majority 0." in text and "cnn" in text  # missing cnn files listed
+    assert "majority 0." in text and "cnn" in text
 
     with (root / "results" / "RUN_LOG.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -290,7 +272,6 @@ def test_run_writes_outputs_and_fills_run_log_ci(tmp_path, monkeypatch):
     assert all(
         r["command"].startswith("python -m src.training.evaluator") for r in rows
     )
-    # the logged macro-F1 is the pooled sklearn value
     hand = pd.read_csv(root / "results" / "baselines" / "primary" / "predictions.csv")
     hand = hand[(hand["model"] == "lr_handcrafted") & ~hand["in_middle_band"]]
     expected = f1_score(hand["label"], hand["pred"], average="macro")

@@ -13,8 +13,8 @@ from src.utils.config import config
 from src.utils.synthetic import make_synthetic_root
 
 H = W = 24
-BLOB_A = (slice(2, 8), slice(3, 9))  # bright (+1): the only SAD evidence
-BLOB_B = (slice(15, 21), slice(14, 20))  # dark (-1): the only HAPPY evidence
+BLOB_A = (slice(2, 8), slice(3, 9))
+BLOB_B = (slice(15, 21), slice(14, 20))
 
 
 class BlobModel(nn.Module):
@@ -85,7 +85,7 @@ def test_real_cnn_map_and_app_hook(tmp_path):
 
 
 def test_display_image_is_dark_ink_on_white(monkeypatch):
-    stored_ink = torch.full((1, 2, 2), 1.0)  # inverted crop: ink bright, +1
+    stored_ink = torch.full((1, 2, 2), 1.0)
     monkeypatch.setattr(config.preprocessing, "invert", True)
     assert gc.display_image(stored_ink).max() == pytest.approx(0.0)
     monkeypatch.setattr(config.preprocessing, "invert", False)
@@ -116,14 +116,11 @@ def test_selection_picks_most_confident_per_category():
     picked = gc.select_examples(pd.DataFrame(rows), "word").groupby("category")
     first = {k: g.iloc[0]["prob_sad"] for k, g in picked}
     assert first == {
-        "correct_HAPPY": 0.1,  # middle-band 0.01 excluded
+        "correct_HAPPY": 0.1,
         "correct_SAD": 0.9,
         "HAPPY_predicted_SAD": 0.8,
         "SAD_predicted_HAPPY": 0.2,
     }
-
-
-# ── run() on a tiny trained CNN ───────────────────────────────────────────────
 
 
 @pytest.fixture(scope="module")
@@ -156,7 +153,7 @@ def test_run_writes_grid_and_overlays(word_root):
     assert len(overlays) <= len(gc.CATEGORIES) * config.gradcam.n_examples
     crops = pd.read_csv(gc.crop_predictions_path(), dtype={"participant_id": str})
     middle = set(crops.loc[crops["in_middle_band"], "participant_id"])
-    assert middle  # the run predicted middle-band crops too
+    assert middle
     assert not any(f"_{pid}_" in p.stem for p in overlays for pid in middle)
 
 

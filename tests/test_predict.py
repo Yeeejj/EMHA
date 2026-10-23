@@ -115,7 +115,7 @@ def test_ensemble_matches_reported_out_of_fold_prediction(demo_root):
     ).set_index("participant_id")
     assert result["prob_sad"] == pytest.approx(ens.loc[codes[0], "prob_sad"], abs=1e-4)
     assert (demo_root / "results" / "demo" / codes[0] / "prediction.json").is_file()
-    paths = result["gradcam_paths"]  # src.analysis.gradcam.save_overlay
+    paths = result["gradcam_paths"]
     assert len(paths) == config.demo.n_gradcam
     assert all(Path(p).is_file() for p in paths)
 
@@ -203,7 +203,7 @@ def test_cli(demo_root, capsys):
 
 
 def test_real_data_refused_before_freeze(tmp_path, monkeypatch):
-    monkeypatch.setattr(config.paths, "data_root", tmp_path)  # no synthetic marker
+    monkeypatch.setattr(config.paths, "data_root", tmp_path)
     monkeypatch.setattr(protocol_guard, "protocol_frozen", lambda: False)
     with pytest.raises(ProtocolNotFrozenError):
         predict.predict_participant("001")

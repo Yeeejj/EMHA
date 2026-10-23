@@ -85,7 +85,7 @@ def test_end_to_end_all_families_two_folds(cnn_root):
             assert state["best_epoch"] == 1 and state["fold"] == fold
     settings = json.loads((out / "run_config.json").read_text())
     assert settings["training"]["epochs"] == 1
-    assert not (cnn_root / "results" / "RUN_LOG.csv").exists()  # 2 of 5 folds
+    assert not (cnn_root / "results" / "RUN_LOG.csv").exists()
 
 
 def test_resume_skips_finished_folds(cnn_root, monkeypatch):
@@ -100,7 +100,7 @@ def test_resume_skips_finished_folds(cnn_root, monkeypatch):
         dtype={"participant_id": str},
     )
     assert set(preds["fold"]) == {0, 1}
-    assert "cnn_head_fused" not in set(preds["model"])  # needs all 3 families
+    assert "cnn_head_fused" not in set(preds["model"])
 
 
 def test_resume_refuses_changed_settings(cnn_root, monkeypatch):
@@ -133,7 +133,7 @@ def test_leakage_asserted_for_outer_and_inner_splits(cnn_root, monkeypatch):
     parts = pd.read_csv(cnn_root / "metadata" / "participants.csv", dtype=str)
     folds = load_folds(config)
     ids = analysis_ids(labels, parts, "primary")
-    assert len(calls) == 4  # outer + inner, for each of the two folds
+    assert len(calls) == 4
     for i, fold in enumerate((0, 2)):
         train, test = fold_ids(folds, fold, ids)
         inner_train, inner_val = inner_split(
@@ -142,7 +142,7 @@ def test_leakage_asserted_for_outer_and_inner_splits(cnn_root, monkeypatch):
         outer, inner = calls[2 * i], calls[2 * i + 1]
         assert outer[0] == sorted(train) and outer[1] == sorted(test)
         assert inner[:3] == [sorted(inner_train), sorted(inner_val), sorted(test)]
-        assert outer[2] == inner[3] and len(outer[2]) > 0  # middle-band IDs
+        assert outer[2] == inner[3] and len(outer[2]) > 0
 
 
 def test_shuffle_labels_writes_separately_and_keeps_true_test_labels(cnn_root):
@@ -224,7 +224,7 @@ def test_trainer_early_stopping_and_balanced_weights(cnn_root, monkeypatch):
 
     monkeypatch.setattr(config.training, "epochs", 4)
     monkeypatch.setattr(config.training, "patience", 1)
-    monkeypatch.setattr(config.training, "min_delta", 1.0)  # nothing improves enough
+    monkeypatch.setattr(config.training, "min_delta", 1.0)
     labels = pd.read_csv(
         cnn_root / "metadata" / "labels.csv", dtype={"participant_id": str}
     )
@@ -232,8 +232,8 @@ def test_trainer_early_stopping_and_balanced_weights(cnn_root, monkeypatch):
     train_loader, val_loader = build_loaders(ids[:20], ids[20:], "cursive", config)
     trainer = Trainer(EmotionCNN(replace(config.cnn, backbone="simple")), config, "cpu")
     history = trainer.fit(train_loader, val_loader)
-    assert len(history) == 2 and trainer.best_epoch == 1  # stop after patience
+    assert len(history) == 2 and trainer.best_epoch == 1
 
     weights = trainer._criterion(train_loader).weight.numpy()
     counts = np.bincount(train_loader.dataset.table["label_index"], minlength=2)
-    assert np.allclose(weights * counts, weights[0] * counts[0])  # inverse frequency
+    assert np.allclose(weights * counts, weights[0] * counts[0])

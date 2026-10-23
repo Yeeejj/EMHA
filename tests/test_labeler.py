@@ -120,7 +120,7 @@ def test_write_computes_boundary_distance_and_middle_band(tmp_path, monkeypatch)
     df = pd.DataFrame(
         {
             "participant_id": ["001", "002", "003", "004"],
-            "total_score": [120.0, 24.0, 73.0, 71.0],  # distances: 48, 48, 1, 1
+            "total_score": [120.0, 24.0, 73.0, 71.0],
             "label": ["HAPPY", "SAD", "HAPPY", "SAD"],
         }
     )
@@ -138,14 +138,12 @@ def test_write_computes_boundary_distance_and_middle_band(tmp_path, monkeypatch)
             "in_primary_analysis",
         ]
     )
-    # middle_band_fraction=0.5 of 4 rows = 2 -> the two smallest distances (003, 004)
     band = written.set_index("participant_id")["in_middle_band"].to_dict()
     assert band == {"001": False, "002": False, "003": True, "004": True}
 
     primary = written.set_index("participant_id")["in_primary_analysis"].to_dict()
     assert primary == {"001": True, "002": True, "003": False, "004": False}
 
-    # labels themselves must be untouched
     assert list(written["label"]) == ["HAPPY", "SAD", "HAPPY", "SAD"]
 
 

@@ -156,7 +156,7 @@ def _describe_crop(path: Path, participant_id: str, cell: str) -> dict:
         with Image.open(path) as img:
             width, height = img.size
             mode = img.mode
-            gray = np.array(img.convert("L"))  # in-memory only, never saved
+            gray = np.array(img.convert("L"))
     except Exception:
         sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
         return {

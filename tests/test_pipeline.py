@@ -39,7 +39,7 @@ def _draw_line(width, height, angle_deg, gray_value=20, thickness=3, bg=250):
 
 
 def test_flatten_background_rescales_uniform_paper_near_255():
-    page = _blank_page(value=180)  # unevenly lit, darker paper
+    page = _blank_page(value=180)
 
     flattened = flatten_background(page, ksize=51)
 
@@ -116,8 +116,7 @@ def test_ink_mask_for_stats_separates_ink_from_background():
     mask = ink_mask_for_stats(img)
 
     row = mask[:, mask.shape[1] // 2]
-    assert row.max() == 255  # ink pixels detected
-    # Most of the page is background, so most of the mask should be 0.
+    assert row.max() == 255
     assert mask.mean() < 50
 
 

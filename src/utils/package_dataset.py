@@ -68,9 +68,6 @@ def sha256_of(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-# ── checks ───────────────────────────────────────────────────────────────────
-
-
 def forbidden_columns(columns, cfg=config) -> list:
     """Item-level, name-, email- or notes-like column names."""
     items = {c.lower() for c in cfg.report.item_columns}
@@ -121,9 +118,6 @@ def _mount_path(path: str, cfg=config) -> str:
 
 def _local(path: str) -> Path:
     return Path(str(path).replace("\\", "/"))
-
-
-# ── participants ─────────────────────────────────────────────────────────────
 
 
 def package_ids(subset: str | None, cfg=config) -> list:
@@ -179,9 +173,6 @@ def _crop_rows(ids: list, cfg=config) -> tuple:
     return crops, proc
 
 
-# ── build ────────────────────────────────────────────────────────────────────
-
-
 def kaggle_username(cfg=config) -> str:
     """PackageConfig.kaggle_user, else KAGGLE_USERNAME, else kaggle.json."""
     if cfg.package.kaggle_user:
@@ -191,7 +182,7 @@ def kaggle_username(cfg=config) -> str:
     cred_dir = os.environ.get("KAGGLE_CONFIG_DIR") or Path.home() / ".kaggle"
     cred = Path(cred_dir) / "kaggle.json"
     if cred.is_file():
-        user = json.loads(cred.read_text()).get("username")  # never the key
+        user = json.loads(cred.read_text()).get("username")
         if user:
             return user
     raise PackageError(
@@ -205,7 +196,7 @@ def _copy(src: Path, dest: Path, expected_sha: str | None = None) -> None:
     if expected_sha is not None and sha256_of(src) != expected_sha:
         raise PackageError(f"{src} differs from its crop_manifest SHA-256")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dest)  # read-only on the source
+    shutil.copyfile(src, dest)
 
 
 def _rel(path: str, cfg=config) -> Path:
@@ -223,7 +214,7 @@ def _write_metadata(pkg: Path, ids: list, crops, proc, cfg=config) -> None:
         _check_source(src)
         frame = pd.read_csv(src, dtype={"participant_id": str})
         if name in cfg.package.verbatim_files:
-            clean_columns(frame, name, cfg)  # check only; copy byte-identical
+            clean_columns(frame, name, cfg)
             shutil.copyfile(src, meta_dst / name)
             continue
         frame = {"crop_manifest.csv": crops, "processed_manifest.csv": proc}.get(
@@ -327,7 +318,6 @@ def audit_package(pkg: Path, cfg=config) -> None:
             if ok and forbidden_columns(pd.read_csv(path, nrows=0).columns, cfg):
                 raise PackageError(f"{rel} has forbidden columns")
         elif top in CROP_TREES:
-            # crops only: <tree>/<cell>/EMHA-..._<cell>.png; scans sit at the top
             ok = (
                 len(rel.parts) == 3
                 and rel.parts[1] in cells

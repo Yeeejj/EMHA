@@ -99,9 +99,6 @@ EXPLORATORY_MODELS = ("lr_handwriting",)
 HANDWRITING_FAMILIES = ("word", "cursive")
 
 
-# ── features ─────────────────────────────────────────────────────────────────
-
-
 def _handcrafted_sets(cfg) -> dict:
     path = cfg.paths.results_dir / "features" / "handcrafted_participant.csv"
     if not path.is_file():
@@ -143,9 +140,6 @@ def feature_sets(cfg) -> list:
     if hw is not None:
         out.append(("lr_handwriting", "concat", hw["concat"], True))
     return out
-
-
-# ── model ────────────────────────────────────────────────────────────────────
 
 
 def fit_lr(X_train, y_train, cfg, pca: bool = False, seed: int | None = None):
@@ -190,8 +184,6 @@ def fit_lr(X_train, y_train, cfg, pca: bool = False, seed: int | None = None):
         cv=StratifiedKFold(n_splits=n_inner, shuffle=True, random_state=seed),
         refit=True,
     )
-    # Plain float arrays: sklearn's per-column DataFrame checks dominated
-    # runtime on 512-1536-column embedding sets.
     search.fit(np.asarray(X_train, dtype=float), y)
     return search.best_estimator_
 
@@ -217,9 +209,6 @@ def _metrics(df: pd.DataFrame) -> dict:
     if len(set(y)) == 2:
         out["roc_auc"] = float(roc_auc_score(y, df["prob_sad"]))
     return out
-
-
-# ── run ──────────────────────────────────────────────────────────────────────
 
 
 def _rows(analysis, model, fs, fold, ids, labels, prob, middle) -> pd.DataFrame:

@@ -98,7 +98,7 @@ def test_appends_one_run_log_row_with_empty_ci(tmp_path, monkeypatch):
 
 
 def test_partial_folds_not_logged(tmp_path, monkeypatch):
-    root = _write_root(tmp_path, monkeypatch, _frames())  # folds 0 and 1 only
+    root = _write_root(tmp_path, monkeypatch, _frames())
     run_ensemble.run("primary")
     assert not (root / "results" / "RUN_LOG.csv").exists()
 
@@ -106,7 +106,7 @@ def test_partial_folds_not_logged(tmp_path, monkeypatch):
 def test_exploratory_and_other_rows_ignored(tmp_path, monkeypatch):
     _write_root(tmp_path, monkeypatch, _frames())
     out = pd.read_csv(run_ensemble.run("primary"))
-    assert out["prob_sad"].max() < 0.99  # lr_handwriting (0.99) never averaged
+    assert out["prob_sad"].max() < 0.99
 
 
 def test_threshold_exactly_half_is_sad():
@@ -138,7 +138,7 @@ def test_middle_band_rows_only_when_all_components_have_them():
     ]
     out = combine(with_mid)
     assert out.loc[out["participant_id"] == "004", "in_middle_band"].tolist() == [True]
-    partial = with_mid[:2] + [_frames()[2]]  # hybrid run without --predict-middle
+    partial = with_mid[:2] + [_frames()[2]]
     out = combine(partial)
     assert not out["in_middle_band"].any() and len(out) == 3
 

@@ -99,7 +99,6 @@ def combine(frames: list) -> pd.DataFrame:
             )
         )
 
-    # Test-fold rows: every component must have every participant.
     tests = [p[~p[f"middle_{i}"].astype(bool)] for i, p in enumerate(parts)]
     union = set().union(*(set(map(tuple, t[KEYS].to_numpy())) for t in tests))
     for (model, fs, _), t in zip(COMPONENTS, tests):

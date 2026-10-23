@@ -91,9 +91,6 @@ def test_random_integer_translate_shifts_by_a_bounded_integer_offset():
 
 
 def test_train_transform_preserves_eight_degree_angle_over_50_applications(monkeypatch):
-    # Keep ink dark-on-light for measure_baseline_angle's convention; this
-    # test checks the transform's geometry, independent of pipeline.py's
-    # invert step.
     monkeypatch.setattr(config.preprocessing, "invert", False)
     monkeypatch.setattr(config.crop, "ink_threshold", 128)
 

@@ -7,9 +7,6 @@ from src.utils.config import config
 
 
 def _synthetic_labels():
-    # cutoff = config.labeling.cutoff = 72.0. Distances from cutoff:
-    # 001:48 002:28 003:18 004:8 005:1 | 006:48 007:32 008:22 009:7 010:1
-    # Sorted ascending (stable): 005,010,009,004,003,008,002,007,001,006
     return pd.DataFrame(
         {
             "participant_id": [f"{i:03d}" for i in range(1, 11)],
@@ -26,8 +23,6 @@ def test_band_table_matches_hand_computed_counts(monkeypatch):
     table = band_table(labels, [0.3])
     row = table.iloc[0]
 
-    # Smallest 3 distances excluded: 005(1), 010(1), 009(7).
-    # Kept: 001,002,003,004 (HAPPY) and 006,007,008 (SAD).
     assert row["n_middle_band"] == 3
     assert row["n_kept_happy"] == 4
     assert row["n_kept_sad"] == 3
@@ -58,6 +53,5 @@ def test_band_table_multiple_fractions_returns_one_row_each(monkeypatch):
     table = band_table(labels, [0.2, 0.3, 0.4])
 
     assert list(table["fraction"]) == [0.2, 0.3, 0.4]
-    # Larger fraction -> larger (or equal) middle band, fewer (or equal) kept.
     assert table["n_middle_band"].is_monotonic_increasing
     assert table["n_kept_total"].is_monotonic_decreasing

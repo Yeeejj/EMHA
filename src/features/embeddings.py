@@ -46,8 +46,6 @@ ARCH = "resnet18"
 EMBED_DIM = 512
 FAMILIES = ("drawing", "word", "cursive")
 
-# ImageNet statistics from the weights' bundled inference transform (the
-# same for every ResNet18_Weights member; available without a download).
 _IMAGENET_TRANSFORM = ResNet18_Weights.IMAGENET1K_V1.transforms()
 IMAGENET_MEAN = list(_IMAGENET_TRANSFORM.mean)
 IMAGENET_STD = list(_IMAGENET_TRANSFORM.std)
@@ -77,7 +75,7 @@ def load_backbone(device: str, weights: str | None = "config") -> torch.nn.Modul
 
 def _to_imagenet_input(x: torch.Tensor) -> torch.Tensor:
     """Eval-transform output (1, H, W) -> ImageNet-normalized (3, H, W)."""
-    x = x * NORMALIZE_STD[0] + NORMALIZE_MEAN[0]  # back to [0, 1]
+    x = x * NORMALIZE_STD[0] + NORMALIZE_MEAN[0]
     x = x.repeat(3, 1, 1)
     mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
     std = torch.tensor(IMAGENET_STD).view(3, 1, 1)

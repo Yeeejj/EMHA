@@ -18,7 +18,7 @@ from src.features import embeddings_handwriting as hw
 from src.utils.config import config
 
 HIDDEN = 6
-IMAGE_SIZE, PATCH = 8, 4  # -> 4 patch tokens + 1 CLS token
+IMAGE_SIZE, PATCH = 8, 4
 CLS_VALUE = 1000.0
 
 
@@ -57,8 +57,8 @@ class MockEncoder(torch.nn.Module):
 
 def _write_crop(path: Path, family: str, ink: int = 255) -> Path:
     w, h = config.preprocessing.canvas_size[family]
-    img = np.zeros((h, w), dtype=np.uint8)  # stored inverted: dark paper
-    img[h // 4 : h // 2, 10:40] = ink  # bright ink
+    img = np.zeros((h, w), dtype=np.uint8)
+    img[h // 4 : h // 2, 10:40] = ink
     Image.fromarray(img).save(path)
     return path
 
@@ -74,7 +74,7 @@ def test_embeds_two_synthetic_crops_and_excludes_cls(tmp_path):
     )
     assert out.shape == (2, HIDDEN)
     assert out.dtype == np.float32
-    assert np.abs(out).max() < CLS_VALUE / 10  # CLS token not in the mean
+    assert np.abs(out).max() < CLS_VALUE / 10
 
 
 def test_crops_are_uninverted_to_dark_on_white(tmp_path, monkeypatch):
@@ -84,8 +84,8 @@ def test_crops_are_uninverted_to_dark_on_white(tmp_path, monkeypatch):
     hw.embed_crops([path], "cpu", encoder=MockEncoder().eval(), processor=proc)
     rgb = np.asarray(proc.seen[0])
     assert rgb.shape[2] == 3
-    assert np.median(rgb) == 255  # paper is white
-    assert rgb.min() == 0  # ink is dark
+    assert np.median(rgb) == 255
+    assert rgb.min() == 0
 
 
 def test_batches_cover_every_crop_in_order(tmp_path, monkeypatch):
@@ -158,7 +158,7 @@ def test_cache_reuse_skips_loading_and_embedding(tmp_path, monkeypatch):
     first = hw.run(device="cpu")
     assert len(loads) == 1
     second = hw.run(device="cpu")
-    assert len(loads) == 1  # encoder never loaded again
+    assert len(loads) == 1
     assert second == first
 
 

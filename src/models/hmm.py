@@ -100,7 +100,7 @@ def run_isolated(fn, args: tuple, threads: int, log_level: int) -> tuple:
         ) as caught:
             try:
                 result = fn(*args)
-            except Exception as exc:  # re-raised by the caller, in task order
+            except Exception as exc:
                 result = exc
     finally:
         logger.removeHandler(handler)
@@ -180,8 +180,6 @@ class HMMClassifier:
         if self.cfg.topology not in TOPOLOGIES:
             raise ValueError(f"topology must be one of {TOPOLOGIES}")
         self.seed = config.training.seed if seed is None else seed
-        # execution only (module docstring): restarts in n_jobs processes,
-        # each limited to `threads` BLAS/OpenMP threads
         self.n_jobs = n_jobs
         self.threads = config.runner.hmm_threads_per_fit if threads is None else threads
         label_to_index = config.data.label_to_index
@@ -193,8 +191,6 @@ class HMMClassifier:
         self.log_prior_ratio = 0.0
         self.calibrator: LogisticRegression | None = None
         self.restart_log: dict = {}
-
-    # ── frames ────────────────────────────────────────────────────────────
 
     def _transform(self, sequences) -> list:
         out = []
@@ -214,8 +210,6 @@ class HMMClassifier:
             frames = self.scaler.transform(frames)
         n_comp = min(self.cfg.pca_components, frames.shape[1], frames.shape[0])
         self.pca = PCA(n_components=n_comp, svd_solver="full").fit(frames)
-
-    # ── HMMs ──────────────────────────────────────────────────────────────
 
     def _new_hmm(
         self, n_states: int, random_state: int, n_frames: int
@@ -256,8 +250,6 @@ class HMMClassifier:
                 raise result
             model, ll = result
             history = list(model.monitor_.history)
-            # stopped on the tolerance (last gain < tol), not on the n_iter cap;
-            # hmmlearn 0.3 keeps the whole log-likelihood history
             converged = len(history) >= 2 and history[-1] - history[-2] < model.tol
             runs.append(
                 {
@@ -315,8 +307,6 @@ class HMMClassifier:
         self.calibrator = None
         return self
 
-    # ── scores and probabilities ──────────────────────────────────────────
-
     def _check_fitted(self) -> None:
         if not self.models:
             raise RuntimeError("HMMClassifier is not fitted")
@@ -338,7 +328,6 @@ class HMMClassifier:
         y = (np.asarray(labels).astype(int) == self.sad).astype(int)
         if len(np.unique(y)) < 2:
             raise ValueError("calibration needs held-out scores of both classes")
-        # C=np.inf = unpenalized (scikit-learn >= 1.8 deprecates penalty=None)
         self.calibrator = LogisticRegression(C=np.inf).fit(s, y)
         return self
 
@@ -364,8 +353,6 @@ class HMMClassifier:
         """Class index per sequence (SAD iff decision score > 0)."""
         scores = self.decision_scores(sequences)
         return np.where(scores > 0, self.sad, self.happy)
-
-    # ── persistence ───────────────────────────────────────────────────────
 
     def save(self, path) -> None:
         self._check_fitted()
