@@ -109,9 +109,6 @@ METRIC_NAMES = {
 }
 
 
-# ─── paths ────────────────────────────────────────────────────────────────────
-
-
 def output_dir(cfg=config) -> Path:
     return cfg.paths.results_dir / cfg.hybrid_v2.output_subdir / ANALYSIS
 
@@ -141,9 +138,6 @@ def embedding_path(family: str, cfg=config) -> Path:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-# ─── data ─────────────────────────────────────────────────────────────────────
 
 
 def load_sequences(ids: list, cfg=config) -> tuple:
@@ -195,9 +189,6 @@ def _set(ids: list, labels: pd.DataFrame, seqs: dict, cfg=config) -> SequenceSet
     )
     meta["label_index"] = meta["label"].map(cfg.data.label_to_index)
     return SequenceSet(meta, [seqs[str(p)] for p in ids])
-
-
-# ─── fitting ──────────────────────────────────────────────────────────────────
 
 
 def _grid(cfg=config) -> list:
@@ -409,8 +400,6 @@ def run(n_jobs: int | None = None, cfg=config) -> Path:
             )
             if fold == 0:
                 fit = took * cfg.cv.n_splits
-                # a draw refits every fold on one core and draws run on all
-                # cores, so a draw-fold costs about one parallel fold here
                 null = fit * cfg.hybrid_v2.n_permutations
                 print(
                     f"fold 0 elapsed {took:.1f} s; estimated (a) main v2 run "
@@ -430,9 +419,6 @@ def run(n_jobs: int | None = None, cfg=config) -> Path:
         )
     evaluate(cfg)
     return write_report(cfg)
-
-
-# ─── evaluation ───────────────────────────────────────────────────────────────
 
 
 def _read_predictions(path: Path) -> pd.DataFrame:
@@ -494,9 +480,6 @@ def evaluate(cfg=config) -> evaluator.Evaluation:
         )
     pd.DataFrame(paired).to_csv(out / "paired.csv", index=False)
     return result
-
-
-# ─── permutation ──────────────────────────────────────────────────────────────
 
 
 def _draw(perm: int, seed: int, ids, labels, folds, order, array) -> dict:
@@ -583,9 +566,6 @@ def permutation(
     )
     write_report(cfg)
     return result
-
-
-# ─── report ───────────────────────────────────────────────────────────────────
 
 
 def _ci(row, m: str) -> str:
