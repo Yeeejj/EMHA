@@ -40,8 +40,10 @@ Outputs, results/final[_<subset>]/:
     per_fold_metrics.csv            every fold, every model
     confusion_matrices.csv
     confusion_matrices_<analysis>.png, roc_curves_<analysis>.png
-    reliability_<model>_<analysis>.png   the pre-registered primary model
-                                         (EvalConfig.reliability_model)
+    reliability_<model>_<analysis>.png   the ensemble, pre-registered as
+                                         primary (EvalConfig.reliability_model);
+                                         the primary model is the CNN-HMM
+                                         since Deviation 4
 
 model_comparison.txt ends with a permutation section rebuilt from the
 permutation_*.json files in the same folder (src.analysis.permutation), so

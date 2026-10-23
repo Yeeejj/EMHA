@@ -277,3 +277,28 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    and running them in turn on one machine did not fit the thesis
    schedule. Real results seen: none from the full run (not started); no
    pilot metric was read before this change.
+
+4. 2026-10-23 — Reporting change: the headline (primary) claim moves from
+   the ensemble to the fused CNN-HMM (`cnn_hmm_fused/fused`), the method
+   named in the thesis title and in the approved proposal; the ensemble is
+   reported as a supporting analysis. This was decided AFTER the full
+   run's results were read (results/final/RESULTS.txt, git HEAD 996340d),
+   so the rule in section 5 that no model is promoted to the headline
+   after results are seen is knowingly broken; the change is disclosed
+   here and in the paper. Nothing is recomputed: no model, fold, band,
+   seed, threshold, grid, aggregation rule or metric changes, and every
+   number is reported exactly as RESULTS.txt prints it. The primary claim
+   is now the CNN-HMM's participant-level macro-F1 on the primary set with
+   its bootstrap 95% CI, shown against the majority baseline, with its
+   paired comparison vs `lr_handcrafted/all` and its permutation p-value
+   from the N = 20 retrains already run (sections 4 and 5). The ensemble
+   keeps all of its outputs (macro-F1 and CI, paired comparison,
+   permutation p) and is reported in full beside the CNN-HMM, as is every
+   other model. The change does not favour the headline: on the primary
+   set the CNN-HMM's macro-F1 is 0.434 [0.384, 0.486], accuracy 0.534,
+   permutation p = 0.7143, against the ensemble's 0.516 [0.462, 0.572],
+   0.522, p = 0.4286. Section 7.4 (original and deviated analyses both
+   reported) is met: the paper reports both claims. Reason: the thesis
+   author designates the CNN-HMM as the proposed system; the ensemble was
+   added by this protocol as a combined reference. Real results seen: all
+   (the full run is complete).

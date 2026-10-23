@@ -102,7 +102,7 @@ def test_chosen_fold_model_never_had_participant_in_training(demo_root, monkeypa
 
 def test_ensemble_matches_reported_out_of_fold_prediction(demo_root):
     codes, _ = _sample(demo_root)
-    result = predict.predict_participant(codes[0])
+    result = predict.predict_participant(codes[0], "ensemble")
     assert result["model"] == "ensemble"
     comps = result["component_probs"]
     assert set(comps) == {"lr_handcrafted", "lr_embeddings", "cnn_hmm_fused"}
