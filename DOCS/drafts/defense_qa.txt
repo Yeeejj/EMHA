@@ -176,3 +176,45 @@ the majority rate (0.544), which comes from the larger HAPPY class;
 balanced accuracy, the mean of the two per-class recalls, is near 0.5.
 Source: results/hybrid/primary/predictions.csv, cnn_hmm_fused/fused rows
 with in_middle_band == False; RESULTS.txt > PRIMARY RESULTS.
+
+--------------------------------------------------------------------------------
+13. What is CNN-HMM v2 and what did it show?
+--------------------------------------------------------------------------------
+v2 is an exploratory, post hoc model (EVALUATION_PROTOCOL.md section 9,
+Deviation 5). Each respondent is one sequence of 24 frozen ImageNet
+ResNet18 embeddings, one per task image, in FINALE form order (D1-D4,
+W1_LH ... W5_UC, CS1-CS5); one Gaussian HMM per class, selected on inner
+validation exactly as v1, Platt-calibrated, threshold 0.5
+(src/training/run_hybrid_v2.py). On the primary set (n = 320) it reached
+macro-F1 0.480 [0.427, 0.536], accuracy 0.537 [0.484, 0.594], balanced
+accuracy 0.512 [0.468, 0.558], ROC-AUC 0.487 [0.423, 0.550], against a
+majority baseline of 0.544; the permutation test gave p = 0.5842
+(N = 100, full refit per draw). It identified 33 of 146 SAD respondents.
+Source: results/final/EXPLORATORY_v2.txt.
+
+--------------------------------------------------------------------------------
+14. Why isn't v2 the main result if it scored higher than v1?
+--------------------------------------------------------------------------------
+v2 was designed after all results were seen, so it cannot be a
+confirmatory test. Deviation 5 fixed its whole design (features, order,
+grid, selection rule, N = 100 permutations) and was committed before v2
+ran on real data; nothing was changed after its result. Its gain over v1
+is not distinguishable from zero: paired macro-F1 difference v2 - v1
++0.047 [-0.024, +0.115] (EXPLORATORY_v2.txt section 4). Its permutation
+p = 0.5842 is also not below 0.05. v1 remains the primary model
+(Deviation 4); v2 is reported in full as exploratory.
+
+--------------------------------------------------------------------------------
+15. Why did the HMM fail even with a real order?
+--------------------------------------------------------------------------------
+The settings it chose looked useful on inner validation but did not carry
+over: the selected setting's inner-validation macro-F1 ranged from 0.538
+to 0.675 across folds, while the pooled test macro-F1 was 0.480 (per-fold
+0.408 to 0.513). With 39 inner-validation participants per fold
+(results/hybrid_v2/primary/selection.json) the selection is noisy and
+optimistic. The features themselves were not
+the problem: the same frozen embeddings averaged per participant
+(lr_embeddings/concat) reached macro-F1 0.576, p = 0.0080 (RESULTS.txt),
+and v2 was below them on the same resamples, -0.094 [-0.163, -0.024]
+(EXPLORATORY_v2.txt section 4). Modelling transitions between 24 very
+different task images adds parameters without adding signal at n = 320.

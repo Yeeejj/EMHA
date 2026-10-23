@@ -80,7 +80,20 @@ For a complete list of citations, see `CITATIONS/THESIS_CITATIONS_SUMMARY.md`
 
 ### Status
 
-Research phase - Data collection and model development in progress.
+Full run complete; final write-up in progress (as of 2026-10-24).
+
+- **Primary model:** CNN-HMM v1 (column sequence), `cnn_hmm_fused/fused`,
+  per EVALUATION_PROTOCOL.md section 9, Deviation 4. Code at tag
+  `cnn-hmm-v1`.
+- **Supporting model:** the fixed equal-weight ensemble (`ensemble/all`),
+  reported in full.
+- **Exploratory:** CNN-HMM v2 (task order), Deviation 5, post hoc and never
+  part of the primary claim.
+- **Where results live:** v1 and every other model on Google Drive
+  (`MyDrive/EMHA/run_outputs/results/`, `final/RESULTS.txt`); v2 locally in
+  `run_outputs/results/hybrid_v2/` and `final/EXPLORATORY_v2.txt`, with
+  checksums in `DOCS/plans/v2_result.txt` and a backup archive recorded in
+  `DOCS/plans/v2_outputs_backup.sha256`.
 
 ---
 

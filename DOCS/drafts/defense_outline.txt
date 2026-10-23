@@ -75,11 +75,19 @@ and results/final/secondary.txt. Primary set: n = 320, pooled out-of-fold,
    - The same frozen features averaged per participant (LR embeddings)
      gave p = 0.0080.
 
-12. CNN-HMM v2 (EXPLORATORY, post hoc, Deviation 5)
-   - HMM over each participant's 24 task images in FINALE form order,
-     frozen ResNet18 embeddings. [PLACEHOLDER: copy from
-     results/final/EXPLORATORY_v2.txt when the run is complete; never part
-     of the primary claim.]
+12. CNN-HMM v2 (task order), exploratory, Deviation 5
+   - Idea: one HMM sequence per respondent, the 24 task images in FINALE
+     form order, frozen ResNet18 features; designed after results were seen,
+     never part of the primary claim.
+   Primary set, n = 320 (RESULTS.txt; results/final/EXPLORATORY_v2.txt):
+   model                 macro-F1 [CI]          accuracy [CI]          bal. acc.  ROC-AUC  perm. p           SAD correct
+   CNN-HMM v1 (primary)  0.434 [0.384, 0.486]  0.534 [0.481, 0.591]  0.501      0.485    0.7143 (N = 20)   18 / 146
+   CNN-HMM v2 (explor.)  0.480 [0.427, 0.536]  0.537 [0.484, 0.594]  0.512      0.487    0.5842 (N = 100)  33 / 146
+   (v1 SAD count from results/hybrid/primary/predictions.csv; v2 from the
+   EXPLORATORY_v2.txt confusion matrix.)
+   - Takeaway: neither HMM variant separated the classes; the same frozen
+     features with logistic regression did (lr_embeddings/concat macro-F1
+     0.576, p = 0.0080).
 
 13. Limitations
    - One site, one population (right-handed students 18-25); self-report

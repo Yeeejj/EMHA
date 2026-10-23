@@ -137,6 +137,53 @@ data root `/content/emha-crops`. Machine names and `--device` come from the
 Drive run logs; the runner header records neither the GPU model nor `nproc`,
 so those cells stay [CHECK] until confirmed from the notebook output.
 
+### CNN-HMM v2 (exploratory, Deviation 5)
+
+Post hoc and never part of the primary claim (EVALUATION_PROTOCOL.md
+section 9, Deviation 5). It needs no GPU and no torch at run time: it reads
+cached files only.
+
+Inputs (read-only):
+
+- `results/embeddings/resnet18_drawing.npz`, `resnet18_word.npz`,
+  `resnet18_cursive.npz` (the full run's caches; `cache_key` must match the
+  processed crops)
+- `DATASET/metadata/folds.csv`, `labels.csv`, `participants.csv`
+- for the paired comparisons: `results/baselines/primary/predictions.csv`
+  and `results/hybrid/primary/predictions.csv`
+
+Commands (PowerShell, repo root, tag `cnn-hmm-v1` or later):
+
+```powershell
+$env:EMHA_DATA_ROOT = "D:\EMHA_Thesis\EMHA-1\DATASET"
+$env:EMHA_OUTPUT_ROOT = "D:\EMHA_Thesis\run_outputs"
+$env:OMP_NUM_THREADS = "1"; $env:MKL_NUM_THREADS = "1"; $env:OPENBLAS_NUM_THREADS = "1"
+python -m src.training.run_hybrid_v2                  # 5 outer folds, then report
+python -m src.training.run_hybrid_v2 --permutation    # N = 100 full refits, then report
+```
+
+Both commands resume from their caches (`parts/fold_<k>.*`, `perm_<k>.json`)
+and refuse to run if `run_config.json` / `settings.json` record different
+settings. Settings: `HybridV2Config` in `src/utils/config.py`.
+
+Run of record (2026-10-23, CPU only, 4 cores (`nproc`), one BLAS thread per
+process; `logs/v2_run.log`): outer folds 44.0, 33.0, 35.6, 39.7 and 36.5 s
+(main run 16:15:25 to 16:18:51 including evaluation); permutation
+100/100 draws in 327.5 min (16:18:51 to 21:46:51).
+
+Outputs (under `EMHA_OUTPUT_ROOT`; none are written to v1 paths):
+
+- `results/hybrid_v2/primary/`: `predictions.csv`, `parts/`,
+  `selected_settings.csv`, `selection.json`, `run_config.json`,
+  `metrics.csv`, `per_fold.csv`, `confusion.csv`, `paired.csv`,
+  `permutation.json`, `permutation_null_v2.png`
+- `models/hmm_v2/primary/fold_<k>.joblib`
+- `results/final/permutation_runs/primary_v2/seed_42/`
+- `results/final/EXPLORATORY_v2.txt`
+
+Checksums of the run-of-record outputs: `DOCS/plans/v2_result.txt`; backup
+archive: `DOCS/plans/v2_outputs_backup.sha256`.
+
 ## 3. Checking a reproduction
 
 Compare the new `results/final/RESULTS.txt` sections 1-4 (and
