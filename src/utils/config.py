@@ -190,6 +190,37 @@ class HybridConfig:
 
 
 @dataclass
+class HybridV2Config:
+    """CNN-HMM v2 (task order), EXPLORATORY and post hoc -- see
+    src/training/run_hybrid_v2.py and EVALUATION_PROTOCOL.md section 9,
+    Deviation 5. Never part of the primary claim, the ensemble, or a v1 output.
+
+    One sequence of 24 frozen ResNet18 embeddings (embedding_prefix caches)
+    per participant, in form order. The HMM setting is chosen from these
+    grids by run_hybrid's rule (HybridConfig.selection_restarts, inner-
+    validation participant macro-F1) and refit with HMMConfig.n_restarts.
+    paired_references get paired macro-F1 differences; n_permutations full
+    v2 refits form the null. Listed in RunnerConfig.fingerprint_exclude: v2
+    changes no v1 result, so the full run's resume markers stay valid.
+    """
+
+    embedding_prefix: str = "resnet18"
+    n_states_grid: Tuple[int, ...] = (2, 3, 4)
+    pca_grid: Tuple[int, ...] = (8, 16, 32)
+    topology_grid: Tuple[str, ...] = ("ergodic", "left_right")
+    paired_references: Tuple[Tuple[str, str], ...] = (
+        ("lr_handcrafted", "all"),
+        ("lr_embeddings", "concat"),
+        ("cnn_hmm_fused", "fused"),
+    )
+    n_permutations: int = 100
+    output_subdir: str = "hybrid_v2"
+    model_subdir: str = "hmm_v2"
+    runs_name: str = "primary_v2"
+    report_name: str = "EXPLORATORY_v2.txt"
+
+
+@dataclass
 class TrainingConfig:
     """Training configuration. Checkpoints are written under Config.paths.models_dir."""
 
@@ -625,6 +656,7 @@ class RunnerConfig:
         "smoke",
         "package",
         "headline",
+        "hybrid_v2",
     )
 
 
@@ -738,6 +770,7 @@ class Config:
     cnn: CNNConfig = field(default_factory=CNNConfig)
     hmm: HMMConfig = field(default_factory=HMMConfig)
     hybrid: HybridConfig = field(default_factory=HybridConfig)
+    hybrid_v2: HybridV2Config = field(default_factory=HybridV2Config)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)

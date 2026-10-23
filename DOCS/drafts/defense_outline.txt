@@ -1,0 +1,96 @@
+DEFENSE OUTLINE (DRAFT, 15 slides)
+Numbers are copied exactly from results/final/RESULTS.txt (git HEAD 996340d)
+and results/final/secondary.txt. Primary set: n = 320, pooled out-of-fold,
+95% bootstrap CIs (2,000 participant resamples). Do not round or recompute.
+
+1. Title
+   - Emotion classification (HAPPY vs SAD) from offline handwriting and
+     drawings with a CNN-HMM hybrid. Author, adviser, date.
+
+2. Problem
+   - Can a scanned page of handwriting and drawings indicate a concurrent
+     self-reported emotional state? Offline scans lose pen timing and
+     pressure, unlike tablet studies such as EMOTHAW.
+   - Self-reported state, not a diagnosis; associations, not causes.
+
+3. FINALE instrument and dataset
+   - 400 right-handed USC students aged 18-25; 24 crops each (4 drawings,
+     15 word cells, 5 cursive sentences); 9,600 crops.
+   - Designed with 4 registered psychometricians; 24-item Likert self-report.
+   - Cronbach's alpha 0.8803 [0.8562, 0.8994] (results/questionnaire/report.txt).
+
+4. Labeling and extreme groups
+   - Labels read verbatim from the export: HAPPY 224, SAD 176 (cutoff 72).
+   - Middle band (fraction 0.20, 80 participants, scores 70-74) set aside;
+     primary set 320 (HAPPY 174, SAD 146). Figure 5.1.
+
+5. Pipeline
+   - Fixed-coordinate crops; grayscale, background flattening, median
+     denoise, fixed-factor scale and white pad; no binarization, deskew or
+     stretch (Figure 3). Participant-level 5-fold CV (folds.csv).
+
+6. CNN-HMM v1 (PRIMARY MODEL)
+   - Fine-tuned ResNet18 layer3 -> height-averaged column sequence ->
+     standardize + PCA -> per-class Gaussian HMMs -> length-normalized
+     log-likelihood difference -> Platt -> P(SAD), averaged per participant
+     (Figure 4). Primary model per Deviation 4 (protocol section 9).
+
+7. Baselines and supporting ensemble
+   - Majority class; logistic regression on handcrafted features and on
+     frozen ResNet18 embeddings; fine-tuned ResNet18 head.
+   - Fixed equal-weight ensemble (LR handcrafted, LR embeddings, CNN-HMM):
+     named primary in the frozen protocol, reported as supporting.
+
+8. Protocol and leakage safeguards
+   - Protocol frozen before any real result (tag protocol-frozen, 918990a);
+     deviations 1-5 logged with what had been seen.
+   - Participant-level splits, assert_no_leakage in every fold; scalers,
+     PCA, HMM selection and Platt fit on training participants only;
+     threshold fixed at 0.5; every model reported.
+
+9. Results (primary set, n = 320; RESULTS.txt section 2)
+   model                 macro-F1 [CI]          accuracy [CI]          ROC-AUC [CI]
+   majority/all          0.352 [0.328, 0.375]  0.544 [0.487, 0.600]  0.495 [0.449, 0.538]
+   lr_handcrafted/all    0.516 [0.459, 0.571]  0.519 [0.463, 0.575]  0.501 [0.434, 0.566]
+   lr_embeddings/concat  0.576 [0.520, 0.630]  0.578 [0.525, 0.631]  0.563 [0.502, 0.626]
+   cnn_head_fused/fused  0.535 [0.482, 0.589]  0.537 [0.487, 0.591]  0.560 [0.498, 0.622]
+   cnn_hmm_fused/fused   0.434 [0.384, 0.486]  0.534 [0.481, 0.591]  0.485 [0.422, 0.550]  PRIMARY
+   ensemble/all          0.516 [0.462, 0.572]  0.522 [0.469, 0.578]  0.525 [0.463, 0.589]  supporting
+   - Majority baseline accuracy 0.544. Target (0.75) and pre-registered
+     0.70: not met.
+
+10. Permutation tests and CIs
+   - p = 0.7143 (N = 20) CNN-HMM; 0.4286 (N = 20) ensemble; 0.1905 (N = 20)
+     CNN head; 0.2827 (N = 1000) LR handcrafted; 0.0080 (N = 1000) LR
+     embeddings.
+   - Paired macro-F1 vs lr_handcrafted/all: CNN-HMM -0.081 [-0.157, +0.001];
+     LR embeddings +0.060 [-0.006, +0.128]; ensemble +0.001 [-0.048, +0.052].
+
+11. Why the CNN-HMM did not separate the classes
+   - Balanced accuracy 0.501 [0.465, 0.537], ROC-AUC 0.485 [0.422, 0.550]:
+     predicted HAPPY for 281 of 320 (hybrid/primary/predictions.csv).
+   - Ablation (secondary.txt section 3): CNN head minus CNN-HMM
+     +0.101 [+0.019, +0.180]; the same CNN features carried more signal
+     without the HMM over image columns.
+   - The same frozen features averaged per participant (LR embeddings)
+     gave p = 0.0080.
+
+12. CNN-HMM v2 (EXPLORATORY, post hoc, Deviation 5)
+   - HMM over each participant's 24 task images in FINALE form order,
+     frozen ResNet18 embeddings. [PLACEHOLDER: copy from
+     results/final/EXPLORATORY_v2.txt when the run is complete; never part
+     of the primary claim.]
+
+13. Limitations
+   - One site, one population (right-handed students 18-25); self-report
+     labels; extreme-groups result applies away from the cutoff only.
+   - Offline scans: no timing or pressure. 20 CNN permutations (smallest
+     p = 0.0476). Primary model changed after results (Deviation 4).
+
+14. Conclusions and recommendations
+   - Under this protocol, no model reached the targets; only LR on frozen
+     embeddings differed from the permutation null (p = 0.0080).
+   - Recommendations: online pen data, full score range, a second site,
+     separate calibration and selection sets.
+
+15. Thank you / questions

@@ -1,0 +1,59 @@
+CNN-HMM v2 (task order) — result note. EXPLORATORY, POST HOC (Deviation 5).
+Not part of the primary claim; the primary model remains CNN-HMM v1
+(cnn_hmm_fused/fused, Deviation 4).
+
+Run: 2026-10-23, branch feat/cnn-hmm-v2 at a032fd2, CPU only (4 cores),
+EMHA_DATA_ROOT=D:\EMHA_Thesis\EMHA-1\DATASET,
+EMHA_OUTPUT_ROOT=D:\EMHA_Thesis\run_outputs (log: logs\v2_run.log).
+Outputs stay outside git; their SHA-256 are below.
+
+Numbers copied from results/final/EXPLORATORY_v2.txt (primary set, n = 320,
+146 SAD, 174 HAPPY; 2000 participant bootstrap resamples, seed 42, 95%):
+
+  macro-F1           0.480 [0.427, 0.536]
+  accuracy           0.537 [0.484, 0.594]
+  balanced accuracy  0.512 [0.468, 0.558]
+  ROC-AUC            0.487 [0.423, 0.550]
+  majority baseline  0.544
+  confusion          true HAPPY: 139 pred HAPPY, 35 pred SAD
+                     true SAD:   113 pred HAPPY, 33 pred SAD
+  paired macro-F1 difference, v2 - reference [CI]
+    lr_handcrafted/all     -0.034 [-0.105, +0.039]
+    lr_embeddings/concat   -0.094 [-0.163, -0.024]
+    cnn_hmm_fused/fused    +0.047 [-0.024, +0.115]
+  permutation        observed 0.480, p = 0.5842 (N = 100, seed 42,
+                     null mean 0.479)
+  chosen settings    fold 0: 4 states, PCA 8, left_right (0.538)
+  (inner-val F1)     fold 1: 3 states, PCA 8, left_right (0.629)
+                     fold 2: 2 states, PCA 32, ergodic (0.596)
+                     fold 3: 4 states, PCA 8, ergodic (0.611)
+                     fold 4: 4 states, PCA 32, ergodic (0.675)
+
+v1 files were re-hashed after v2 finished: all 8 entries in
+v1_checksums.txt are byte-identical.
+
+SHA-256 of the v2 outputs (paths relative to run_outputs/results/):
+
+17708924934b2c179117f60593d04da690827da36c5b7df3e68e8b7d5a84aa7b  final/EXPLORATORY_v2.txt
+ca6257ecce3324ae7ba9a17f84db84a127889067e95a2fa3f1d5bd081e3f0f0a  hybrid_v2/primary/confusion.csv
+bfec35ca58aa7e49c58eafd10311014ba440fc452a929e136d26dca70f2c1245  hybrid_v2/primary/metrics.csv
+ea1d20fdc3bf989547de13f09dadf7643114ea1f29979269ca15a879b9371dad  hybrid_v2/primary/paired.csv
+5bd8bda4314e8912973bf168c09cff077eb5a70f292cfa6760bba75036d0638c  hybrid_v2/primary/parts/fold_0.csv
+5f3783c851960c502f1d38c3f37a48b8b28e025fe4063bad7ac3835ce605d332  hybrid_v2/primary/parts/fold_0.json
+f41c1af2d1325dc51e60520737bbf4f7f9e43bf71c1def6be25b5d12828a9d4f  hybrid_v2/primary/parts/fold_1.csv
+6b69bbe9cab3a189541649d0b7f0a11f333f970eb3f2fc1b34f3a025ae5173dd  hybrid_v2/primary/parts/fold_1.json
+db8eae7a302e3227fb41d7372e59294bc761c0c7498e9804a04e633b96543b1e  hybrid_v2/primary/parts/fold_2.csv
+46da9699292d79852b14fc420e85c2ede6c2d0218fad18a28c0609a7ad75446b  hybrid_v2/primary/parts/fold_2.json
+9b1031f5d5acdf2ea53c0a4126ef284627639ca1d2b40c059aa22345f69a11f2  hybrid_v2/primary/parts/fold_3.csv
+9e9fe71f8feb22055472a9222603b1363a41413c224f1910852436a4543c5eff  hybrid_v2/primary/parts/fold_3.json
+e54666e404df688eba8766c253b0c8f44a491c0e1d2dbd3b032f8624f1adfd42  hybrid_v2/primary/parts/fold_4.csv
+cc0cc2ad5da2fa934ea2a2d13e463f1f33d95f0f2a211c318c859ae49a250eba  hybrid_v2/primary/parts/fold_4.json
+8bc3ce151180552458579e1f5d8d8868fb8a424d82a9eb6c2b337a3c3dd8442a  hybrid_v2/primary/per_fold.csv
+76187b1269c904dfd42e97d0bdb1cf1e87e83359eb971c1b4fb4d9819ca6e24e  hybrid_v2/primary/permutation.json
+253b7594d3548315ce9389e82508c0bb1d21b1283ec18fc072cdaf8d3caa4046  hybrid_v2/primary/permutation_null_v2.png
+b2fc822dc841225996de4e81e64ac43591812bc207ba30509511215234d8617b  hybrid_v2/primary/predictions.csv
+7b5ab3e43251d7b7294c8bc83ee3a3b2222dc938e90384cf6207c18b644c14ef  hybrid_v2/primary/run_config.json
+2f5034b393b53f6ed271fcebbaac319aee68aaf65946e250e2474e41e6f56e2d  hybrid_v2/primary/selected_settings.csv
+1bdc94672edd933a2b8eb13f680fffc36f11fbc682072c639027cf368dfcc736  hybrid_v2/primary/selection.json
+7b5ab3e43251d7b7294c8bc83ee3a3b2222dc938e90384cf6207c18b644c14ef  final/permutation_runs/primary_v2/seed_42/settings.json
+b91025ae9c65000786b1ae3a4efaef0669df46c600a15ed0c3f53d54f3a8453b  final/permutation_runs/primary_v2/seed_42/perm_*.json (sha256 of the sorted 'sha256sum perm_*.json' listing, 100 files)

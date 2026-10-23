@@ -125,12 +125,17 @@ the 20 CNN-path permutation draws were split between Colab and Kaggle
 
 | Part | Machine | GPU | vCPUs (`nproc`) |
 |---|---|---|---|
-| handcrafted (S1) | [AT FINAL RUN] | none | |
-| embeddings → ensemble (S2) | [AT FINAL RUN] | | |
-| full LR permutation (S3) | [AT FINAL RUN] | none | |
-| draws 0–9 (S4) | [AT FINAL RUN] | | |
-| draws 10–19 (K1, K2) | [AT FINAL RUN] | | |
-| final runner session (S5) | [AT FINAL RUN] | | |
+| handcrafted (S1) | Colab (`logs/run_20261021T160932Z.log`: `--device cpu --steps handcrafted`) | none (CPU) | [CHECK] |
+| embeddings → ensemble (S2) | Colab (`logs/run_20261021T170946Z.log`: `--device cuda`) | [CHECK: NVIDIA L4] | [CHECK: 12] |
+| full LR permutation (S3) | [CHECK] | none | [CHECK] |
+| draws 0–11 | Colab [CHECK: same session as S2] | [CHECK: NVIDIA L4] | [CHECK: 12] |
+| draws 12–19 | Kaggle (`perm_0012`–`perm_0017` are in Drive `kaggle_draws/seed_42/`; 18–19 [CHECK]) | [CHECK: Tesla T4 x2] | [CHECK] |
+| final runner session (S5) | Colab (`logs/run_20261022T151958Z.log`: every step `[SKIP]`, exit 0) | | |
+
+Final RESULTS.txt PROVENANCE: git HEAD `996340d`, protocol tag `918990a`,
+data root `/content/emha-crops`. Machine names and `--device` come from the
+Drive run logs; the runner header records neither the GPU model nor `nproc`,
+so those cells stay [CHECK] until confirmed from the notebook output.
 
 ## 3. Checking a reproduction
 
