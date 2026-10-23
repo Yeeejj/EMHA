@@ -16,6 +16,9 @@ DATA/SPLITS/
 !DATA/PROCESSED/.gitkeep
 FIGURES/*
 !FIGURES/.gitkeep
+!FIGURES/fig*.png
+!FIGURES/fig*.svg
+!FIGURES/captions.txt
 
 # ── Model checkpoints ─────────────────────────────────────────────────────────
 # Trained on real data; too large for git and not source code
