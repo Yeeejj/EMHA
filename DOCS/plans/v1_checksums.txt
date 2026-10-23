@@ -1,0 +1,18 @@
+v1 checksums (SHA-256) — CNN-HMM v1 outputs before CNN-HMM v2 (Deviation 5)
+
+Recorded 2026-10-23 at tag cnn-hmm-v1 (main 24ffead), before any v2 code ran.
+The LOCAL COPY IS PARTIAL: it holds only the 8 files v2 reads, under
+D:\EMHA_Thesis\run_outputs\results\. The full v1 outputs stay on Drive under
+MyDrive/EMHA/run_outputs/results/. After v2 finishes, these 8 files are
+re-hashed and must be byte-identical.
+
+Paths are relative to run_outputs/results/.
+
+92802c09e0c32db2f4e4842cb8b50ccd9e901ee81ca3644711425f58c2305621  baselines/primary/predictions.csv  (246814 bytes)
+aa524655d848ad10236c1e7c909f760d3ba07918d79cc3b32e7910760e26b2d0  embeddings/resnet18_cursive.npz  (3430619 bytes)
+00da9bd4ccdf0ec2fc019a6a7c0b593751cd09f7a41d9f3e90ab41199d9cb561  embeddings/resnet18_drawing.npz  (2968203 bytes)
+7f91346190949f5408e6fb5a2d36b2f08e05e6021025f6738496720b93fcd739  embeddings/resnet18_word.npz  (10914319 bytes)
+8588a43f27cd0f0a420d5cc442191fc47e61194fdf076095cc6401698c846a61  final/model_comparison.csv  (16839 bytes)
+cc7916975831bc38b92ff0ac174c57d8767f23bad2ae9dd1807c94750d85f700  final/RESULTS.txt  (28039 bytes)
+a91d518864c11093c4f41df26e98098990e8f252fe68cbcb267e7b8967962632  final/secondary.txt  (11859 bytes)
+78e6e83a62949a56cb4160f69eaee09e2bb9e7965b002f858d2ef48487245132  hybrid/primary/predictions.csv  (79666 bytes)
