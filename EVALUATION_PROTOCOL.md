@@ -302,3 +302,24 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    author designates the CNN-HMM as the proposed system; the ensemble was
    added by this protocol as a combined reference. Real results seen: all
    (the full run is complete).
+
+5. 2026-10-23 — Exploratory analysis added after all results were seen: CNN-HMM v2, a
+   task-order hidden Markov model. Each respondent is one sequence of 24 frozen ImageNet
+   ResNet18 embeddings (512 values per task image, the cached results/embeddings/
+   resnet18_<family>.npz used by lr_embeddings), ordered as on the FINALE form
+   (src/data/crop_manifest.py ALL_CELLS: D1-D4, W1_LH ... W5_UC, CS1-CS5). Per outer fold
+   (folds.csv, primary set): StandardScaler and PCA fit on the training participants' frames;
+   one GaussianHMM per class (diagonal covariance); the setting is chosen from n_states
+   {2, 3, 4} x PCA components {8, 16, 32} x topology {ergodic, left_right} by participant
+   macro-F1 on the same inner validation split and selection rule as run_hybrid, refit with
+   HMMConfig.n_restarts, Platt-calibrated on the inner validation participants; a participant
+   is SAD when P(SAD) >= 0.5. v1 (tag cnn-hmm-v1, results/hybrid/) is kept unchanged and
+   remains the primary model; v2 is written only to separate v2 paths. Reported: macro-F1, accuracy, balanced accuracy, ROC-AUC with
+   2,000-resample bootstrap CIs (seed 42), majority baseline, every fold, the confusion
+   matrix, paired macro-F1 differences vs lr_handcrafted/all, lr_embeddings/concat and
+   cnn_hmm_fused/fused, and a permutation test with N = 100 label shuffles (full v2 refit per
+   draw, permutation_seed(seed, draw, fold) as in src/analysis/permutation.py). v2 is never
+   part of the primary claim, is labeled EXPLORATORY everywhere, and is reported whatever its
+   result. Reason: v1's left-to-right column sequences carried no information (AUC 0.485),
+   while the same frozen features did (lr_embeddings p = 0.008); task order is the only real
+   order in offline scans. Real results seen: all (the full run is complete).
