@@ -152,3 +152,113 @@ def test_preflight_rejects_nan_handcrafted_value(v3_root):
     table.to_csv(path, index=False)
     with pytest.raises(ValueError, match="D2: NaN handcrafted"):
         v3.preflight(config)
+
+
+LR_CELL = "W3_UC"
+LR_FOLD = 1
+FEW_CELLS = ("D2", "W3_UC", "CS1")
+
+
+def _randomize_test_rows(cell, test):
+    """Overwrite the test participants' features of one cell with noise."""
+    rng = np.random.default_rng(123)
+    path = v3.handcrafted_path(config)
+    table = pd.read_csv(path, dtype={"participant_id": str})
+    hit = table["participant_id"].isin(test) & (table["cell"] == cell)
+    feats = list(features_for_family(v3.family_of(cell)))
+    table.loc[hit, feats] = rng.normal(5.0, 3.0, size=(int(hit.sum()), len(feats)))
+    table.to_csv(path, index=False)
+
+    emb_path = v3.embedding_path(v3.family_of(cell), config)
+    with np.load(emb_path, allow_pickle=False) as z:
+        arrays = {k: z[k] for k in z.files}
+    rows = np.isin(arrays["participant_id"], test) & (arrays["cell"] == cell)
+    arrays["embeddings"][rows] = rng.normal(
+        5.0, 3.0, size=(rows.sum(), arrays["embeddings"].shape[1])
+    )
+    np.savez_compressed(emb_path, **arrays)
+
+
+def _fitted_state(pipe):
+    state = {
+        "scaler_mean": pipe["scaler"].mean_,
+        "scaler_scale": pipe["scaler"].scale_,
+        "coef": pipe["lr"].coef_,
+        "intercept": pipe["lr"].intercept_,
+        "C": np.array([pipe["lr"].C]),
+    }
+    if "pca" in pipe.named_steps:
+        state["pca"] = pipe["pca"].components_
+    return state
+
+
+def test_lr_fit_ignores_test_participants(v3_root):
+    labels, ids, folds = v3.context(config)
+    before = {}
+    for kind in config.per_task_v3.lr_kinds:
+        pipe, X, _, test = v3.fit_lr_cell(
+            kind, LR_CELL, LR_FOLD, ids, labels, folds, config
+        )
+        preds = v3.lr_cell(kind, LR_CELL, LR_FOLD, ids, labels, folds, config)
+        before[kind] = (_fitted_state(pipe), preds, test)
+    _randomize_test_rows(LR_CELL, before[config.per_task_v3.lr_kinds[0]][2])
+
+    for kind in config.per_task_v3.lr_kinds:
+        state, preds, test = before[kind]
+        pipe, _, _, test_after = v3.fit_lr_cell(
+            kind, LR_CELL, LR_FOLD, ids, labels, folds, config
+        )
+        assert test_after == test
+        after = _fitted_state(pipe)
+        assert set(after) == set(state)
+        for key in state:
+            assert np.allclose(after[key], state[key]), (kind, key)
+        new = v3.lr_cell(kind, LR_CELL, LR_FOLD, ids, labels, folds, config)
+        assert list(new["participant_id"]) == list(preds["participant_id"])
+        assert not np.allclose(new["prob_sad"], preds["prob_sad"])
+
+
+def _read_parts():
+    parts = sorted((v3.output_dir(config) / "parts").glob("*.csv"))
+    return parts, pd.concat(
+        [pd.read_csv(p, dtype={"participant_id": str}) for p in parts],
+        ignore_index=True,
+    )
+
+
+def test_lr_parts_cover_each_participant_once(v3_root):
+    v3.step_lr(config)
+    _, ids, folds = v3.context(config)
+    parts, preds = _read_parts()
+    v3cfg = config.per_task_v3
+    assert len(parts) == len(v3cfg.lr_kinds) * len(ALL_CELLS) * config.cv.n_splits
+    assert tuple(preds.columns) == v3.PRED_COLUMNS
+    assert set(preds["analysis"]) == {"primary"}
+    assert not preds["in_middle_band"].any()
+    fold_of = folds.set_index(folds["participant_id"].astype(str))["outer_fold"]
+    for (kind, cell), group in preds.groupby(["model", "feature_set"]):
+        assert kind in v3cfg.lr_kinds and cell in ALL_CELLS
+        assert not group["participant_id"].duplicated().any()
+        assert sorted(group["participant_id"]) == sorted(ids)
+        assert set(group["fold"]) == set(range(config.cv.n_splits))
+        expected = fold_of.loc[group["participant_id"]].to_numpy()
+        assert (group["fold"].to_numpy() == expected).all()
+    assert preds.groupby("participant_id")["fold"].nunique().max() == 1
+
+
+def test_lr_rerun_resumes_and_refuses_changed_settings(v3_root, monkeypatch, capsys):
+    monkeypatch.setattr(config.per_task_v3, "cells", FEW_CELLS)
+    v3.step_lr(config)
+    capsys.readouterr()
+    calls = []
+    monkeypatch.setattr(v3, "fit_lr", lambda *a, **k: calls.append(a))
+    v3.step_lr(config)
+    out = capsys.readouterr().out
+    assert calls == []
+    assert f"resume: lr_handcrafted_v3 {FEW_CELLS[0]} fold 0" in out
+    assert out.count("resume:") == 2 * len(FEW_CELLS) * config.cv.n_splits
+    assert "macro" not in out.lower() and "accuracy" not in out.lower()
+
+    monkeypatch.setattr(config.training, "seed", config.training.seed + 1)
+    with pytest.raises(RuntimeError, match="different settings"):
+        v3.step_lr(config)

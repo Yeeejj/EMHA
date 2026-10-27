@@ -44,6 +44,7 @@ qc_log.csv, and it prints the inner split sizes per fold and the number of
 crops with imputed handcrafted values per cell.
 
     python -m src.training.run_per_task_v3 --step preflight
+    python -m src.training.run_per_task_v3 --step lr    per-exercise LR parts
 
 Nothing is appended to results/RUN_LOG.csv.
 """
@@ -54,6 +55,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -67,6 +69,7 @@ from src.data.dataloader import CropDataset, labels_csv_path, load_tables
 from src.data.transforms import get_eval_transform, get_train_transform
 from src.features.handcrafted import features_for_family
 from src.training import evaluator
+from src.training.run_baselines import PRED_COLUMNS, _prob_sad, fit_lr
 from src.training.splits import (
     analysis_ids,
     assert_no_leakage,
@@ -85,7 +88,7 @@ HANDCRAFTED_CROP = "handcrafted_crop.csv"
 PROCESSED_MANIFEST = "processed_manifest.csv"
 IMPUTED_COLUMN = "imputed"
 UNDECIDED_KEYS = ("n_cnn_permutations", "n_lr_permutations")
-STEPS = ("preflight",)
+STEPS = ("preflight", "lr")
 
 
 def family_of(cell: str) -> str:
@@ -398,13 +401,130 @@ def preflight(cfg=config) -> dict:
     return summary
 
 
+def part_path(kind: str, cell: str, fold: int, cfg=config) -> Path:
+    return output_dir(cfg) / "parts" / f"{kind}__{cell}__fold{fold}.csv"
+
+
+def write_part(frame: pd.DataFrame, path: Path) -> None:
+    """Write frame to path atomically (.tmp, then replace)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    frame.to_csv(tmp, index=False)
+    tmp.replace(path)
+
+
+def _lr_inputs(kind: str, cell: str, cfg=config) -> tuple:
+    """(feature table indexed by participant_id, use PCA) for one LR kind."""
+    hand_kind, emb_kind = cfg.per_task_v3.lr_kinds
+    if kind == hand_kind:
+        return handcrafted_cell(cell, cfg), False
+    if kind == emb_kind:
+        return embedding_cell(cell, cfg), True
+    raise ValueError(f"unknown LR kind {kind!r}; expected {cfg.per_task_v3.lr_kinds}")
+
+
+def fit_lr_cell(
+    kind: str,
+    cell: str,
+    fold: int,
+    ids: list,
+    labels: pd.DataFrame,
+    folds: pd.DataFrame,
+    cfg=config,
+    y_train=None,
+) -> tuple:
+    """(fitted pipeline, features, outer-train IDs, test IDs) of one LR fit.
+
+    Fit on the outer-train participants only (C by inner CV inside fit_lr,
+    as in run_baselines); y_train None means their true label indices.
+    """
+    X, use_pca = _lr_inputs(kind, cell, cfg)
+    train, test = fold_ids(folds, fold, ids)
+    assert_no_leakage(train, test)
+    if y_train is None:
+        lab = labels.set_index("participant_id")[cfg.labeling.label_column]
+        y_train = lab.loc[train].map(cfg.data.label_to_index).to_numpy()
+    pipe = fit_lr(
+        X.loc[train], y_train, cfg, pca=use_pca, seed=cfg.training.seed + fold
+    )
+    return pipe, X, train, test
+
+
+def lr_cell(
+    kind: str,
+    cell: str,
+    fold: int,
+    ids: list,
+    labels: pd.DataFrame,
+    folds: pd.DataFrame,
+    cfg=config,
+    y_train=None,
+) -> pd.DataFrame:
+    """Test-participant predictions (PRED_COLUMNS) of one (kind, cell, fold)."""
+    pipe, X, _, test = fit_lr_cell(kind, cell, fold, ids, labels, folds, cfg, y_train)
+    prob = _prob_sad(pipe, X.loc[test])
+    lab = labels.set_index("participant_id")[cfg.labeling.label_column]
+    return pd.DataFrame(
+        {
+            "analysis": cfg.per_task_v3.analysis,
+            "model": kind,
+            "feature_set": cell,
+            "fold": fold,
+            "participant_id": test,
+            "label": lab.loc[test].to_numpy(),
+            "prob_sad": prob,
+            "pred": np.where(prob >= cfg.aggregate.threshold, "SAD", "HAPPY"),
+            "in_middle_band": False,
+        }
+    )[list(PRED_COLUMNS)]
+
+
+def _start(cfg=config) -> Path:
+    """Write run_config.json, or check it matches; return the output folder."""
+    out = output_dir(cfg)
+    want = settings(cfg)
+    if not check_settings(out / "run_config.json", want):
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "run_config.json").write_text(json.dumps(want, indent=2))
+    return out
+
+
+def step_lr(cfg=config) -> Path:
+    """Fit every (LR kind, cell, fold) not yet cached; never prints a metric."""
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 lr")
+    out = _start(cfg)
+    labels, ids, folds = context(cfg)
+    v3 = cfg.per_task_v3
+    start = time.perf_counter()
+    fitted = resumed = 0
+    for kind in v3.lr_kinds:
+        for cell in v3.cells:
+            for fold in range(cfg.cv.n_splits):
+                path = part_path(kind, cell, fold, cfg)
+                if path.is_file():
+                    print(f"resume: {kind} {cell} fold {fold}")
+                    resumed += 1
+                    continue
+                write_part(lr_cell(kind, cell, fold, ids, labels, folds, cfg), path)
+                fitted += 1
+            took = time.perf_counter() - start
+            print(f"lr: {kind} {cell} done, {took / 60:.1f} min elapsed", flush=True)
+    total = len(v3.lr_kinds) * len(v3.cells) * cfg.cv.n_splits
+    print(
+        f"lr: {fitted} parts fitted, {resumed} already done, "
+        f"{total} expected, {(time.perf_counter() - start) / 60:.1f} min"
+    )
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Per-exercise training v3, exploratory (Deviation 6)."
     )
     parser.add_argument("--step", choices=STEPS, required=True)
     args = parser.parse_args()
-    steps = {"preflight": preflight}
+    steps = {"preflight": preflight, "lr": step_lr}
     try:
         steps[args.step]()
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
