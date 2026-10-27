@@ -1,7 +1,19 @@
 """Tests for v3 per-exercise training (exploratory, Deviation 6)."""
 
-from src.data.crop_manifest import ALL_CELLS
+import numpy as np
+import pandas as pd
+import pytest
+
+from src.data.crop_manifest import ALL_CELLS, CURSIVE_CELLS, DRAWING_CELLS, WORD_CELLS
+from src.data.dataloader import load_tables
+from src.features.handcrafted import ALL_FEATURES, features_for_family
+from src.training import run_per_task_v3 as v3
 from src.utils.config import config
+from src.utils.synthetic import make_synthetic_root
+
+SMALL_CANVAS = {"drawing": (32, 48), "word": (48, 32), "cursive": (64, 32)}
+N_PARTICIPANTS = 60
+IMPUTED_EVERY = 7
 
 
 def test_cells_match_crop_manifest():
@@ -14,3 +26,129 @@ def test_v3_settings_leave_the_run_fingerprint_unchanged(monkeypatch):
     before = config_fingerprint()
     monkeypatch.setattr(config.per_task_v3, "n_lr_permutations", 7)
     assert config_fingerprint() == before
+
+
+def _write_handcrafted_crop(root, labels):
+    """results/features/handcrafted_crop.csv, one row per (participant, cell)."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for i, pid in enumerate(labels["participant_id"]):
+        for cell in ALL_CELLS:
+            family = v3.family_of(cell)
+            row = {"participant_id": pid, "cell": cell, "task_family": family}
+            row.update({f: np.nan for f in ALL_FEATURES})
+            row.update({f: rng.normal() for f in features_for_family(family)})
+            row["imputed"] = "slant_deg" if i % IMPUTED_EVERY == 0 else ""
+            rows.append(row)
+    path = root / "results" / "features" / "handcrafted_crop.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return path
+
+
+@pytest.fixture
+def v3_root(tmp_path, monkeypatch, use_root):
+    monkeypatch.setattr(config.preprocessing, "canvas_size", SMALL_CANVAS)
+    root = make_synthetic_root(
+        tmp_path / "root", n_participants=N_PARTICIPANTS, signal=True, images=True
+    )
+    use_root(root)
+    labels = pd.read_csv(
+        root / "metadata" / "labels.csv", dtype={"participant_id": str}
+    )
+    _write_handcrafted_crop(root, labels)
+    return root
+
+
+def test_family_of_maps_every_cell():
+    assert [v3.family_of(c) for c in DRAWING_CELLS] == ["drawing"] * 4
+    assert [v3.family_of(c) for c in WORD_CELLS] == ["word"] * 15
+    assert [v3.family_of(c) for c in CURSIVE_CELLS] == ["cursive"] * 5
+    with pytest.raises(ValueError, match="unknown cell"):
+        v3.family_of("X1")
+
+
+def test_cell_manifest_one_row_per_participant(v3_root):
+    _, ids, _ = v3.context(config)
+    manifest, _, dropped = load_tables(config)
+    rows = v3.cell_manifest(manifest, "W2_RH", ids, dropped)
+    assert list(rows["participant_id"]) == sorted(ids)
+    assert set(rows["cell"]) == {"W2_RH"}
+
+    target = manifest[
+        (manifest["cell"] == "W2_RH") & manifest["participant_id"].eq(ids[0])
+    ]
+    with pytest.raises(ValueError, match="repeated"):
+        v3.cell_manifest(pd.concat([manifest, target]), "W2_RH", ids, dropped)
+    with pytest.raises(ValueError, match="missing"):
+        v3.cell_manifest(manifest.drop(target.index), "W2_RH", ids, dropped)
+
+
+def test_fold_splits_shared_by_every_cell(v3_root):
+    labels, ids, folds = v3.context(config)
+    manifest, _, dropped = load_tables(config)
+    tested = []
+    for fold in range(config.cv.n_splits):
+        inner_train, inner_val, test = v3.fold_splits(fold, ids, labels, folds)
+        sets = [set(inner_train), set(inner_val), set(test)]
+        assert all(sets)
+        assert not (sets[0] & sets[1] or sets[0] & sets[2] or sets[1] & sets[2])
+        assert sets[0] | sets[1] | sets[2] == set(ids)
+        for cell in ALL_CELLS:
+            assert v3.fold_splits(fold, ids, labels, folds) == (
+                inner_train,
+                inner_val,
+                test,
+            )
+            for part in (inner_train, inner_val, test):
+                rows = v3.cell_manifest(manifest, cell, part, dropped)
+                assert list(rows["participant_id"]) == sorted(part)
+        tested += test
+    assert sorted(tested) == sorted(ids)
+
+
+def test_preflight_passes_on_clean_root(v3_root, capsys):
+    summary = v3.preflight(config)
+    _, ids, _ = v3.context(config)
+    assert summary["synthetic_root"] is True
+    assert summary["n_primary"] == len(ids)
+    assert summary["n_happy"] + summary["n_sad"] == len(ids)
+    assert summary["n_cells"] == len(ALL_CELLS)
+    assert summary["n_dropped_primary_crops"] == 0
+    assert len(summary["inner_splits"]) == config.cv.n_splits
+    assert sum(s["n_test"] for s in summary["inner_splits"]) == len(ids)
+    expected = len(range(0, N_PARTICIPANTS, IMPUTED_EVERY))
+    assert set(summary["imputed_crops_per_cell"].values()) == {expected}
+    assert '"n_primary"' in capsys.readouterr().out
+
+
+def test_preflight_rejects_dropped_primary_crop(v3_root):
+    _, ids, _ = v3.context(config)
+    pd.DataFrame(
+        {"participant_id": [ids[0]], "cell": ["CS3"], "dropped": [True]}
+    ).to_csv(v3_root / "metadata" / "qc_log.csv", index=False)
+    with pytest.raises(ValueError, match="dropped crops"):
+        v3.preflight(config)
+
+
+def test_preflight_rejects_missing_embedding_row(v3_root):
+    _, ids, _ = v3.context(config)
+    path = v3.embedding_path("word", config)
+    with np.load(path, allow_pickle=False) as z:
+        arrays = {k: z[k] for k in z.files}
+    keep = ~((arrays["participant_id"] == ids[0]) & (arrays["cell"] == "W4_UC"))
+    for key in ("embeddings", "participant_id", "cell"):
+        arrays[key] = arrays[key][keep]
+    np.savez_compressed(path, **arrays)
+    with pytest.raises(ValueError, match="embedding W4_UC"):
+        v3.preflight(config)
+
+
+def test_preflight_rejects_nan_handcrafted_value(v3_root):
+    _, ids, _ = v3.context(config)
+    path = v3.handcrafted_path(config)
+    table = pd.read_csv(path, dtype={"participant_id": str})
+    hit = (table["participant_id"] == ids[0]) & (table["cell"] == "D2")
+    table.loc[hit, features_for_family("drawing")[0]] = np.nan
+    table.to_csv(path, index=False)
+    with pytest.raises(ValueError, match="D2: NaN handcrafted"):
+        v3.preflight(config)
