@@ -1,12 +1,18 @@
 """Tests for v3 per-exercise training (exploratory, Deviation 6)."""
 
+import hashlib
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
+import torch
+from PIL import Image
 
 from src.data.crop_manifest import ALL_CELLS, CURSIVE_CELLS, DRAWING_CELLS, WORD_CELLS
 from src.data.dataloader import load_tables
 from src.features.handcrafted import ALL_FEATURES, features_for_family
+from src.models.hmm import HMMClassifier
 from src.training import run_per_task_v3 as v3
 from src.utils.config import config
 from src.utils.synthetic import make_synthetic_root
@@ -262,3 +268,269 @@ def test_lr_rerun_resumes_and_refuses_changed_settings(v3_root, monkeypatch, cap
     monkeypatch.setattr(config.training, "seed", config.training.seed + 1)
     with pytest.raises(RuntimeError, match="different settings"):
         v3.step_lr(config)
+
+
+V3_CELLS = ("D1", "CS1")
+STAND_INS = (
+    "results/hybrid/primary/predictions.csv",
+    "models/hmm/primary/word/fold_0.joblib",
+    "models/cnn/primary/word/fold_0.pth",
+    "results/final/RESULTS.txt",
+    "results/final/model_comparison.csv",
+    "results/final/permutation_runs/primary/seed_42/perm_0.csv",
+    "results/hybrid_v2/primary/predictions.csv",
+    "models/hmm_v2/primary/fold_0.joblib",
+    "results/final/permutation_runs/primary_v2/seed_42/perm_0.csv",
+    "results/final/EXPLORATORY_v2.txt",
+)
+V3_PREFIXES = (
+    "results/per_task_v3/primary/",
+    "models/cnn_v3/primary/",
+    "models/hmm_v3/primary/",
+)
+
+
+def _hashes(root) -> dict:
+    return {
+        p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in root.rglob("*")
+        if p.is_file()
+    }
+
+
+@pytest.fixture(scope="module")
+def trained_root(tmp_path_factory):
+    """lr, cnn and hmm run once on a root holding v1 and v2 stand-ins."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(config.preprocessing, "canvas_size", SMALL_CANVAS)
+        mp.setattr(config.training, "epochs", 1)
+        mp.setattr(config.training, "batch_size", 16)
+        mp.setattr(config.data, "num_workers", 0)
+        mp.setattr(config.cnn, "use_pretrained", False)
+        mp.setattr(config.hmm, "n_restarts", 1)
+        mp.setattr(config.hmm, "n_iter", 10)
+        mp.setattr(config.hybrid, "selection_restarts", 1)
+        mp.setattr(config.hybrid, "n_states_grid", (2,))
+        mp.setattr(config.hybrid, "pca_grid", (4,))
+        mp.setattr(config.runner, "hmm_n_jobs", 1)
+        mp.setattr(config.per_task_v3, "cells", V3_CELLS)
+        root = make_synthetic_root(
+            tmp_path_factory.mktemp("v3") / "root",
+            n_participants=40,
+            signal=True,
+            images=True,
+        )
+        mp.setattr(config.paths, "data_root", root)
+        mp.setattr(config.paths, "output_root", root)
+        mp.setattr(config.labeling, "output_csv", None)
+        labels = pd.read_csv(
+            root / "metadata" / "labels.csv", dtype={"participant_id": str}
+        )
+        _write_handcrafted_crop(root, labels)
+        for rel in STAND_INS:
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"stand-in file {rel}\n")
+        before = _hashes(root)
+        v3.step_lr(config)
+        v3.step_cnn(config, device="cpu")
+        v3.step_hmm(config, device="cpu")
+        yield root, before
+
+
+def _context():
+    labels, ids, folds = v3.context(config)
+    manifest, _, dropped = load_tables(config)
+    return labels, ids, folds, manifest, dropped
+
+
+def _read(path):
+    return pd.read_csv(path, dtype={"participant_id": str})
+
+
+def test_v3_steps_change_no_v1_or_v2_file(trained_root):
+    root, before = trained_root
+    after = _hashes(root)
+    assert [p for p in before if after.get(p) != before[p]] == []
+    created = sorted(set(after) - set(before))
+    assert created
+    assert [p for p in created if not p.startswith(V3_PREFIXES)] == []
+
+
+def test_v3_checkpoints_record_fold_splits(trained_root):
+    labels, ids, folds = v3.context(config)
+    for cell in config.per_task_v3.cells:
+        for fold in range(config.cv.n_splits):
+            state = torch.load(v3.cnn_ckpt_path(cell, fold, config), map_location="cpu")
+            inner_train, inner_val, test = v3.fold_splits(fold, ids, labels, folds)
+            assert state["inner_train_ids"] == inner_train, (cell, fold)
+            assert state["inner_val_ids"] == inner_val, (cell, fold)
+            assert state["test_ids"] == test, (cell, fold)
+            assert state["middle_ids"] == []
+            assert (state["cell"], state["fold"]) == (cell, fold)
+            assert state["family"] == v3.family_of(cell)
+
+
+def test_cnn_and_hmm_parts_cover_test_and_inner_val(trained_root):
+    labels, ids, folds = v3.context(config)
+    true = labels.set_index("participant_id")["label"]
+    v3cfg = config.per_task_v3
+    for model in (v3cfg.cnn_model, v3cfg.hmm_model):
+        for cell in v3cfg.cells:
+            tested = []
+            for fold in range(config.cv.n_splits):
+                _, inner_val, test = v3.fold_splits(fold, ids, labels, folds)
+                rows = _read(v3.part_path(model, cell, fold, config))
+                val = _read(v3.val_part_path(model, cell, fold, config))
+                for frame, want in ((rows, test), (val, inner_val)):
+                    assert tuple(frame.columns) == v3.PRED_COLUMNS
+                    assert list(frame["participant_id"]) == sorted(want)
+                    assert set(frame["model"]) == {model}
+                    assert set(frame["feature_set"]) == {cell}
+                    assert set(frame["fold"]) == {fold}
+                    assert not frame["in_middle_band"].any()
+                    assert frame["prob_sad"].between(0, 1).all()
+                    expected = true.loc[frame["participant_id"]].to_numpy()
+                    assert (frame["label"].to_numpy() == expected).all()
+                tested += list(rows["participant_id"])
+            assert sorted(tested) == sorted(ids)
+    for cell in v3cfg.cells:
+        for fold in range(config.cv.n_splits):
+            record = v3.selection_path(cell, fold, config).read_text()
+            assert f'"cell": "{cell}"' in record
+
+
+def test_cnn_and_hmm_rerun_resumes_without_metrics(trained_root, monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(v3, "fit_cnn_cell", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(v3, "fit_hmm_cell", lambda *a, **k: calls.append(a))
+    v3.step_cnn(config, device="cpu")
+    v3.step_hmm(config, device="cpu")
+    out = capsys.readouterr().out
+    assert calls == []
+    n_units = len(config.per_task_v3.cells) * config.cv.n_splits
+    assert out.count("resume: cnn ") == n_units
+    assert out.count("resume: hmm ") == n_units
+    assert "resume: cnn D1 fold 0" in out
+    for word in ("macro", "accuracy", "f1", "auc"):
+        assert word not in out.lower()
+    with pytest.raises(ValueError, match="unknown cells"):
+        v3.step_cnn(config, cells=["W1_LH"], device="cpu")
+    with pytest.raises(ValueError, match="out of range"):
+        v3.step_hmm(config, folds=[config.cv.n_splits], device="cpu")
+
+
+def test_hmm_refuses_without_cnn_checkpoint(trained_root, tmp_path, monkeypatch):
+    labels, ids, folds, manifest, dropped = _context()
+    missing = tmp_path / "missing.pth"
+    with pytest.raises(FileNotFoundError, match="run --step cnn first"):
+        v3.fit_hmm_cell(
+            "D1", 0, ids, labels, folds, manifest, dropped, "cpu", missing, config
+        )
+    monkeypatch.setattr(v3, "cnn_ckpt_path", lambda *a, **k: missing)
+    monkeypatch.setattr(v3, "hmm_model_path", lambda *a, **k: tmp_path / "x.joblib")
+    with pytest.raises(FileNotFoundError, match="run --step cnn first"):
+        v3.step_hmm(config, cells=["D1"], folds=[0], device="cpu")
+
+
+def _hmm_state(clf) -> dict:
+    state = {
+        "pca_components": clf.pca.components_,
+        "pca_mean": clf.pca.mean_,
+        "platt_coef": clf.calibrator.coef_,
+        "platt_intercept": clf.calibrator.intercept_,
+        "log_prior_ratio": np.array([clf.log_prior_ratio]),
+    }
+    if clf.scaler is not None:
+        state["scaler_mean"] = clf.scaler.mean_
+        state["scaler_scale"] = clf.scaler.scale_
+    for name, model in clf.models.items():
+        for attr in ("startprob_", "transmat_", "means_", "covars_"):
+            state[f"{name}_{attr}"] = getattr(model, attr)
+    return state
+
+
+def _noisy_manifest(manifest, cell, test, out_dir):
+    """manifest with the test participants' crops of cell replaced by noise."""
+    rng = np.random.default_rng(7)
+    noisy = manifest.copy()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    hit = noisy["participant_id"].isin(test) & (noisy["cell"] == cell)
+    assert hit.sum() == len(test)
+    for idx in noisy.index[hit]:
+        shape = np.array(Image.open(noisy.at[idx, "processed_path"])).shape
+        dst = out_dir / f"{noisy.at[idx, 'participant_id']}_{cell}.png"
+        Image.fromarray(rng.integers(0, 256, size=shape, dtype=np.uint8)).save(dst)
+        noisy.at[idx, "processed_path"] = str(dst)
+    return noisy
+
+
+def test_cnn_and_hmm_fits_ignore_test_participants(trained_root, tmp_path):
+    cell, fold = "CS1", 1
+    labels, ids, folds, manifest, dropped = _context()
+    _, _, test = v3.fold_splits(fold, ids, labels, folds)
+    noisy = _noisy_manifest(manifest, cell, test, tmp_path / "noise")
+    ckpt = tmp_path / "models" / "cnn.pth"
+    hmm_file = tmp_path / "models" / "hmm.joblib"
+    v3cfg = config.per_task_v3
+
+    cnn_test, cnn_val = v3.fit_cnn_cell(
+        cell, fold, ids, labels, folds, noisy, dropped, "cpu", ckpt, config
+    )
+    ref = torch.load(v3.cnn_ckpt_path(cell, fold, config), map_location="cpu")
+    new = torch.load(ckpt, map_location="cpu")
+    assert set(ref["model_state_dict"]) == set(new["model_state_dict"])
+    for key, value in ref["model_state_dict"].items():
+        assert torch.allclose(value.float(), new["model_state_dict"][key].float()), key
+
+    hmm_test, hmm_val, _ = v3.fit_hmm_cell(
+        cell,
+        fold,
+        ids,
+        labels,
+        folds,
+        noisy,
+        dropped,
+        "cpu",
+        ckpt,
+        config,
+        save_path=hmm_file,
+    )
+    before = _hmm_state(HMMClassifier().load(v3.hmm_model_path(cell, fold, config)))
+    after = _hmm_state(HMMClassifier().load(hmm_file))
+    assert set(before) == set(after)
+    for key in before:
+        assert np.allclose(before[key], after[key]), key
+
+    for model, new_test, new_val in (
+        (v3cfg.cnn_model, cnn_test, cnn_val),
+        (v3cfg.hmm_model, hmm_test, hmm_val),
+    ):
+        old_test = _read(v3.part_path(model, cell, fold, config))
+        old_val = _read(v3.val_part_path(model, cell, fold, config))
+        assert list(new_test["participant_id"]) == list(old_test["participant_id"])
+        assert not np.allclose(new_test["prob_sad"], old_test["prob_sad"]), model
+        assert np.allclose(new_val["prob_sad"], old_val["prob_sad"]), model
+
+
+def test_cpu_rerun_gives_identical_prediction_bytes(trained_root, tmp_path):
+    cell, fold = "D1", 2
+    labels, ids, folds, manifest, dropped = _context()
+    v3cfg = config.per_task_v3
+    ckpt = tmp_path / "cnn.pth"
+    cnn_test, cnn_val = v3.fit_cnn_cell(
+        cell, fold, ids, labels, folds, manifest, dropped, "cpu", ckpt, config
+    )
+    hmm_test, hmm_val, _ = v3.fit_hmm_cell(
+        cell, fold, ids, labels, folds, manifest, dropped, "cpu", ckpt, config
+    )
+    for model, frame, path_of in (
+        (v3cfg.cnn_model, cnn_test, v3.part_path),
+        (v3cfg.cnn_model, cnn_val, v3.val_part_path),
+        (v3cfg.hmm_model, hmm_test, v3.part_path),
+        (v3cfg.hmm_model, hmm_val, v3.val_part_path),
+    ):
+        reference = path_of(model, cell, fold, config)
+        rerun = tmp_path / Path(reference).name
+        v3.write_part(frame, rerun)
+        assert rerun.read_bytes() == reference.read_bytes(), rerun.name

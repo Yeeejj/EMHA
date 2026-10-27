@@ -45,6 +45,17 @@ crops with imputed handcrafted values per cell.
 
     python -m src.training.run_per_task_v3 --step preflight
     python -m src.training.run_per_task_v3 --step lr    per-exercise LR parts
+    python -m src.training.run_per_task_v3 --step cnn [--cells D1,W2_RH]
+        [--folds 0,1] [--device cuda]
+    python -m src.training.run_per_task_v3 --step hmm [--cells ...]
+        [--folds ...] [--device cuda] [--n-jobs -1]
+
+Resume unit of cnn and hmm: one (cell, fold). A cnn unit is done when its
+test part, its .val.csv part and its checkpoint exist; an hmm unit when its
+test part, .val.csv part, .json selection record and joblib exist. hmm
+refuses a (cell, fold) without a CNN checkpoint. --n-jobs sets
+RunnerConfig.hmm_n_jobs (speed only, Deviation 2), read by both
+run_hybrid.select_hmm and run_hybrid.fit_final.
 
 Nothing is appended to results/RUN_LOG.csv.
 """
@@ -67,9 +78,13 @@ from torch.utils.data import DataLoader
 from src.data.crop_manifest import ALL_CELLS, CURSIVE_CELLS, DRAWING_CELLS
 from src.data.dataloader import CropDataset, labels_csv_path, load_tables
 from src.data.transforms import get_eval_transform, get_train_transform
+from src.features.embeddings import resolve_device
 from src.features.handcrafted import features_for_family
-from src.training import evaluator
+from src.models.cnn import EmotionCNN
+from src.models.hybrid import load_cnn
+from src.training import evaluator, run_hybrid
 from src.training.run_baselines import PRED_COLUMNS, _prob_sad, fit_lr
+from src.training.run_cnn import shuffled_labels
 from src.training.splits import (
     analysis_ids,
     assert_no_leakage,
@@ -78,8 +93,10 @@ from src.training.splits import (
     inner_split,
     load_folds,
 )
+from src.training.trainer import Trainer
 from src.utils.config import config
 from src.utils.protocol_guard import is_synthetic_root, require_frozen_or_synthetic
+from src.utils.seed import set_seed
 
 FOLDS_SHA256 = "40403812420cde0e1f7d1980ce02ad0f77c531fdf59aab62b7987ca4b90751bf"
 LABELS_SHA256 = "694d360091e28dc331422cf7171b8e3afcf5dda16545e7ad5b2a9291204d3006"
@@ -88,7 +105,7 @@ HANDCRAFTED_CROP = "handcrafted_crop.csv"
 PROCESSED_MANIFEST = "processed_manifest.csv"
 IMPUTED_COLUMN = "imputed"
 UNDECIDED_KEYS = ("n_cnn_permutations", "n_lr_permutations")
-STEPS = ("preflight", "lr")
+STEPS = ("preflight", "lr", "cnn", "hmm")
 
 
 def family_of(cell: str) -> str:
@@ -405,6 +422,15 @@ def part_path(kind: str, cell: str, fold: int, cfg=config) -> Path:
     return output_dir(cfg) / "parts" / f"{kind}__{cell}__fold{fold}.csv"
 
 
+def val_part_path(kind: str, cell: str, fold: int, cfg=config) -> Path:
+    return output_dir(cfg) / "parts" / f"{kind}__{cell}__fold{fold}.val.csv"
+
+
+def selection_path(cell: str, fold: int, cfg=config) -> Path:
+    kind = cfg.per_task_v3.hmm_model
+    return output_dir(cfg) / "parts" / f"{kind}__{cell}__fold{fold}.json"
+
+
 def write_part(frame: pd.DataFrame, path: Path) -> None:
     """Write frame to path atomically (.tmp, then replace)."""
     path = Path(path)
@@ -412,6 +438,45 @@ def write_part(frame: pd.DataFrame, path: Path) -> None:
     tmp = path.with_suffix(".tmp")
     frame.to_csv(tmp, index=False)
     tmp.replace(path)
+
+
+def _write_json(record: dict, path: Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _participant_rows(
+    model: str,
+    cell: str,
+    fold: int,
+    pids,
+    prob,
+    labels: pd.DataFrame,
+    cfg=config,
+) -> pd.DataFrame:
+    """PRED_COLUMNS rows, one per participant, labelled with the TRUE labels."""
+    pids = [str(p) for p in pids]
+    if len(set(pids)) != len(pids):
+        raise ValueError(f"{model} {cell} fold {fold}: one row per participant")
+    prob = np.asarray(prob, dtype=float)
+    lab = labels.set_index("participant_id")[cfg.labeling.label_column]
+    rows = pd.DataFrame(
+        {
+            "analysis": cfg.per_task_v3.analysis,
+            "model": model,
+            "feature_set": cell,
+            "fold": fold,
+            "participant_id": pids,
+            "label": lab.loc[pids].to_numpy(),
+            "prob_sad": prob,
+            "pred": np.where(prob >= cfg.aggregate.threshold, "SAD", "HAPPY"),
+            "in_middle_band": False,
+        }
+    )[list(PRED_COLUMNS)]
+    return rows.sort_values("participant_id").reset_index(drop=True)
 
 
 def _lr_inputs(kind: str, cell: str, cfg=config) -> tuple:
@@ -480,6 +545,153 @@ def lr_cell(
     )[list(PRED_COLUMNS)]
 
 
+def _fit_labels(labels, inner_train, inner_val, shuffle_seed) -> pd.DataFrame:
+    if shuffle_seed is None:
+        return labels
+    return shuffled_labels(labels, sorted(inner_train + inner_val), shuffle_seed)
+
+
+def fit_cnn_cell(
+    cell: str,
+    fold: int,
+    ids: list,
+    labels: pd.DataFrame,
+    folds: pd.DataFrame,
+    manifest: pd.DataFrame,
+    dropped: set,
+    device: str,
+    ckpt: Path,
+    cfg=config,
+    shuffle_seed=None,
+) -> tuple:
+    """(test rows, inner-val rows) of cnn_head_v3 for one (cell, fold).
+
+    run_cnn._fit_fold on one cell: fit on inner-train, early-stop on
+    inner-val, save the checkpoint with its split IDs. shuffle_seed permutes
+    the outer-train labels among themselves before fitting; both prediction
+    sets always use the true labels.
+    """
+    family = family_of(cell)
+    inner_train, inner_val, test = fold_splits(fold, ids, labels, folds, cfg)
+    rows = cell_manifest(manifest, cell, inner_train + inner_val + test, dropped)
+    fit_labels = _fit_labels(labels, inner_train, inner_val, shuffle_seed)
+
+    set_seed(cfg.training.seed + fold)
+    train_loader = cell_loader(rows, fit_labels, inner_train, family, True, cfg)
+    val_loader = cell_loader(rows, fit_labels, inner_val, family, False, cfg)
+    trainer = Trainer(EmotionCNN(cfg.cnn), cfg, device)
+    trainer.fit(train_loader, val_loader)
+    trainer.save(
+        ckpt,
+        {
+            "cell": cell,
+            "family": family,
+            "fold": fold,
+            "cnn": asdict(cfg.cnn),
+            "inner_train_ids": list(inner_train),
+            "inner_val_ids": list(inner_val),
+            "test_ids": list(test),
+            "middle_ids": [],
+        },
+    )
+
+    out = []
+    for role_ids in (test, inner_val):
+        crops = trainer.predict_crops(
+            cell_loader(rows, labels, role_ids, family, False, cfg)
+        )
+        out.append(
+            _participant_rows(
+                cfg.per_task_v3.cnn_model,
+                cell,
+                fold,
+                crops["participant_id"],
+                crops["prob_sad"],
+                labels,
+                cfg,
+            )
+        )
+    return out[0], out[1]
+
+
+def fit_hmm_cell(
+    cell: str,
+    fold: int,
+    ids: list,
+    labels: pd.DataFrame,
+    folds: pd.DataFrame,
+    manifest: pd.DataFrame,
+    dropped: set,
+    device: str,
+    ckpt: Path,
+    cfg=config,
+    shuffle_seed=None,
+    save_path=None,
+) -> tuple:
+    """(test rows, inner-val rows, selection record) of cnn_hmm_v3.
+
+    run_hybrid._fold on one cell, without its models/hmm/ save: layer3
+    sequences of the cell's cnn_head_v3 checkpoint; the HMM setting is
+    selected on inner-val, refit on inner-train and Platt-calibrated on
+    inner-val. Test participants are only predicted.
+    """
+    family = family_of(cell)
+    inner_train, inner_val, test = fold_splits(fold, ids, labels, folds, cfg)
+    ckpt = Path(ckpt)
+    if not ckpt.is_file():
+        raise FileNotFoundError(f"{ckpt} not found; run --step cnn first")
+    cnn, state = load_cnn(ckpt)
+    run_hybrid._check_split(state, inner_train, inner_val, test, ckpt)
+    rows = cell_manifest(manifest, cell, inner_train + inner_val + test, dropped)
+    fit_labels = _fit_labels(labels, inner_train, inner_val, shuffle_seed)
+
+    seed = cfg.training.seed + fold
+    set_seed(seed)
+    sets = {
+        role: run_hybrid.extract_set(
+            cnn, rows, role_labels, role_ids, family, dropped, device
+        )
+        for role, role_ids, role_labels in (
+            ("inner_train", inner_train, fit_labels),
+            ("inner_val", inner_val, fit_labels),
+            ("test", test, labels),
+        )
+    }
+    best, table = run_hybrid.select_hmm(sets["inner_train"], sets["inner_val"], seed)
+    clf = run_hybrid.fit_final(sets["inner_train"], sets["inner_val"], best, seed)
+    if save_path:
+        clf.save(save_path)
+
+    sad_col = list(clf.classes_).index(cfg.data.label_to_index["SAD"])
+    out = []
+    for role in ("test", "inner_val"):
+        prob = clf.predict_proba(sets[role].seqs)[:, sad_col]
+        out.append(
+            _participant_rows(
+                cfg.per_task_v3.hmm_model,
+                cell,
+                fold,
+                sets[role].meta["participant_id"],
+                prob,
+                labels,
+                cfg,
+            )
+        )
+    selection = {
+        "cell": cell,
+        "fold": fold,
+        "chosen": best,
+        "grid": table,
+        "refit_restarts": cfg.hmm.n_restarts,
+        "restart_log": clf.restart_log,
+        "cnn_checkpoint": str(ckpt),
+        "n_inner_train": len(inner_train),
+        "n_inner_val": len(inner_val),
+        "n_test": len(test),
+    }
+    return out[0], out[1], selection
+
+
 def _start(cfg=config) -> Path:
     """Write run_config.json, or check it matches; return the output folder."""
     out = output_dir(cfg)
@@ -518,15 +730,146 @@ def step_lr(cfg=config) -> Path:
     return out
 
 
+def _units(cells, folds, cfg=config) -> list:
+    """(cell, fold) pairs to run, in cell then fold order; validated."""
+    known = tuple(cfg.per_task_v3.cells)
+    cells = known if cells is None else tuple(cells)
+    unknown = sorted(set(cells) - set(known))
+    if unknown:
+        raise ValueError(f"unknown cells {unknown}; expected some of {known}")
+    folds = range(cfg.cv.n_splits) if folds is None else list(folds)
+    bad = sorted(set(folds) - set(range(cfg.cv.n_splits)))
+    if bad:
+        raise ValueError(f"folds {bad} out of range 0..{cfg.cv.n_splits - 1}")
+    return [(c, k) for c in known if c in cells for k in sorted(set(folds))]
+
+
+def _step_units(name: str, cfg, cells, folds, device, done, fit) -> Path:
+    require_frozen_or_synthetic(cfg, f"run_per_task_v3 {name}")
+    units = _units(cells, folds, cfg)
+    out = _start(cfg)
+    device = resolve_device(device)
+    labels, ids, fold_table = context(cfg)
+    manifest, _, dropped = load_tables(cfg)
+    start = time.perf_counter()
+    fitted = resumed = 0
+    for cell, fold in units:
+        if done(cell, fold):
+            print(f"resume: {name} {cell} fold {fold}")
+            resumed += 1
+            continue
+        began = time.perf_counter()
+        fit(cell, fold, ids, labels, fold_table, manifest, dropped, device)
+        fitted += 1
+        print(f"{name} {cell} fold {fold}: {time.perf_counter() - began:.1f} s")
+    print(
+        f"{name}: {fitted} units fitted, {resumed} already done, {len(units)} "
+        f"requested, {time.perf_counter() - start:.1f} s",
+        flush=True,
+    )
+    return out
+
+
+def step_cnn(cfg=config, cells=None, folds=None, device="auto") -> Path:
+    """Fine-tune cnn_head_v3 for every (cell, fold) not yet done; no metric."""
+    model = cfg.per_task_v3.cnn_model
+
+    def done(cell, fold):
+        return all(
+            p.is_file()
+            for p in (
+                part_path(model, cell, fold, cfg),
+                val_part_path(model, cell, fold, cfg),
+                cnn_ckpt_path(cell, fold, cfg),
+            )
+        )
+
+    def fit(cell, fold, ids, labels, folds_, manifest, dropped, device_):
+        test_rows, val_rows = fit_cnn_cell(
+            cell,
+            fold,
+            ids,
+            labels,
+            folds_,
+            manifest,
+            dropped,
+            device_,
+            cnn_ckpt_path(cell, fold, cfg),
+            cfg,
+        )
+        write_part(val_rows, val_part_path(model, cell, fold, cfg))
+        write_part(test_rows, part_path(model, cell, fold, cfg))
+
+    return _step_units("cnn", cfg, cells, folds, device, done, fit)
+
+
+def step_hmm(cfg=config, cells=None, folds=None, device="auto") -> Path:
+    """Fit cnn_hmm_v3 for every (cell, fold) not yet done; no metric."""
+    model = cfg.per_task_v3.hmm_model
+
+    def done(cell, fold):
+        return all(
+            p.is_file()
+            for p in (
+                part_path(model, cell, fold, cfg),
+                val_part_path(model, cell, fold, cfg),
+                selection_path(cell, fold, cfg),
+                hmm_model_path(cell, fold, cfg),
+            )
+        )
+
+    def fit(cell, fold, ids, labels, folds_, manifest, dropped, device_):
+        test_rows, val_rows, selection = fit_hmm_cell(
+            cell,
+            fold,
+            ids,
+            labels,
+            folds_,
+            manifest,
+            dropped,
+            device_,
+            cnn_ckpt_path(cell, fold, cfg),
+            cfg,
+            save_path=hmm_model_path(cell, fold, cfg),
+        )
+        _write_json(selection, selection_path(cell, fold, cfg))
+        write_part(val_rows, val_part_path(model, cell, fold, cfg))
+        write_part(test_rows, part_path(model, cell, fold, cfg))
+
+    return _step_units("hmm", cfg, cells, folds, device, done, fit)
+
+
+def _parse_list(text: str | None, cast=str) -> list | None:
+    if not text:
+        return None
+    return [cast(x.strip()) for x in text.split(",") if x.strip()]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Per-exercise training v3, exploratory (Deviation 6)."
     )
     parser.add_argument("--step", choices=STEPS, required=True)
+    parser.add_argument("--cells", default=None, help="comma list, e.g. D1,W2_RH")
+    parser.add_argument("--folds", default=None, help="comma list, e.g. 0,1")
+    parser.add_argument("--device", default="auto")
+    parser.add_argument("--n-jobs", type=int, default=None)
     args = parser.parse_args()
-    steps = {"preflight": preflight, "lr": step_lr}
+    if args.n_jobs is not None:
+        config.runner.hmm_n_jobs = args.n_jobs
+    steps = {
+        "preflight": lambda units: preflight(config),
+        "lr": lambda units: step_lr(config),
+        "cnn": lambda units: step_cnn(config, **units),
+        "hmm": lambda units: step_hmm(config, **units),
+    }
     try:
-        steps[args.step]()
+        units = {
+            "cells": _parse_list(args.cells),
+            "folds": _parse_list(args.folds, int),
+            "device": args.device,
+        }
+        steps[args.step](units)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}")
         return 1
