@@ -52,12 +52,26 @@ crops with imputed handcrafted values per cell.
     python -m src.training.run_per_task_v3 --step combine   predictions.csv
     python -m src.training.run_per_task_v3 --step evaluate  metrics, tables
     python -m src.training.run_per_task_v3 --step report    EXPLORATORY_v3.txt
+    python -m src.training.run_per_task_v3 --step permutation-lr [--n-jobs -1]
+    python -m src.training.run_per_task_v3 --step draws --draws 0-9 [--device cuda]
+    python -m src.training.run_per_task_v3 --step permutation-cnn
 
 combine averages the per-cell test prob_sad of cnn_head_v3 and cnn_hmm_v3
 over each fuse set and picks, per fold, the cell with the best cnn_hmm_v3
 inner-val macro-F1 (inner-val rows only). evaluate refuses while
 n_cnn_permutations is undecided (-1) and prints only file paths. A missing
 v1 reference group gives a paired.csv row "no v1 counterpart".
+
+Permutation tests (exploratory). permutation-lr: per (LR kind, cell),
+n_lr_permutations draws; in draw k, fold f the outer-train labels are
+permuted among themselves with permutation_seed(seed, k, f) and the LR is
+refit as in the observed run; BH q-values within each kind across cells.
+draws: one full CNN + HMM retrain of every cell x fold per draw, cached as
+permutation_runs/primary_v3/seed_<s>/perm_<kkkk>.csv (mergeable with
+scripts/merge_draws.py; checkpoints only in a temporary folder).
+permutation-cnn: the headline test once all n_cnn_permutations draws are
+cached. draws and permutation-cnn refuse while D2 is undecided
+(n_cnn_permutations = -1).
 
 Resume unit of cnn and hmm: one (cell, fold). A cnn unit is done when its
 test part, its .val.csv part and its checkpoint exist; an hmm unit when its
@@ -75,6 +89,7 @@ import argparse
 import hashlib
 import json
 import sys
+import tempfile
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -83,9 +98,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from joblib import Parallel, delayed
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 
+from src.analysis.permutation import _plot, p_value, parse_draws, permutation_seed
 from src.data.crop_manifest import (
     ALL_CELLS,
     CURSIVE_CELLS,
@@ -101,7 +118,7 @@ from src.models.cnn import EmotionCNN
 from src.models.hybrid import load_cnn
 from src.training import evaluator, run_hybrid
 from src.training.run_baselines import PRED_COLUMNS, _prob_sad, fit_lr
-from src.training.run_cnn import shuffled_labels
+from src.training.run_cnn import check_resume, shuffled_labels
 from src.training.splits import (
     analysis_ids,
     assert_no_leakage,
@@ -122,7 +139,21 @@ HANDCRAFTED_CROP = "handcrafted_crop.csv"
 PROCESSED_MANIFEST = "processed_manifest.csv"
 IMPUTED_COLUMN = "imputed"
 UNDECIDED_KEYS = ("n_cnn_permutations", "n_lr_permutations")
-STEPS = ("preflight", "lr", "cnn", "hmm", "combine", "evaluate", "report")
+STEPS = (
+    "preflight",
+    "lr",
+    "cnn",
+    "hmm",
+    "combine",
+    "evaluate",
+    "report",
+    "permutation-lr",
+    "draws",
+    "permutation-cnn",
+)
+PERMUTATION_FIGURE = "permutation_null_v3.png"
+DRAWS_KIND = "v3_draws"
+DESCRIPTIVE_ONLY = "descriptive only"
 LABELS = ("HAPPY", "SAD")
 NO_V1 = "no v1 counterpart"
 REFERENCE_SOURCES = {
@@ -530,14 +561,21 @@ def _participant_rows(
     return rows.sort_values("participant_id").reset_index(drop=True)
 
 
+def _lr_use_pca(kind: str, cfg=config) -> bool:
+    """False for lr_handcrafted_v3, True for lr_embeddings_v3."""
+    hand_kind, emb_kind = cfg.per_task_v3.lr_kinds
+    if kind not in (hand_kind, emb_kind):
+        raise ValueError(
+            f"unknown LR kind {kind!r}; expected {cfg.per_task_v3.lr_kinds}"
+        )
+    return kind == emb_kind
+
+
 def _lr_inputs(kind: str, cell: str, cfg=config) -> tuple:
     """(feature table indexed by participant_id, use PCA) for one LR kind."""
-    hand_kind, emb_kind = cfg.per_task_v3.lr_kinds
-    if kind == hand_kind:
-        return handcrafted_cell(cell, cfg), False
-    if kind == emb_kind:
-        return embedding_cell(cell, cfg), True
-    raise ValueError(f"unknown LR kind {kind!r}; expected {cfg.per_task_v3.lr_kinds}")
+    use_pca = _lr_use_pca(kind, cfg)
+    loader = embedding_cell if use_pca else handcrafted_cell
+    return loader(cell, cfg), use_pca
 
 
 def fit_lr_cell(
@@ -549,13 +587,18 @@ def fit_lr_cell(
     folds: pd.DataFrame,
     cfg=config,
     y_train=None,
+    X=None,
 ) -> tuple:
     """(fitted pipeline, features, outer-train IDs, test IDs) of one LR fit.
 
     Fit on the outer-train participants only (C by inner CV inside fit_lr,
-    as in run_baselines); y_train None means their true label indices.
+    as in run_baselines); y_train None means their true label indices. X is
+    the cell's feature table as _lr_inputs loads it; None loads it here.
     """
-    X, use_pca = _lr_inputs(kind, cell, cfg)
+    if X is None:
+        X, use_pca = _lr_inputs(kind, cell, cfg)
+    else:
+        use_pca = _lr_use_pca(kind, cfg)
     train, test = fold_ids(folds, fold, ids)
     assert_no_leakage(train, test)
     if y_train is None:
@@ -1440,6 +1483,353 @@ def _paired_text(row) -> str:
     )
 
 
+def bh_qvalues(p) -> np.ndarray:
+    """Benjamini-Hochberg adjusted p-values (step-up, monotone, capped at 1)."""
+    p = np.asarray(p, dtype=float)
+    m = len(p)
+    if m == 0:
+        return p.copy()
+    order = np.argsort(p, kind="mergesort")
+    scaled = p[order] * m / np.arange(1, m + 1)
+    adjusted = np.minimum.accumulate(scaled[::-1])[::-1]
+    out = np.empty(m)
+    out[order] = np.minimum(adjusted, 1.0)
+    return out
+
+
+def _macro_f1(y_true, y_pred) -> float:
+    return float(
+        f1_score(y_true, y_pred, labels=list(LABELS), average="macro", zero_division=0)
+    )
+
+
+def _label_indices(labels: pd.DataFrame, pids, cfg=config) -> np.ndarray:
+    lab = labels.set_index("participant_id")[cfg.labeling.label_column]
+    return lab.loc[[str(p) for p in pids]].map(cfg.data.label_to_index).to_numpy()
+
+
+def _lr_null_draw(kind, cell, ids, labels, folds, cfg, y_trains, X) -> float:
+    """Pooled test macro-F1 of one draw: every fold refit on shuffled labels."""
+    lab = labels.set_index("participant_id")[cfg.labeling.label_column]
+    y_true, y_pred = [], []
+    for fold, y_train in enumerate(y_trains):
+        pipe, _, _, test = fit_lr_cell(
+            kind, cell, fold, ids, labels, folds, cfg, y_train=y_train, X=X
+        )
+        prob = _prob_sad(pipe, X.loc[test])
+        y_true += list(lab.loc[test])
+        y_pred += list(np.where(prob >= cfg.aggregate.threshold, "SAD", "HAPPY"))
+    return _macro_f1(y_true, y_pred)
+
+
+def lr_null(
+    kind: str,
+    cell: str,
+    ids: list,
+    labels: pd.DataFrame,
+    folds: pd.DataFrame,
+    cfg=config,
+    n: int | None = None,
+    seed: int | None = None,
+    n_jobs: int | None = None,
+) -> np.ndarray:
+    """Null macro-F1 of one (LR kind, cell) for draws 0..n-1.
+
+    Draw k, fold f: the outer-train labels are permuted among themselves
+    (run_cnn.shuffled_labels, permutation_seed(seed, k, f)) and the LR is
+    refit by fit_lr_cell exactly as in the observed run; the test rows are
+    scored against their true labels. The cell's features are loaded once
+    here and the permuted label vectors drawn here; joblib workers only fit.
+    """
+    n = cfg.per_task_v3.n_lr_permutations if n is None else n
+    seed = cfg.training.seed if seed is None else seed
+    n_jobs = cfg.runner.hmm_n_jobs if n_jobs is None else n_jobs
+    X, _ = _lr_inputs(kind, cell, cfg)
+    trains = [fold_ids(folds, f, ids)[0] for f in range(cfg.cv.n_splits)]
+    plans = [
+        [
+            _label_indices(
+                shuffled_labels(labels, train, permutation_seed(seed, k, f)),
+                train,
+                cfg,
+            )
+            for f, train in enumerate(trains)
+        ]
+        for k in range(n)
+    ]
+    jobs = (
+        delayed(_lr_null_draw)(kind, cell, ids, labels, folds, cfg, y_trains, X)
+        for y_trains in plans
+    )
+    return np.asarray(Parallel(n_jobs=n_jobs)(jobs), dtype=float)
+
+
+def _require_predictions(cfg=config) -> pd.DataFrame:
+    path = output_dir(cfg) / "predictions.csv"
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} not found; run --step combine first")
+    return _read_frame(path, cfg)
+
+
+def _observed(preds: pd.DataFrame, model: str, fs: str, cfg=config) -> float:
+    rows = preds[(preds["model"] == model) & (preds["feature_set"] == fs)]
+    if set(rows["fold"]) != set(range(cfg.cv.n_splits)):
+        raise ValueError(f"predictions.csv: {model}/{fs} does not cover all folds")
+    return evaluator.metrics(rows)["macro_f1"]
+
+
+def _save_npy(array: np.ndarray, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "wb") as fh:
+        np.save(fh, array)
+    tmp.replace(path)
+
+
+def lr_null_path(kind: str, cell: str, cfg=config) -> Path:
+    return output_dir(cfg) / "permutation_lr" / f"{kind}__{cell}.npy"
+
+
+def step_permutation_lr(cfg=config, n_jobs: int | None = None) -> Path:
+    """LR permutation test per (kind, cell); writes permutation_lr.csv.
+
+    Prints only progress and timing, never an observed value, p or q.
+    """
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 permutation-lr")
+    v3 = cfg.per_task_v3
+    preds = _require_predictions(cfg)
+    labels, ids, folds = context(cfg)
+    n, seed = v3.n_lr_permutations, cfg.training.seed
+    units = [(kind, cell) for kind in v3.lr_kinds for cell in v3.cells]
+    start, first, computed = time.perf_counter(), None, 0
+    rows = []
+    for i, (kind, cell) in enumerate(units):
+        path = lr_null_path(kind, cell, cfg)
+        null = np.load(path) if path.is_file() else None
+        if null is not None and len(null) == n:
+            print(f"resume: {kind} {cell}")
+        else:
+            began = time.perf_counter()
+            null = lr_null(kind, cell, ids, labels, folds, cfg, n, seed, n_jobs)
+            _save_npy(null, path)
+            computed += 1
+            took = time.perf_counter() - began
+            if first is None:
+                first = took
+                todo = sum(
+                    1
+                    for k, c in units[i + 1 :]
+                    if not _cached_null(lr_null_path(k, c, cfg), n)
+                )
+                print(
+                    f"permutation-lr: {kind} {cell} took {took:.1f} s; projected "
+                    f"{first * todo / 60:.1f} min for the {todo} left",
+                    flush=True,
+                )
+            else:
+                print(f"permutation-lr: {kind} {cell}: {took:.1f} s", flush=True)
+        observed = _observed(preds, kind, cell, cfg)
+        rows.append(
+            {
+                "kind": kind,
+                "cell": cell,
+                "p_value": p_value(null, observed),
+                "observed": observed,
+                "n": n,
+                "seed": seed,
+            }
+        )
+    table = pd.DataFrame(rows)
+    table["q_value"] = np.nan
+    for kind in v3.lr_kinds:
+        mine = table["kind"] == kind
+        table.loc[mine, "q_value"] = bh_qvalues(table.loc[mine, "p_value"])
+    table = table[["kind", "cell", "p_value", "q_value", "observed", "n", "seed"]]
+    out = output_dir(cfg) / "permutation_lr.csv"
+    write_part(table, out)
+    print(
+        f"permutation-lr: {computed} computed, {len(units) - computed} cached, "
+        f"{(time.perf_counter() - start) / 60:.1f} min; written {out}"
+    )
+    return out
+
+
+def _cached_null(path: Path, n: int) -> bool:
+    return path.is_file() and len(np.load(path)) == n
+
+
+def draw(
+    perm: int,
+    seed: int,
+    ids: list,
+    labels: pd.DataFrame,
+    folds: pd.DataFrame,
+    manifest: pd.DataFrame,
+    dropped: set,
+    cfg=config,
+    device: str = "cpu",
+) -> pd.DataFrame:
+    """One CNN-path null draw: every cell x fold retrained on shuffled labels.
+
+    Fold f uses shuffle_seed permutation_seed(seed, perm, f) for both the
+    CNN and the HMM; the inner split stays fold_splits on the true labels.
+    Checkpoints live in a temporary folder under models/ that is removed
+    afterwards; the HMMs are not saved. Returns the per-cell and fused test
+    rows of cnn_head_v3 and cnn_hmm_v3 with a "perm" column.
+    """
+    v3 = cfg.per_task_v3
+    rows = []
+    cfg.paths.models_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=cfg.paths.models_dir) as tmp:
+        for cell in v3.cells:
+            for fold in range(cfg.cv.n_splits):
+                shuffle = permutation_seed(seed, perm, fold)
+                ckpt = Path(tmp) / f"{cell}_fold{fold}.pth"
+                cnn_test, _ = fit_cnn_cell(
+                    cell,
+                    fold,
+                    ids,
+                    labels,
+                    folds,
+                    manifest,
+                    dropped,
+                    device,
+                    ckpt,
+                    cfg,
+                    shuffle_seed=shuffle,
+                )
+                hmm_test, _, _ = fit_hmm_cell(
+                    cell,
+                    fold,
+                    ids,
+                    labels,
+                    folds,
+                    manifest,
+                    dropped,
+                    device,
+                    ckpt,
+                    cfg,
+                    shuffle_seed=shuffle,
+                    save_path=None,
+                )
+                ckpt.unlink()
+                rows += [cnn_test, hmm_test]
+    per_cell = pd.concat(rows, ignore_index=True)
+    frame = pd.concat(
+        [
+            per_cell,
+            fuse(per_cell, v3.cnn_model, v3.fused_cnn_model, cfg),
+            fuse(per_cell, v3.hmm_model, v3.fused_hmm_model, cfg),
+        ],
+        ignore_index=True,
+    )
+    return _sorted_rows(frame).assign(perm=perm)
+
+
+def draw_settings(cfg=config, seed: int | None = None) -> dict:
+    seed = cfg.training.seed if seed is None else seed
+    return {
+        **settings(cfg),
+        "seed": seed,
+        "analysis": cfg.per_task_v3.analysis,
+        "kind": DRAWS_KIND,
+    }
+
+
+def draw_path(perm: int, seed: int, cfg=config) -> Path:
+    return runs_dir(seed, cfg) / f"perm_{perm:04d}.csv"
+
+
+def _n_cnn(cfg=config) -> int:
+    n = cfg.per_task_v3.n_cnn_permutations
+    if n == -1:
+        raise RuntimeError("D2 undecided: do plan step 7.1 first")
+    return n
+
+
+def step_draws(cfg=config, draws: str | None = None, device="auto") -> Path | None:
+    """Cache CNN-path null draws (one perm_<k>.csv each); resumable, mergeable."""
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 draws")
+    n = _n_cnn(cfg)
+    if n == 0:
+        print("D2 = 0: no CNN-path test")
+        return None
+    perms = parse_draws(draws if draws else f"0-{n - 1}", n)
+    seed = cfg.training.seed
+    out = runs_dir(seed, cfg)
+    check_resume(out, draw_settings(cfg, seed))
+    device = resolve_device(device)
+    labels, ids, folds = context(cfg)
+    manifest, _, dropped = load_tables(cfg)
+    for perm in perms:
+        path = draw_path(perm, seed, cfg)
+        if path.is_file():
+            print(f"resume: draw {perm}")
+            continue
+        began = time.perf_counter()
+        frame = draw(perm, seed, ids, labels, folds, manifest, dropped, cfg, device)
+        write_part(frame, path)
+        print(f"draw {perm}: {time.perf_counter() - began:.1f} s", flush=True)
+    done = len(list(out.glob("perm_*.csv")))
+    print(f"draws: {done}/{n} present in {out}")
+    return out
+
+
+def step_permutation_cnn(cfg=config) -> Path:
+    """Permutation test of the headline over all cached draws."""
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 permutation-cnn")
+    v3 = cfg.per_task_v3
+    n = _n_cnn(cfg)
+    seed = cfg.training.seed
+    paths = [draw_path(k, seed, cfg) for k in range(n)]
+    done = sum(p.is_file() for p in paths)
+    if n == 0 or done < n:
+        raise RuntimeError(f"draws incomplete ({done}/{n})")
+    preds = _require_predictions(cfg)
+    model, fs = v3.headline
+    observed = _observed(preds, model, fs, cfg)
+    null, per_cell = [], {}
+    for path in paths:
+        frame = pd.read_csv(path, dtype={"participant_id": str})
+        null.append(_observed(frame, model, fs, cfg))
+        for m in (v3.cnn_model, v3.hmm_model):
+            for cell in v3.cells:
+                per_cell.setdefault(f"{m}/{cell}", []).append(
+                    _observed(frame, m, cell, cfg)
+                )
+    null = np.asarray(null, dtype=float)
+    p = p_value(null, observed)
+    result = {
+        "model": model,
+        "feature_set": fs,
+        "analysis": v3.analysis,
+        "observed_macro_f1": observed,
+        "p_value": p,
+        "n": n,
+        "seed": seed,
+        "null_mean": float(null.mean()),
+        "null_std": float(null.std(ddof=1)) if n > 1 else 0.0,
+        "draws_used": [int(path.stem.split("_")[1]) for path in paths],
+        "runs_dir": str(runs_dir(seed, cfg)),
+        "per_cell_null_macro_f1": {"note": DESCRIPTIVE_ONLY, "null": per_cell},
+    }
+    out = output_dir(cfg) / "permutation_cnn.json"
+    _write_json(result, out)
+    figure = evaluator.output_dir(None, cfg) / PERMUTATION_FIGURE
+    figure.parent.mkdir(parents=True, exist_ok=True)
+    _plot(
+        null,
+        observed,
+        p,
+        f"v3 {model}/{fs}: permutation null (N = {n}, exploratory)",
+        figure,
+        cfg,
+    )
+    print(f"Written: {out}")
+    print(f"Written: {figure}")
+    return out
+
+
 def _parse_list(text: str | None, cast=str) -> list | None:
     if not text:
         return None
@@ -1455,6 +1845,7 @@ def main() -> int:
     parser.add_argument("--folds", default=None, help="comma list, e.g. 0,1")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--n-jobs", type=int, default=None)
+    parser.add_argument("--draws", default=None, help="e.g. 0-9 or 7")
     args = parser.parse_args()
     if args.n_jobs is not None:
         config.runner.hmm_n_jobs = args.n_jobs
@@ -1466,6 +1857,9 @@ def main() -> int:
         "combine": lambda units: step_combine(config),
         "evaluate": lambda units: step_evaluate(config),
         "report": lambda units: step_report(config),
+        "permutation-lr": lambda units: step_permutation_lr(config, args.n_jobs),
+        "draws": lambda units: step_draws(config, args.draws, args.device),
+        "permutation-cnn": lambda units: step_permutation_cnn(config),
     }
     try:
         units = {

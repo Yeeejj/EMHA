@@ -1,6 +1,8 @@
 """Tests for v3 per-exercise training (exploratory, Deviation 6)."""
 
 import hashlib
+import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -699,3 +701,214 @@ def test_report_header_figures_and_permutation_status(combined_root, capsys):
     v3.step_evaluate(config)
     out = capsys.readouterr().out
     assert all(line.startswith("Written: ") for line in out.splitlines())
+
+
+def test_lr_null_with_preloaded_features_equals_per_fit_loading(
+    trained_root, monkeypatch
+):
+    labels, ids, folds = v3.context(config)
+    kind, cell, n = config.per_task_v3.lr_kinds[1], "W1_LH", 3
+    seed = config.training.seed
+    loads = []
+    real_inputs, real_fit = v3._lr_inputs, v3.fit_lr_cell
+
+    def counted(*args, **kwargs):
+        loads.append(args[:2])
+        return real_inputs(*args, **kwargs)
+
+    def without_x(*args, X=None, **kwargs):
+        return real_fit(*args, **kwargs)
+
+    monkeypatch.setattr(v3, "_lr_inputs", counted)
+    preloaded = v3.lr_null(kind, cell, ids, labels, folds, config, n, seed, 1)
+    assert loads == [(kind, cell)]
+    monkeypatch.setattr(v3, "fit_lr_cell", without_x)
+    per_fit = v3.lr_null(kind, cell, ids, labels, folds, config, n, seed, 1)
+    assert len(loads) == 2 + n * config.cv.n_splits
+    assert len(preloaded) == n
+    assert np.array_equal(preloaded, per_fit)
+
+
+def test_lr_cell_output_unchanged_by_optional_features(trained_root, tmp_path):
+    labels, ids, folds = v3.context(config)
+    cell, fold = "D1", 2
+    for kind in config.per_task_v3.lr_kinds:
+        part = v3.part_path(kind, cell, fold, config)
+        rerun = tmp_path / part.name
+        v3.write_part(v3.lr_cell(kind, cell, fold, ids, labels, folds, config), rerun)
+        assert rerun.read_bytes() == part.read_bytes()
+        X, _ = v3._lr_inputs(kind, cell, config)
+        loaded, X_loaded, _, test = v3.fit_lr_cell(
+            kind, cell, fold, ids, labels, folds, config
+        )
+        given, _, _, _ = v3.fit_lr_cell(
+            kind, cell, fold, ids, labels, folds, config, X=X
+        )
+        assert np.array_equal(loaded["lr"].coef_, given["lr"].coef_)
+        assert np.array_equal(
+            v3._prob_sad(loaded, X_loaded.loc[test]), v3._prob_sad(given, X.loc[test])
+        )
+
+
+DRAW_INNER_VAL_FRACTION = 0.5
+
+
+def _files(folder) -> set:
+    folder = Path(folder)
+    return {p for p in folder.rglob("*")} if folder.is_dir() else set()
+
+
+@pytest.fixture(scope="module")
+def permuted_root(combined_root, tmp_path_factory):
+    """draws, permutation-cnn, permutation-lr and report on a copy of results/.
+
+    Inside a draw the inner-val participants carry shuffled labels; with 40
+    synthetic participants the default inner-val set (about 4) is often one
+    class, which Platt calibration rejects. DRAW_INNER_VAL_FRACTION enlarges
+    it for this fixture only (the real inner-val set is about 39).
+    """
+    out_root = tmp_path_factory.mktemp("v3perm")
+    shutil.copytree(combined_root / "results", out_root / "results")
+    record = {"shuffled": [], "loaders": []}
+    real_shuffled, real_loader = v3.shuffled_labels, v3.cell_loader
+
+    def spy_shuffled(labels, ids, seed):
+        out = real_shuffled(labels, ids, seed)
+        record["shuffled"].append((sorted(map(str, ids)), seed, out))
+        return out
+
+    def spy_loader(manifest_cell, labels, ids, family, train, cfg=config):
+        record["loaders"].append((list(ids), train, labels))
+        return real_loader(manifest_cell, labels, ids, family, train, cfg)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(config.paths, "output_root", out_root)
+        mp.setattr(config.per_task_v3, "n_lr_permutations", 5)
+        mp.setattr(config.per_task_v3, "n_cnn_permutations", 2)
+        mp.setattr(config.cv, "inner_val_fraction", DRAW_INNER_VAL_FRACTION)
+        mp.setattr(v3, "shuffled_labels", spy_shuffled)
+        mp.setattr(v3, "cell_loader", spy_loader)
+        models_before = _files(config.paths.models_dir)
+        v3.step_draws(config, "0", "cpu")
+        try:
+            v3.step_permutation_cnn(config)
+        except RuntimeError as exc:
+            record["refusal"] = str(exc)
+        record["one_draw_json"] = (
+            v3.output_dir(config) / "permutation_cnn.json"
+        ).exists()
+        v3.step_draws(config, "1-1", "cpu")
+        record["models_new"] = _files(config.paths.models_dir) - models_before
+        v3.step_permutation_cnn(config)
+        v3.step_permutation_lr(config, n_jobs=1)
+        v3.step_report(config)
+        yield out_root, record
+
+
+def test_bh_qvalues_hand_example():
+    p = [0.01, 0.04, 0.03, 0.005, 0.20]
+    assert np.allclose(v3.bh_qvalues(p), [0.025, 0.05, 0.05, 0.025, 0.20])
+    assert np.allclose(v3.bh_qvalues([0.9, 0.95]), [0.95, 0.95])
+    assert np.allclose(v3.bh_qvalues([0.6, 0.6, 0.6]), [0.6, 0.6, 0.6])
+    assert (v3.bh_qvalues(np.linspace(0.5, 1.0, 7)) <= 1.0).all()
+    assert v3.p_value([0.1, 0.5, 0.7, 0.5], 0.5) == pytest.approx(4 / 5)
+    assert v3.p_value([0.1, 0.2], 0.9) == pytest.approx(1 / 3)
+
+
+def test_draws_shuffle_only_outer_train_labels(permuted_root):
+    _, record = permuted_root
+    labels, ids, folds = v3.context(config)
+    true = labels.set_index("participant_id")["label"]
+    n_cnn, n_lr = 2, 5
+    splits = [v3.fold_splits(f, ids, labels, folds) for f in range(config.cv.n_splits)]
+    trains = {f: sorted(it + iv) for f, (it, iv, _) in enumerate(splits)}
+    assert record["shuffled"]
+    changed = 0
+    for shuffled_ids, seed, out in record["shuffled"]:
+        fold = next(f for f, train in trains.items() if train == shuffled_ids)
+        n = max(n_cnn, n_lr)
+        assert seed in {
+            v3.permutation_seed(config.training.seed, k, fold) for k in range(n)
+        }
+        got = out.set_index("participant_id")["label"]
+        outside = [p for p in got.index if p not in set(shuffled_ids)]
+        assert (got.loc[outside] == true.loc[outside]).all()
+        test = splits[fold][2]
+        assert (got.loc[test] == true.loc[test]).all()
+        changed += int((got.loc[shuffled_ids] != true.loc[shuffled_ids]).any())
+    assert changed > 0
+
+    inner_trains = [sorted(s[0]) for s in splits]
+    tests = [sorted(s[2]) for s in splits]
+    for loader_ids, train, loader_labels in record["loaders"]:
+        if train:
+            assert sorted(loader_ids) in inner_trains
+        if sorted(loader_ids) in tests:
+            got = loader_labels.set_index("participant_id")["label"]
+            assert (got.loc[loader_ids] == true.loc[loader_ids]).all()
+
+
+def test_permutation_cnn_needs_every_draw(permuted_root, monkeypatch):
+    out_root, record = permuted_root
+    assert record["refusal"] == "draws incomplete (1/2)"
+    assert record["one_draw_json"] is False
+    monkeypatch.setattr(config.paths, "output_root", out_root)
+    perm = json.loads((v3.output_dir(config) / "permutation_cnn.json").read_text())
+    for key in ("p_value", "n", "seed", "null_mean", "observed_macro_f1"):
+        assert key in perm
+    assert perm["n"] == 2 and perm["draws_used"] == [0, 1]
+    assert perm["per_cell_null_macro_f1"]["note"] == "descriptive only"
+    assert (out_root / "results" / "final" / "permutation_null_v3.png").is_file()
+    monkeypatch.setattr(config.per_task_v3, "n_cnn_permutations", -1)
+    with pytest.raises(RuntimeError, match="D2 undecided: do plan step 7.1 first"):
+        v3.step_draws(config, "0", "cpu")
+    with pytest.raises(RuntimeError, match="D2 undecided"):
+        v3.step_permutation_cnn(config)
+    monkeypatch.setattr(config.per_task_v3, "n_cnn_permutations", 0)
+    assert v3.step_draws(config, None, "cpu") is None
+
+
+def test_merge_draws_accepts_v3_runs(permuted_root, tmp_path, monkeypatch, capsys):
+    from scripts.merge_draws import merge
+
+    out_root, _ = permuted_root
+    monkeypatch.setattr(config.paths, "output_root", out_root)
+    runs = v3.runs_dir(config.training.seed, config)
+    copy = tmp_path / "elsewhere" / runs.name
+    shutil.copytree(runs, copy)
+    copied = merge(copy, tmp_path / "drive" / runs.name)
+    assert copied == ["perm_0000.csv", "perm_0001.csv"]
+    assert "now holds 2 draws" in capsys.readouterr().out
+    assert merge(copy, runs) == []
+
+
+def test_draws_leave_no_model_files(permuted_root):
+    out_root, record = permuted_root
+    assert not [p for p in record["models_new"] if p.is_file()]
+    assert not [p for p in (out_root / "models").rglob("*") if p.is_file()]
+
+
+def test_report_shows_permutation_results(permuted_root, monkeypatch):
+    out_root, _ = permuted_root
+    monkeypatch.setattr(config.paths, "output_root", out_root)
+    table = pd.read_csv(v3.output_dir(config) / "permutation_lr.csv")
+    assert list(table.columns) == [
+        "kind",
+        "cell",
+        "p_value",
+        "q_value",
+        "observed",
+        "n",
+        "seed",
+    ]
+    assert len(table) == 2 * len(config.per_task_v3.cells)
+    assert (table["n"] == 5).all()
+    for kind, part in table.groupby("kind"):
+        assert np.allclose(part["q_value"], v3.bh_qvalues(part["p_value"]))
+    text = v3.report_path(config).read_text(encoding="utf-8")
+    assert "not run yet" not in text
+    assert "permutation test: p = " in text
+    for _, row in table.iterrows():
+        assert f"{row['kind']} {row['cell']}: p = " in text
+    for kind in config.per_task_v3.lr_kinds:
+        assert v3.lr_null_path(kind, "D1", config).is_file()
