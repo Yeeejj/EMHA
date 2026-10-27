@@ -13,6 +13,7 @@ from src.data.crop_manifest import ALL_CELLS, CURSIVE_CELLS, DRAWING_CELLS, WORD
 from src.data.dataloader import load_tables
 from src.features.handcrafted import ALL_FEATURES, features_for_family
 from src.models.hmm import HMMClassifier
+from src.training import run_baselines
 from src.training import run_per_task_v3 as v3
 from src.utils.config import config
 from src.utils.synthetic import make_synthetic_root
@@ -270,15 +271,13 @@ def test_lr_rerun_resumes_and_refuses_changed_settings(v3_root, monkeypatch, cap
         v3.step_lr(config)
 
 
-V3_CELLS = ("D1", "CS1")
+V3_CELLS = ("D1", "W1_LH", "CS1")
 STAND_INS = (
-    "results/hybrid/primary/predictions.csv",
     "models/hmm/primary/word/fold_0.joblib",
     "models/cnn/primary/word/fold_0.pth",
     "results/final/RESULTS.txt",
     "results/final/model_comparison.csv",
     "results/final/permutation_runs/primary/seed_42/perm_0.csv",
-    "results/hybrid_v2/primary/predictions.csv",
     "models/hmm_v2/primary/fold_0.joblib",
     "results/final/permutation_runs/primary_v2/seed_42/perm_0.csv",
     "results/final/EXPLORATORY_v2.txt",
@@ -287,7 +286,14 @@ V3_PREFIXES = (
     "results/per_task_v3/primary/",
     "models/cnn_v3/primary/",
     "models/hmm_v3/primary/",
+    "results/final/EXPLORATORY_v3.txt",
+    "results/final/fig_v3_",
 )
+REFERENCE_GROUPS = {
+    "cnn": (("cnn_head_fused", "fused"), ("cnn_head", "word"), ("cnn_head", "cursive")),
+    "hybrid": (("cnn_hmm_fused", "fused"), ("cnn_hmm", "word"), ("cnn_hmm", "cursive")),
+    "hybrid_v2": (("cnn_hmm_v2", "task_order"),),
+}
 
 
 def _hashes(root) -> dict:
@@ -296,6 +302,22 @@ def _hashes(root) -> dict:
         for p in root.rglob("*")
         if p.is_file()
     }
+
+
+def _write_references(root):
+    """Stand-in v1/v2 reference predictions: relabelled lr_handcrafted/all."""
+    run_baselines.run("primary")
+    base = pd.read_csv(
+        root / "results" / "baselines" / "primary" / "predictions.csv",
+        dtype={"participant_id": str},
+    )
+    rows = base[(base["model"] == "lr_handcrafted") & (base["feature_set"] == "all")]
+    for source, groups in REFERENCE_GROUPS.items():
+        path = root / "results" / source / "primary" / "predictions.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.concat([rows.assign(model=m, feature_set=fs) for m, fs in groups]).to_csv(
+            path, index=False
+        )
 
 
 @pytest.fixture(scope="module")
@@ -314,6 +336,8 @@ def trained_root(tmp_path_factory):
         mp.setattr(config.hybrid, "pca_grid", (4,))
         mp.setattr(config.runner, "hmm_n_jobs", 1)
         mp.setattr(config.per_task_v3, "cells", V3_CELLS)
+        mp.setattr(config.per_task_v3, "n_cnn_permutations", 0)
+        mp.setattr(config.evaluation, "n_bootstrap", 50)
         root = make_synthetic_root(
             tmp_path_factory.mktemp("v3") / "root",
             n_participants=40,
@@ -331,6 +355,7 @@ def trained_root(tmp_path_factory):
             path = root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"stand-in file {rel}\n")
+        _write_references(root)
         before = _hashes(root)
         v3.step_lr(config)
         v3.step_cnn(config, device="cpu")
@@ -415,7 +440,7 @@ def test_cnn_and_hmm_rerun_resumes_without_metrics(trained_root, monkeypatch, ca
     for word in ("macro", "accuracy", "f1", "auc"):
         assert word not in out.lower()
     with pytest.raises(ValueError, match="unknown cells"):
-        v3.step_cnn(config, cells=["W1_LH"], device="cpu")
+        v3.step_cnn(config, cells=["W2_RH"], device="cpu")
     with pytest.raises(ValueError, match="out of range"):
         v3.step_hmm(config, folds=[config.cv.n_splits], device="cpu")
 
@@ -534,3 +559,143 @@ def test_cpu_rerun_gives_identical_prediction_bytes(trained_root, tmp_path):
         rerun = tmp_path / Path(reference).name
         v3.write_part(frame, rerun)
         assert rerun.read_bytes() == reference.read_bytes(), rerun.name
+
+
+@pytest.fixture(scope="module")
+def combined_root(trained_root):
+    """combine, evaluate and report run once on the trained root."""
+    root, _ = trained_root
+    v3.step_combine(config)
+    v3.step_evaluate(config)
+    v3.step_report(config)
+    return root
+
+
+def _predictions():
+    return _read(v3.output_dir(config) / "predictions.csv")
+
+
+def test_cell_selection_ignores_test_labels(combined_root, tmp_path, monkeypatch):
+    src = v3.output_dir(config)
+    reference = (src / "selected_cell.csv").read_bytes()
+    original = _predictions()
+    monkeypatch.setattr(config.paths, "output_root", tmp_path)
+    dst = v3.output_dir(config)
+    (dst / "parts").mkdir(parents=True)
+    flip = {"HAPPY": "SAD", "SAD": "HAPPY"}
+    for path in (src / "parts").glob("*.csv"):
+        frame = _read(path)
+        if not path.name.endswith(".val.csv"):
+            frame["label"] = frame["label"].map(flip)
+        frame.to_csv(dst / "parts" / path.name, index=False)
+    v3.step_combine(config)
+    assert (dst / "selected_cell.csv").read_bytes() == reference
+    flipped = _read(dst / "predictions.csv")
+    assert (flipped["label"] != original["label"]).all()
+
+
+def test_fuse_is_the_mean_of_per_cell_prob_sad(combined_root):
+    preds = _predictions()
+    v3cfg = config.per_task_v3
+    rng = np.random.default_rng(3)
+    sets = v3.fuse_cells(config)
+    assert set(sets) == {name for name, _ in v3cfg.fuse_sets}
+    for per_cell, fused in (
+        (v3cfg.cnn_model, v3cfg.fused_cnn_model),
+        (v3cfg.hmm_model, v3cfg.fused_hmm_model),
+    ):
+        for name, cells in sets.items():
+            group = preds[(preds["model"] == fused) & (preds["feature_set"] == name)]
+            for pid in rng.choice(group["participant_id"].to_numpy(), 3, False):
+                rows = preds[
+                    (preds["model"] == per_cell)
+                    & (preds["participant_id"] == pid)
+                    & preds["feature_set"].isin(cells)
+                ]
+                assert sorted(rows["feature_set"]) == sorted(cells)
+                got = group.loc[group["participant_id"] == pid, "prob_sad"].item()
+                assert got == pytest.approx(rows["prob_sad"].mean())
+
+
+def test_fuse_cells_refuses_an_empty_set(monkeypatch):
+    monkeypatch.setattr(config.per_task_v3, "cells", ("D1", "CS1"))
+    with pytest.raises(ValueError, match="'word'"):
+        v3.fuse_cells(config)
+
+
+def test_predictions_cover_each_participant_once_per_group(combined_root):
+    preds = _predictions()
+    labels, ids, folds = v3.context(config)
+    v3cfg = config.per_task_v3
+    fold_of = folds.set_index(folds["participant_id"].astype(str))["outer_fold"]
+    groups = preds.groupby(["model", "feature_set"])
+    n_cells = len(v3cfg.cells)
+    assert len(groups) == 4 * n_cells + 2 * len(v3cfg.fuse_sets) + 1
+    assert tuple(preds.columns) == v3.PRED_COLUMNS
+    for (model, fs), group in groups:
+        assert model in v3.v3_models(config), model
+        assert sorted(group["participant_id"]) == sorted(ids), (model, fs)
+        assert set(group["fold"]) == set(range(config.cv.n_splits))
+        expected = fold_of.loc[group["participant_id"]].to_numpy()
+        assert (group["fold"].to_numpy() == expected).all(), (model, fs)
+    keys = ["model", "feature_set", "fold", "participant_id"]
+    assert preds[keys].equals(preds.sort_values(keys)[keys].reset_index(drop=True))
+    selected = _read(v3.output_dir(config) / "selected_cell.csv")
+    assert list(selected["fold"]) == list(range(config.cv.n_splits))
+    assert set(selected["cell"]) <= set(v3cfg.cells)
+    inner = _read(v3.output_dir(config) / "inner_val_predictions.csv")
+    assert set(inner["model"]) == {v3cfg.cnn_model, v3cfg.hmm_model}
+
+
+def test_per_task_table_keeps_form_order(combined_root):
+    table = pd.read_csv(v3.output_dir(config) / "per_task_table.csv")
+    assert list(table["cell"]) == list(config.per_task_v3.cells)
+    assert list(table["family"]) == ["drawing", "word", "cursive"]
+    assert list(table["task"]) == ["circles", "content", "cursive 1"]
+    assert list(table["style"].fillna("")) == ["", "LH", ""]
+    for model in v3.per_cell_models(config):
+        for m in v3.TABLE_METRICS:
+            for suffix in ("", "_ci_low", "_ci_high"):
+                assert f"{model}_{m}{suffix}" in table.columns
+    assert "imputed_crops" in table.columns and "majority_baseline" in table.columns
+
+
+def test_evaluate_refuses_while_d2_undecided(combined_root, monkeypatch):
+    monkeypatch.setattr(config.per_task_v3, "n_cnn_permutations", -1)
+    with pytest.raises(RuntimeError, match="D2 undecided: do plan step 7.1 first"):
+        v3.step_evaluate(config)
+
+
+def test_paired_marks_missing_v1_group(combined_root):
+    paired = pd.read_csv(v3.output_dir(config) / "paired.csv", keep_default_na=False)
+    v3cfg = config.per_task_v3
+    headline = paired[paired["comparison"] == "headline"]
+    assert list(headline["reference"]) == [
+        f"{m}/{fs}" for m, fs in v3cfg.paired_references
+    ]
+    assert (headline["note"] == "").all()
+    family = paired[paired["comparison"] == "family"]
+    assert len(family) == len(v3cfg.family_references)
+    missing = family[family["model"] == "cnn_head_v3_fused/drawing"]
+    assert list(missing["note"]) == [v3.NO_V1]
+    assert list(missing["delta_macro_f1"]) == [""]
+    assert (family[family["model"] != "cnn_head_v3_fused/drawing"]["note"] == "").all()
+    metrics = pd.read_csv(v3.output_dir(config) / "metrics.csv")
+    assert set(metrics["model"]) <= set(v3.v3_models(config))
+
+
+def test_report_header_figures_and_permutation_status(combined_root, capsys):
+    text = v3.report_path(config).read_text(encoding="utf-8")
+    assert text.splitlines()[0] == (
+        "EXPLORATORY, POST HOC (Deviation 6). Not part of the primary claim; "
+        "the primary model remains CNN-HMM v1 (cnn_hmm_fused/fused)."
+    )
+    assert "not run (D2 = 0)" in text
+    assert v3.NO_V1 in text
+    assert "about 217" in text and "about 39" in text
+    for name in ("per_task_forest.png", "per_task_heatmap.png"):
+        path = v3.figure_path(name, config)
+        assert path.is_file() and path.name.startswith("fig_v3_")
+    v3.step_evaluate(config)
+    out = capsys.readouterr().out
+    assert all(line.startswith("Written: ") for line in out.splitlines())

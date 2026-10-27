@@ -49,6 +49,15 @@ crops with imputed handcrafted values per cell.
         [--folds 0,1] [--device cuda]
     python -m src.training.run_per_task_v3 --step hmm [--cells ...]
         [--folds ...] [--device cuda] [--n-jobs -1]
+    python -m src.training.run_per_task_v3 --step combine   predictions.csv
+    python -m src.training.run_per_task_v3 --step evaluate  metrics, tables
+    python -m src.training.run_per_task_v3 --step report    EXPLORATORY_v3.txt
+
+combine averages the per-cell test prob_sad of cnn_head_v3 and cnn_hmm_v3
+over each fuse set and picks, per fold, the cell with the best cnn_hmm_v3
+inner-val macro-F1 (inner-val rows only). evaluate refuses while
+n_cnn_permutations is undecided (-1) and prints only file paths. A missing
+v1 reference group gives a paired.csv row "no v1 counterpart".
 
 Resume unit of cnn and hmm: one (cell, fold). A cnn unit is done when its
 test part, its .val.csv part and its checkpoint exist; an hmm unit when its
@@ -70,12 +79,20 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 
-from src.data.crop_manifest import ALL_CELLS, CURSIVE_CELLS, DRAWING_CELLS
+from src.data.crop_manifest import (
+    ALL_CELLS,
+    CURSIVE_CELLS,
+    DRAWING_CELLS,
+    DRAWING_NAMES,
+    WORD_NAMES,
+)
 from src.data.dataloader import CropDataset, labels_csv_path, load_tables
 from src.data.transforms import get_eval_transform, get_train_transform
 from src.features.embeddings import resolve_device
@@ -105,7 +122,41 @@ HANDCRAFTED_CROP = "handcrafted_crop.csv"
 PROCESSED_MANIFEST = "processed_manifest.csv"
 IMPUTED_COLUMN = "imputed"
 UNDECIDED_KEYS = ("n_cnn_permutations", "n_lr_permutations")
-STEPS = ("preflight", "lr", "cnn", "hmm")
+STEPS = ("preflight", "lr", "cnn", "hmm", "combine", "evaluate", "report")
+LABELS = ("HAPPY", "SAD")
+NO_V1 = "no v1 counterpart"
+REFERENCE_SOURCES = {
+    "lr_handcrafted": "baselines",
+    "lr_embeddings": "baselines",
+    "cnn_head": "cnn",
+    "cnn_head_fused": "cnn",
+    "cnn_hmm": "hybrid",
+    "cnn_hmm_fused": "hybrid",
+    "cnn_hmm_v2": "hybrid_v2",
+}
+TABLE_METRICS = ("macro_f1", "accuracy", "balanced_accuracy", "roc_auc")
+METRIC_NAMES = {
+    "macro_f1": "macro-F1",
+    "accuracy": "accuracy",
+    "balanced_accuracy": "balanced accuracy",
+    "roc_auc": "ROC-AUC",
+}
+REPORT_HEADER = (
+    "EXPLORATORY, POST HOC (Deviation 6). Not part of the primary claim; the "
+    "primary model remains CNN-HMM v1 (cnn_hmm_fused/fused)."
+)
+LIMITATIONS = (
+    "Limitations. Each per-exercise model trains on about 217 images (one per "
+    "inner-train participant), far fewer than the v1 family models. An "
+    "inner-validation set of about 39 participants is used for CNN early "
+    "stopping, HMM selection, Platt calibration and cell selection, so those "
+    "choices share one small set. 24 exercises x 4 models is a 24-way "
+    "multiplicity per model; per-cell results are descriptive and only "
+    "cnn_hmm_v3_fused/all24 is a pre-declared test. The whole v3 design is "
+    "post hoc (Deviation 6), decided after the v1 and v2 results were known."
+)
+MODEL_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
+MODEL_MARKERS = ("o", "s", "^", "D")
 
 
 def family_of(cell: str) -> str:
@@ -839,6 +890,556 @@ def step_hmm(cfg=config, cells=None, folds=None, device="auto") -> Path:
     return _step_units("hmm", cfg, cells, folds, device, done, fit)
 
 
+def report_path(cfg=config) -> Path:
+    return evaluator.output_dir(None, cfg) / cfg.per_task_v3.report_name
+
+
+def figure_path(name: str, cfg=config) -> Path:
+    return evaluator.output_dir(None, cfg) / f"{cfg.per_task_v3.figure_prefix}{name}"
+
+
+def per_cell_models(cfg=config) -> tuple:
+    v3 = cfg.per_task_v3
+    return (*v3.lr_kinds, v3.cnn_model, v3.hmm_model)
+
+
+def v3_models(cfg=config) -> tuple:
+    v3 = cfg.per_task_v3
+    return (
+        *per_cell_models(cfg),
+        v3.fused_cnn_model,
+        v3.fused_hmm_model,
+        v3.selected_model,
+    )
+
+
+def load_parts(cfg=config, kind: str = "test") -> pd.DataFrame:
+    """Every per-cell part of one kind ("test" or "val"); raises on any gap."""
+    v3 = cfg.per_task_v3
+    if kind == "test":
+        models, path_of = per_cell_models(cfg), part_path
+    elif kind == "val":
+        models, path_of = (v3.cnn_model, v3.hmm_model), val_part_path
+    else:
+        raise ValueError(f"kind must be 'test' or 'val', got {kind!r}")
+    paths = [
+        path_of(model, cell, fold, cfg)
+        for model in models
+        for cell in v3.cells
+        for fold in range(cfg.cv.n_splits)
+    ]
+    missing = [p.name for p in paths if not p.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            f"{len(missing)} {kind} parts missing under {output_dir(cfg) / 'parts'}"
+            f", e.g. {missing[:10]}; run --step lr, cnn and hmm first"
+        )
+    return pd.concat(
+        [pd.read_csv(p, dtype={"participant_id": str}) for p in paths],
+        ignore_index=True,
+    )
+
+
+def fuse_cells(cfg=config) -> dict:
+    """Fuse-set name -> the cells (form order) whose family is in that set."""
+    out = {}
+    for name, families in cfg.per_task_v3.fuse_sets:
+        cells = tuple(c for c in cfg.per_task_v3.cells if family_of(c) in families)
+        if not cells:
+            raise ValueError(f"fuse set {name!r} has no cells in {families}")
+        out[name] = cells
+    return out
+
+
+def fuse(per_cell: pd.DataFrame, model: str, out_model: str, cfg=config):
+    """Per fuse set and fold: plain mean of the set's per-cell prob_sad."""
+    rows = per_cell[per_cell["model"] == model]
+    frames = []
+    for name, cells in fuse_cells(cfg).items():
+        for fold in range(cfg.cv.n_splits):
+            part = rows[(rows["fold"] == fold) & rows["feature_set"].isin(cells)]
+            wide = part.pivot(
+                index="participant_id", columns="feature_set", values="prob_sad"
+            )
+            wide = wide.reindex(columns=list(cells))
+            gaps = sorted(wide.index[wide.isna().any(axis=1)])
+            if gaps:
+                raise ValueError(
+                    f"{model} {name} fold {fold}: participants without every "
+                    f"cell of the set, e.g. {gaps[:10]}"
+                )
+            labels = part.drop_duplicates("participant_id").set_index("participant_id")[
+                "label"
+            ]
+            prob = wide.mean(axis=1).to_numpy()
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "analysis": cfg.per_task_v3.analysis,
+                        "model": out_model,
+                        "feature_set": name,
+                        "fold": fold,
+                        "participant_id": wide.index.to_numpy(),
+                        "label": labels.loc[wide.index].to_numpy(),
+                        "prob_sad": prob,
+                        "pred": np.where(
+                            prob >= cfg.aggregate.threshold, "SAD", "HAPPY"
+                        ),
+                        "in_middle_band": False,
+                    }
+                )
+            )
+    return pd.concat(frames, ignore_index=True)[list(PRED_COLUMNS)]
+
+
+def select_cell(val_rows: pd.DataFrame, cfg=config) -> pd.DataFrame:
+    """Per fold, the cell whose cnn_hmm_v3 inner-val macro-F1 is highest.
+
+    Reads inner-validation rows only; ties go to the earlier cell in
+    PerTaskV3Config.cells.
+    """
+    v3 = cfg.per_task_v3
+    rows = val_rows[val_rows["model"] == v3.hmm_model]
+    out = []
+    for fold in range(cfg.cv.n_splits):
+        best = None
+        for cell in v3.cells:
+            part = rows[(rows["fold"] == fold) & (rows["feature_set"] == cell)]
+            if part.empty:
+                raise ValueError(f"no inner-val rows for {cell} fold {fold}")
+            score = float(
+                f1_score(
+                    part["label"],
+                    part["pred"],
+                    labels=list(LABELS),
+                    average="macro",
+                    zero_division=0,
+                )
+            )
+            if best is None or score > best[1]:
+                best = (cell, score)
+        out.append({"fold": fold, "cell": best[0], "inner_val_macro_f1": best[1]})
+    return pd.DataFrame(out)
+
+
+def selected_predictions(
+    test_rows: pd.DataFrame, selected: pd.DataFrame, cfg=config
+) -> pd.DataFrame:
+    """Each fold's test rows of its selected cell, as cnn_hmm_v3_selected."""
+    v3 = cfg.per_task_v3
+    frames = []
+    for _, row in selected.iterrows():
+        part = test_rows[
+            (test_rows["model"] == v3.hmm_model)
+            & (test_rows["feature_set"] == row["cell"])
+            & (test_rows["fold"] == int(row["fold"]))
+        ]
+        frames.append(
+            part.assign(model=v3.selected_model, feature_set=v3.selected_feature_set)
+        )
+    return pd.concat(frames, ignore_index=True)[list(PRED_COLUMNS)]
+
+
+def _sorted_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    keys = ["model", "feature_set", "fold", "participant_id"]
+    return frame.sort_values(keys).reset_index(drop=True)[list(PRED_COLUMNS)]
+
+
+def step_combine(cfg=config) -> Path:
+    """predictions.csv, inner_val_predictions.csv and selected_cell.csv."""
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 combine")
+    v3 = cfg.per_task_v3
+    if not is_synthetic_root(cfg.paths.data_root) and tuple(v3.cells) != ALL_CELLS:
+        raise ValueError("PerTaskV3Config.cells must equal crop_manifest.ALL_CELLS")
+    test_rows = load_parts(cfg, "test")
+    val_rows = load_parts(cfg, "val")
+    selected = select_cell(val_rows, cfg)
+    preds = _sorted_rows(
+        pd.concat(
+            [
+                test_rows,
+                fuse(test_rows, v3.cnn_model, v3.fused_cnn_model, cfg),
+                fuse(test_rows, v3.hmm_model, v3.fused_hmm_model, cfg),
+                selected_predictions(test_rows, selected, cfg),
+            ],
+            ignore_index=True,
+        )
+    )
+    out = output_dir(cfg)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "predictions.csv"
+    write_part(preds, path)
+    write_part(_sorted_rows(val_rows), out / "inner_val_predictions.csv")
+    write_part(selected, out / "selected_cell.csv")
+    evaluator.validate(
+        pd.read_csv(path, dtype={"participant_id": str}), v3.analysis, str(path), cfg
+    )
+    counts = preds.groupby(["model", "feature_set"], sort=False).size()
+    print(f"combine: {len(counts)} groups")
+    for (model, fs), n in counts.items():
+        print(f"  {model}/{fs}: {n} rows")
+    return path
+
+
+def _read_frame(path: Path, cfg=config) -> pd.DataFrame:
+    analysis = cfg.per_task_v3.analysis
+    df = evaluator.validate(
+        pd.read_csv(path, dtype={"participant_id": str}), analysis, str(path), cfg
+    )
+    return evaluator.analysis_frame(df, analysis)
+
+
+def _reference_keys(cfg=config) -> list:
+    v3 = cfg.per_task_v3
+    keys = list(v3.paired_references)
+    keys += [(m, fs) for _, _, m, fs in v3.family_references]
+    return list(dict.fromkeys(tuple(k) for k in keys))
+
+
+def reference_frames(cfg=config) -> tuple:
+    """((model, feature_set) -> primary rows, missing (model, feature_set))."""
+    analysis = cfg.per_task_v3.analysis
+    frames, missing, cache = {}, [], {}
+    for model, fs in _reference_keys(cfg):
+        source = REFERENCE_SOURCES[model]
+        path = cfg.paths.results_dir / source / analysis / "predictions.csv"
+        if source not in cache:
+            cache[source] = _read_frame(path, cfg) if path.is_file() else None
+        df = cache[source]
+        rows = (
+            None
+            if df is None
+            else df[(df["model"] == model) & (df["feature_set"] == fs)]
+        )
+        if rows is None or rows.empty:
+            missing.append((model, fs))
+        else:
+            frames[(model, fs)] = rows
+    return frames, missing
+
+
+def _paired_row(result, label, key_a, key_b, cfg=config) -> dict:
+    analysis = cfg.per_task_v3.analysis
+    row = {
+        "comparison": label,
+        "model": "/".join(key_a),
+        "reference": "/".join(key_b),
+        "delta_macro_f1": np.nan,
+        "ci_low": np.nan,
+        "ci_high": np.nan,
+        "note": "",
+    }
+    a = result.groups.get((analysis, *key_a))
+    b = result.groups.get((analysis, *key_b))
+    if a is None:
+        raise ValueError(f"v3 group {row['model']} was not evaluated")
+    if b is None:
+        row["note"] = NO_V1
+        return row
+    row["delta_macro_f1"], row["ci_low"], row["ci_high"] = evaluator.paired_diff_ci(
+        a, b, "macro_f1", cfg.evaluation.n_bootstrap, cfg.training.seed
+    )
+    return row
+
+
+def _task_fields(cell: str) -> tuple:
+    family = family_of(cell)
+    if family == "drawing":
+        return family, DRAWING_NAMES[cell], ""
+    if family == "cursive":
+        return family, f"cursive {cell[2:]}", ""
+    item, style = cell.split("_")
+    return family, WORD_NAMES[int(item[1:])], style
+
+
+def per_task_table(comparison: pd.DataFrame, cfg=config) -> pd.DataFrame:
+    """One row per cell in PerTaskV3Config.cells order, every per-cell model."""
+    imputed = imputed_counts(cfg).set_index("cell")["n_crops_with_imputed_values"]
+    rows = []
+    for cell in cfg.per_task_v3.cells:
+        family, task, style = _task_fields(cell)
+        mine = comparison[comparison["feature_set"] == cell].set_index("model")
+        first = mine.loc[cfg.per_task_v3.hmm_model]
+        row = {
+            "cell": cell,
+            "family": family,
+            "task": task,
+            "style": style,
+            "n": int(first["n_participants"]),
+            "majority_baseline": float(first["majority_baseline"]),
+        }
+        for model in per_cell_models(cfg):
+            for m in TABLE_METRICS:
+                for suffix in ("", "_ci_low", "_ci_high"):
+                    row[f"{model}_{m}{suffix}"] = float(mine.loc[model, f"{m}{suffix}"])
+        row["imputed_crops"] = int(imputed.get(cell, 0))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def step_evaluate(cfg=config) -> Path:
+    """metrics, per_fold, confusion, paired and per_task_table; no metric printed."""
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 evaluate")
+    v3 = cfg.per_task_v3
+    if v3.n_cnn_permutations == -1:
+        raise RuntimeError("D2 undecided: do plan step 7.1 first")
+    out = output_dir(cfg)
+    mine = _read_frame(out / "predictions.csv", cfg)
+    refs, _ = reference_frames(cfg)
+    result = evaluator.evaluate(pd.concat([mine, *refs.values()]), cfg)
+    models = set(v3_models(cfg))
+    written = []
+    for name, table in (
+        ("metrics.csv", result.comparison),
+        ("per_fold.csv", result.per_fold),
+        ("confusion.csv", result.confusion),
+    ):
+        path = out / name
+        table[table["model"].isin(models)].to_csv(path, index=False)
+        written.append(path)
+
+    headline = tuple(v3.headline)
+    paired = [
+        _paired_row(result, "headline", headline, tuple(ref), cfg)
+        for ref in v3.paired_references
+    ]
+    paired += [
+        _paired_row(result, "family", (m3, fs3), (m1, fs1), cfg)
+        for m3, fs3, m1, fs1 in v3.family_references
+    ]
+    path = out / "paired.csv"
+    pd.DataFrame(paired).to_csv(path, index=False)
+    written.append(path)
+    path = out / "per_task_table.csv"
+    per_task_table(result.comparison, cfg).to_csv(path, index=False)
+    written.append(path)
+    for path in written:
+        print(f"Written: {path}")
+    return out
+
+
+def _ci(row, m: str) -> str:
+    return f"{row[m]:.3f} [{row[f'{m}_ci_low']:.3f}, {row[f'{m}_ci_high']:.3f}]"
+
+
+def _permutation_line(cfg=config) -> str:
+    v3 = cfg.per_task_v3
+    path = output_dir(cfg) / "permutation_cnn.json"
+    if path.is_file():
+        perm = json.loads(path.read_text(encoding="utf-8"))
+        return (
+            f"p = {perm['p_value']:.4f} (N = {perm['n']}, seed {perm['seed']}, "
+            f"null mean {perm['null_mean']:.3f})"
+        )
+    if v3.n_cnn_permutations == 0:
+        return "not run (D2 = 0)"
+    done = len(list(runs_dir(cfg.training.seed, cfg).glob("perm_*.csv")))
+    return f"draws incomplete ({done}/{v3.n_cnn_permutations})"
+
+
+def _metric_line(row) -> str:
+    parts = [f"{METRIC_NAMES[m]} {_ci(row, m)}" for m in TABLE_METRICS]
+    return "; ".join(parts) + f"; majority {row['majority_baseline']:.3f}"
+
+
+def _plot_forest(table: pd.DataFrame, path: Path, cfg=config) -> None:
+    models = per_cell_models(cfg)
+    n = len(table)
+    y = np.arange(n)
+    step = 0.8 / len(models)
+    fig, ax = plt.subplots(figsize=(7.0, 1.2 + 0.32 * n))
+    fig.patch.set_facecolor(evaluator._SURFACE)
+    for i, model in enumerate(models):
+        offset = (i - (len(models) - 1) / 2) * step
+        mid = table[f"{model}_macro_f1"].to_numpy()
+        err = np.vstack(
+            [
+                mid - table[f"{model}_macro_f1_ci_low"].to_numpy(),
+                table[f"{model}_macro_f1_ci_high"].to_numpy() - mid,
+            ]
+        )
+        ax.errorbar(
+            mid,
+            y + offset,
+            xerr=err,
+            fmt=MODEL_MARKERS[i],
+            color=MODEL_COLORS[i],
+            ecolor=MODEL_COLORS[i],
+            elinewidth=1,
+            markersize=4,
+            label=model,
+        )
+    majority = float(table["majority_baseline"].mean())
+    ax.axvline(majority, color=evaluator._MUTED, linestyle="--", linewidth=1)
+    ax.text(
+        majority,
+        n - 0.4,
+        " majority baseline",
+        color=evaluator._INK_2,
+        fontsize=7,
+        va="bottom",
+    )
+    ax.set_yticks(y)
+    ax.set_yticklabels(table["cell"])
+    ax.set_ylim(n - 0.5, -0.5 - 0.6)
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("macro-F1 (95% CI)")
+    ax.set_title("v3 per-exercise macro-F1 (exploratory)")
+    ax.grid(axis="x", color=evaluator._GRID, linewidth=0.5)
+    ax.legend(loc="lower right", fontsize=7, frameon=False)
+    evaluator._style(ax)
+    evaluator._save(fig, path, cfg)
+
+
+def _plot_heatmap(table: pd.DataFrame, path: Path, cfg=config) -> None:
+    models = per_cell_models(cfg)
+    values = table[[f"{m}_macro_f1" for m in models]].to_numpy()
+    n = len(table)
+    fig, ax = plt.subplots(figsize=(1.6 + 1.3 * len(models), 1.0 + 0.3 * n))
+    fig.patch.set_facecolor(evaluator._SURFACE)
+    image = ax.imshow(values, cmap=evaluator._SEQUENTIAL, vmin=0, vmax=1, aspect="auto")
+    for (r, c), v in np.ndenumerate(values):
+        ax.text(
+            c,
+            r,
+            f"{v:.2f}",
+            ha="center",
+            va="center",
+            fontsize=6,
+            color=evaluator._SURFACE if v > 0.5 else evaluator._INK,
+        )
+    ax.set_xticks(range(len(models)))
+    ax.set_xticklabels(models, rotation=20, ha="right")
+    ax.set_yticks(range(n))
+    ax.set_yticklabels(table["cell"])
+    ax.set_title("v3 macro-F1, exercise x model (exploratory)")
+    bar = fig.colorbar(image, ax=ax, fraction=0.04)
+    bar.ax.tick_params(labelsize=7, colors=evaluator._INK_2)
+    evaluator._style(ax)
+    evaluator._save(fig, path, cfg)
+
+
+def step_report(cfg=config) -> Path:
+    """results/final/EXPLORATORY_v3.txt and the two per-exercise figures."""
+    require_frozen_or_synthetic(cfg, "run_per_task_v3 report")
+    v3 = cfg.per_task_v3
+    out = output_dir(cfg)
+    ev = cfg.evaluation
+    metrics = pd.read_csv(out / "metrics.csv")
+    paired = pd.read_csv(out / "paired.csv", keep_default_na=False)
+    table = pd.read_csv(out / "per_task_table.csv", dtype={"style": str})
+    table["style"] = table["style"].fillna("")
+    selected = pd.read_csv(out / "selected_cell.csv")
+    labels, ids, folds = context(cfg)
+    lab = labels.set_index("participant_id")[cfg.labeling.label_column].loc[ids]
+    keyed = metrics.set_index(["model", "feature_set"])
+
+    lines = [
+        REPORT_HEADER,
+        "v3: one model per FINALE exercise (24 cells), primary set, folds.csv.",
+        f"CIs: {ev.n_bootstrap} participant bootstrap resamples, seed "
+        f"{cfg.training.seed}, {round(ev.ci_level * 100)}% percentile; SAD when "
+        f"P(SAD) >= {cfg.aggregate.threshold}.",
+        "",
+        "1. Data and splits",
+        f"  n = {len(ids)} ({int((lab == 'HAPPY').sum())} HAPPY, "
+        f"{int((lab == 'SAD').sum())} SAD)",
+        "  fold  inner-train  inner-val  test",
+    ]
+    for fold in range(cfg.cv.n_splits):
+        inner_train, inner_val, test = fold_splits(fold, ids, labels, folds, cfg)
+        lines.append(
+            f"  {fold:>4d}  {len(inner_train):>11d}  {len(inner_val):>9d}  "
+            f"{len(test):>4d}"
+        )
+    imputed = imputed_counts(cfg)
+    lines.append("  crops with imputed handcrafted values per cell:")
+    lines.append(
+        "    "
+        + ", ".join(
+            f"{c} {n}"
+            for c, n in zip(imputed["cell"], imputed["n_crops_with_imputed_values"])
+        )
+    )
+
+    head = keyed.loc[tuple(v3.headline)]
+    lines += [
+        "",
+        f"2. Pre-declared v3 test: {v3.headline[0]}/{v3.headline[1]}",
+        f"  {_metric_line(head)}",
+        f"  permutation test: {_permutation_line(cfg)}",
+        "  paired macro-F1 difference, headline - reference [CI]:",
+    ]
+    for _, r in paired[paired["comparison"] == "headline"].iterrows():
+        lines.append(f"    {r['reference']:24s} {_paired_text(r)}")
+
+    lines += ["", "3. Fused and selected rows (descriptive)"]
+    for model in (v3.fused_cnn_model, v3.fused_hmm_model, v3.selected_model):
+        for (m, fs), row in keyed.iterrows():
+            if m == model:
+                lines.append(f"  {m}/{fs}: {_metric_line(row)}")
+    lines.append("  selected cell per fold (inner-val macro-F1 of cnn_hmm_v3):")
+    for _, s in selected.iterrows():
+        lines.append(
+            f"    fold {int(s['fold'])}: {s['cell']} ({s['inner_val_macro_f1']:.3f})"
+        )
+
+    lines += ["", "4. Per exercise, form order (macro-F1 [CI])"]
+    models = per_cell_models(cfg)
+    lines.append("  cell    task          style  " + "  ".join(models))
+    for _, r in table.iterrows():
+        cells = "  ".join(_ci(r, f"{m}_macro_f1") for m in models)
+        lines.append(f"  {r['cell']:6s}  {r['task']:12s}  {r['style']:5s}  {cells}")
+    lines.append(
+        f"  majority baseline: {float(table['majority_baseline'].iloc[0]):.3f}"
+    )
+    lines.append("  accuracy, balanced accuracy and ROC-AUC: per_task_table.csv")
+
+    lines += ["", "5. LR permutation tests per cell (p, BH q)"]
+    perm_lr = out / "permutation_lr.csv"
+    if perm_lr.is_file():
+        for _, r in pd.read_csv(perm_lr).iterrows():
+            lines.append(
+                f"  {r['kind']} {r['cell']}: p = {r['p_value']:.4f}, "
+                f"q = {r['q_value']:.4f}"
+            )
+    else:
+        lines.append("  not run yet")
+
+    lines += ["", "6. Family rows vs v1, paired macro-F1 difference [CI]"]
+    for _, r in paired[paired["comparison"] == "family"].iterrows():
+        lines.append(f"  {r['model']:28s} vs {r['reference']:20s} {_paired_text(r)}")
+
+    forest = figure_path("per_task_forest.png", cfg)
+    heatmap = figure_path("per_task_heatmap.png", cfg)
+    rel = out.relative_to(cfg.paths.results_dir.parent).as_posix()
+    lines += [
+        "",
+        LIMITATIONS,
+        "",
+        f"Sources: {rel}/ (predictions, selected_cell, metrics, per_fold, "
+        "confusion, paired, per_task_table, permutation files); figures "
+        f"{forest.name}, {heatmap.name}.",
+    ]
+    path = report_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _plot_forest(table, forest, cfg)
+    _plot_heatmap(table, heatmap, cfg)
+    for p in (path, forest, heatmap):
+        print(f"Written: {p}")
+    return path
+
+
+def _paired_text(row) -> str:
+    if row["note"]:
+        return row["note"]
+    return (
+        f"{float(row['delta_macro_f1']):+.3f} "
+        f"[{float(row['ci_low']):+.3f}, {float(row['ci_high']):+.3f}]"
+    )
+
+
 def _parse_list(text: str | None, cast=str) -> list | None:
     if not text:
         return None
@@ -862,6 +1463,9 @@ def main() -> int:
         "lr": lambda units: step_lr(config),
         "cnn": lambda units: step_cnn(config, **units),
         "hmm": lambda units: step_hmm(config, **units),
+        "combine": lambda units: step_combine(config),
+        "evaluate": lambda units: step_evaluate(config),
+        "report": lambda units: step_report(config),
     }
     try:
         units = {
