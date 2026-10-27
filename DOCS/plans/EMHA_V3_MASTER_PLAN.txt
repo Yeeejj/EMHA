@@ -1,0 +1,1290 @@
+EMHA — VERSION 3 MASTER PLAN: PER-EXERCISE TRAINING (adviser request)
+================================================================================
+Author  : Cyrel Jane A. Edaño          Adviser : Christian V. Maderazo, MEng
+Date    : 2026-10-27                   Repo    : Yeeejj/EMHA (main @ 1b26411)
+Branch  : feat/per-task-v3             Status  : PLAN (revision 2), nothing run
+Replaces: claude/EMHA_V3_MASTER_PLAN.txt (revision 1, same morning). Rev. 2 was
+          checked line by line against the code at 1b26411 and fixes five
+          things rev. 1 got wrong (listed in section 0).
+
+What the adviser asked for
+  Train the system on each exercise on its own, one at a time (all 24:
+  D1-D4, W1_LH ... W5_UC, CS1-CS5), and get a result for every exercise.
+
+What v3 is
+  v1 trains one model per task FAMILY (drawing / word / cursive) on all of
+  that family's crops and averages crop probabilities per participant. v3
+  trains one model per EXERCISE. Each exercise gives exactly one image per
+  participant, so every v3 model is a plain participant-level classifier.
+  v3 reports a 24-row table (one row per exercise) for four model types,
+  plus a few combinations that are fixed in writing before anything runs.
+  Same participants, folds, labels, inner split, seed and 0.5 threshold as
+  v1 and v2. Nothing is re-cropped, re-preprocessed or re-embedded.
+
+What does NOT change
+  - v1 (cnn_hmm_fused/fused) stays the primary model (Deviation 4).
+    v2 stays exploratory (Deviation 5). v3 is exploratory (Deviation 6).
+  - No v1/v2 file, output, tag or number is touched. v3 writes only to v3
+    paths (section 5). RESULTS.txt, model_comparison.*, RUN_LOG.csv and the
+    pipeline step markers are never written by v3.
+  - DATASET/, raw-3Page, raw-4Page, folds.csv, labels.csv: read-only.
+
+
+================================================================================
+0. WHAT REVISION 2 FIXES (found by reading the code)
+================================================================================
+
+  F1  Adding a new Config section changes src.pipeline_runner.
+      config_fingerprint(), and the v1 runner would then refuse its own step
+      markers. Fix: add "per_task_v3" to RunnerConfig.fingerprint_exclude
+      (same as v2 did with "hybrid_v2") and test that the fingerprint is
+      unchanged.
+  F2  dataloader.build_loaders() always reloads the FULL processed manifest
+      (it calls load_tables), so it cannot be handed a one-exercise
+      manifest. Fix: v3 builds CropDataset/DataLoader itself from a manifest
+      filtered to one cell, with the same transforms, batch size, workers
+      and seeded generator. build_loaders stays untouched.
+  F3  run_hybrid._fold(save=True) writes HMMs under models/hmm/<run>/, which
+      is v1's folder, and it does not return inner-val predictions. Fix: v3
+      does not call _fold. It repeats _fold's steps in its own function using
+      the reusable pieces (extract_set, select_hmm, fit_final, _check_split)
+      and saves to models/hmm_v3/.
+  F4  The synthetic fixture (src/utils/synthetic.py) writes
+      handcrafted_participant.csv but NOT handcrafted_crop.csv. Fix: the v3
+      tests write their own crop-level fixture; synthetic.py is not edited.
+  F5  CNN draws are cached as perm_0000.csv (4 digits), and a runs folder
+      needs its own run_config.json or scripts/merge_draws.py rejects it.
+      Fix: v3 draws follow exactly that layout.
+  Also new in rev. 2:
+  - The CNN-path permutation decision (D2) is made from compute timing only,
+    after the main training run and BEFORE any v3 metric exists. The rule is
+    written into Deviation 6 now, and the code refuses to evaluate until the
+    decision is committed (n_cnn_permutations = -1 means "undecided").
+  - A "word_cursive" combination is added so v3 has a like-for-like row
+    against v1's fused CNN-HMM (v1 fuses word + cursive only).
+  - A small scripts/hash_tree.py replaces hand-typed checksum commands, so
+    the before/after check is the same code both times.
+  - The full v1/v2 outputs live on Drive (MyDrive/EMHA/run_outputs); the
+    local copy is partial (DOCS/plans/v1_checksums.txt says so). All
+    real-data v3 steps therefore run on Colab against the Drive output
+    root. Local = code and tests only.
+
+
+================================================================================
+1. WHERE WE ARE (from results/final/RESULTS.txt and v2_result.txt)
+================================================================================
+
+  Primary set n = 320 (174 HAPPY / 146 SAD). Majority baseline acc 0.544.
+
+  model / feature_set              macro-F1 [95% CI]      accuracy  perm. p
+  cnn_hmm_fused/fused  (PRIMARY)   0.434 [0.384, 0.486]   0.534     0.7143
+  ensemble/all (supporting)        0.516 [0.462, 0.572]   0.522     0.4286
+  lr_handcrafted/all               0.516 [0.459, 0.571]   0.519     0.2827
+  lr_embeddings/concat             0.576 [0.520, 0.630]   0.578     0.0080
+  cnn_hmm_v2/task_order (expl.)    0.480 [0.427, 0.536]   0.537     0.5842
+
+  Honest expectation for v3. Each per-exercise model trains on about 217
+  images (one per inner-train participant) and early-stops on about 39.
+  That is 4x to 15x less data per model than the v1 family models. Most
+  exercises will probably sit near chance. With 24 exercises, about one can
+  look "significant" at p < 0.05 by luck, which is why the LR rows get an
+  FDR correction and the CNN path gets one pre-declared combined test. v3
+  is not tuned toward the 70-80% target. If no row reaches it, the paper
+  says so, and the contribution stays the FINALE dataset and the leak-free
+  pipeline. The per-exercise table is still useful: it shows which tasks
+  carry any signal, which is what the adviser asked.
+
+
+================================================================================
+2. DECISIONS (make D1 now; D2's rule now, its value in step 7.1)
+================================================================================
+
+  D1. Status of v3
+      (a) RECOMMENDED: exploratory, post hoc, like v2. v1 stays the
+          headline. This is what Deviation 6 below says.
+      (b) v3 becomes the headline. Only allowed if decided NOW, before any
+          v3 result, and logged as Deviation 7 in the same commit as
+          Deviation 6. Not recommended: it would be the second headline
+          change after results were seen.
+
+  D2. CNN-path permutation test (cnn_hmm_v3_fused/all24, N = 20 full
+      retrains of all 24 exercises x 5 folds)
+      Rule written now (in Deviation 6): after the main cnn and hmm steps
+      finish, projected cost = 20 x (cnn step time + hmm step time), read
+      from the run logs only. If projected cost <= BUDGET_HOURS, set
+      n_cnn_permutations = 20; otherwise 0 (no CNN-path test; CNN rows get
+      bootstrap CIs only). Decide BUDGET_HOURS in step 1.1 and type it into
+      the Deviation 6 text. The value is committed in step 7.1, before
+      --step evaluate can run (the code enforces this).
+
+
+================================================================================
+3. LEAKAGE RULES (each one is enforced in code or by a test)
+================================================================================
+
+  L1  Participant is the unit. One image per participant per exercise, so a
+      participant can never sit on both sides of any split.
+  L2  Same outer folds (folds.csv SHA-256
+      40403812420cde0e1f7d1980ce02ad0f77c531fdf59aab62b7987ca4b90751bf),
+      same labels (labels.csv SHA-256
+      694d360091e28dc331422cf7171b8e3afcf5dda16545e7ad5b2a9291204d3006),
+      same primary set (splits.analysis_ids) for every exercise.
+  L3  Same inner split for every exercise in a fold:
+      inner_split(train, labels, config.cv.inner_val_fraction,
+      config.training.seed + fold), always drawn on TRUE labels (also in
+      permutation draws, exactly as run_cnn._fit_fold). Checked against the
+      IDs stored in every v3 CNN checkpoint (run_hybrid._check_split).
+  L4  assert_no_leakage(train, test) and
+      assert_no_leakage(inner_train, inner_val, test) in every
+      (exercise, fold), in every model.
+  L5  Fit on inner-train / outer-train only: CNN weights (inner-train),
+      HMM scaler/PCA/HMMs (inner-train), LR scaler/PCA/C (outer-train, C by
+      inner CV inside fit_lr, as in run_baselines).
+  L6  Inner-val is used only for CNN early stopping, HMM setting selection,
+      Platt calibration, and the "selected exercise" rule. Never test.
+  L7  Threshold = config.aggregate.threshold (0.5). No per-exercise
+      thresholds.
+  L8  Combinations are plain equal-weight means. Nothing is learned.
+  L9  Picking the best row of the 24-row table and calling it "the result"
+      is selection on test. The only best-exercise model v3 reports is
+      cnn_hmm_v3_selected, chosen per fold on inner-val only. Inner-val is
+      small (about 39 participants per fold), so the chosen exercise can
+      change between folds by chance. That makes the selected row noisy,
+      not biased: nothing is chosen on test.
+  L10 Permutation draws shuffle outer-train labels only
+      (run_cnn.shuffled_labels with permutation_seed(seed, draw, fold));
+      test labels stay true.
+  L11 Handcrafted features: handcrafted_crop.csv imputes a missing crop
+      value from the SAME participant's other crops in that family (or the
+      fixed fallback 0.0). No cross-participant or label information. It
+      does mean an imputed value in one exercise comes from that person's
+      other exercises, so preflight prints the imputed-value count per
+      exercise and the paper reports it. Embeddings are frozen ImageNet
+      weights (no labels).
+  L12 Preflight: zero dropped crops (qc_log.csv) inside the primary set,
+      exactly one processed crop per (participant, exercise).
+  L13 No reruns after seeing results. A bug fix is logged as an addendum
+      under Deviation 6, rerun once, and both outputs are reported.
+  L14 v3 never writes outside its own paths. Checked by scripts/hash_tree.py
+      on the Drive output root before and after (Phase 3 and Phase 10).
+
+
+================================================================================
+4. INVENTORY: REUSE / NEW / CHANGE / UNTOUCHED (verified at 1b26411)
+================================================================================
+
+  REUSE AS-IS (import only)
+    src/training/splits.py        analysis_ids, fold_ids, inner_split,
+                                  assert_no_leakage, load_folds, folds_path
+    src/data/dataloader.py        CropDataset, load_tables, labels_csv_path
+    src/data/transforms.py        get_train_transform, get_eval_transform
+    src/data/crop_manifest.py     ALL_CELLS, DRAWING_CELLS, WORD_CELLS,
+                                  CURSIVE_CELLS, DRAWING_NAMES, WORD_NAMES
+    src/models/cnn.py             EmotionCNN
+    src/training/trainer.py       Trainer (fit, predict_crops, save)
+    src/models/hybrid.py          load_cnn, crop_sequences
+    src/training/run_hybrid.py    extract_set, select_hmm, fit_final,
+                                  _check_split, _participant_macro_f1,
+                                  SequenceSet
+    src/models/hmm.py             HMMClassifier (save)
+    src/training/run_cnn.py       shuffled_labels, check_resume
+    src/training/run_baselines.py fit_lr, _prob_sad, PRED_COLUMNS
+    src/features/handcrafted.py   features_for_family
+    src/features/embeddings.py    resolve_device
+    src/analysis/permutation.py   permutation_seed, p_value
+    src/training/evaluator.py     evaluate, validate, analysis_frame,
+                                  paired_diff_ci, output_dir
+    src/utils/protocol_guard.py   require_frozen_or_synthetic
+    src/utils/seed.py             set_seed
+    scripts/merge_draws.py        unchanged (only if draws are split)
+
+    Data already produced (Drive copy; nothing recomputed):
+      <data root>/metadata/processed_manifest.csv, qc_log.csv, folds.csv,
+        labels.csv, participants.csv, processed crops (from emha-crops.zip)
+      run_outputs/results/embeddings/resnet18_{drawing,word,cursive}.npz
+        (arrays: embeddings (n, 512), participant_id, cell, cache_key)
+      run_outputs/results/features/handcrafted_crop.csv
+        (participant_id, cell, task_family, features..., imputed)
+      run_outputs/results/{baselines,cnn,hybrid,hybrid_v2}/primary/
+        predictions.csv (paired references only)
+
+  NEW FILES
+    src/training/run_per_task_v3.py     the v3 runner (Phase 2)
+    scripts/hash_tree.py                snapshot / compare SHA-256 of a tree
+    tests/test_per_task_v3.py           synthetic tests
+    tests/test_hash_tree.py
+    notebooks/colab_per_task_v3.ipynb   thin bootstrap only
+    DOCS/plans/EMHA_V3_MASTER_PLAN.txt  this file
+    DOCS/plans/v3_checksums_before.txt  Drive snapshot before v3 (Phase 3)
+    DOCS/plans/v3_result.txt            result note + output hashes (Ph. 10)
+
+  SMALL CHANGES TO EXISTING FILES
+    src/utils/config.py     + PerTaskV3Config dataclass
+                            + Config field per_task_v3
+                            + "per_task_v3" in RunnerConfig.fingerprint_exclude
+                            Nothing else in config.py changes.
+    EVALUATION_PROTOCOL.md  + Deviation 6 (and its step-7.1 addendum).
+    REPRODUCE.md            + "Per-exercise v3" section (Phase 10)
+    README.md               + one status line (Phase 10)
+    DOCS/drafts/methods.txt, results.txt, defense_qa.txt (Phase 10)
+
+  UNTOUCHED (git diff main --stat on these must be empty)
+    src/training/run_cnn.py, run_hybrid.py, run_hybrid_v2.py,
+    run_baselines.py, run_ensemble.py, evaluator.py, splits.py, trainer.py,
+    aggregate.py; src/models/*; src/data/*; src/features/*;
+    src/analysis/*; src/utils/synthetic.py; src/pipeline_runner.py;
+    scripts/merge_draws.py; every existing test file; every existing
+    notebook.
+
+
+================================================================================
+5. NAMES AND PATHS (v3 only)
+================================================================================
+
+  Prediction rows use PRED_COLUMNS: analysis, model, feature_set, fold,
+  participant_id, label, prob_sad, pred, in_middle_band.
+  analysis = "primary", in_middle_band = False for every v3 row.
+
+  Per exercise (feature_set = cell code, e.g. "D3", "W2_RH", "CS4"):
+    lr_handcrafted_v3   that exercise's handcrafted features
+                        (features_for_family(family) columns of its rows in
+                        handcrafted_crop.csv) -> fit_lr(pca=False)
+    lr_embeddings_v3    that exercise's 512-d frozen embedding
+                        -> fit_lr(pca=True)
+    cnn_head_v3         ResNet18 fine-tuned on that exercise only
+                        (CNNConfig, TrainingConfig unchanged)
+    cnn_hmm_v3          layer3 column-sequence HMM on that exercise's
+                        cnn_head_v3 checkpoint (HybridConfig grid unchanged:
+                        n_states 2/3/4/6 x PCA 8/16/32 x ergodic/left_right,
+                        24 candidates, 2 selection restarts, 5 refit
+                        restarts) — the titled method, per exercise
+
+  Combinations (fixed now; plain mean of prob_sad over the listed cells):
+    cnn_head_v3_fused / drawing (4) | word (15) | cursive (5) |
+                        word_cursive (20) | all24 (24)
+    cnn_hmm_v3_fused  / drawing | word | cursive | word_cursive | all24
+    cnn_hmm_v3_selected / inner_val_best
+        per outer fold: the one cell whose cnn_hmm_v3 inner-val
+        predictions (calibrated, threshold 0.5) give the highest
+        participant macro-F1; ties go to the earlier cell in ALL_CELLS
+        order; that cell's test predictions are used for that fold.
+
+  The single pre-declared v3 test: cnn_hmm_v3_fused / all24.
+  Everything else in v3 is descriptive / secondary.
+
+  Paired macro-F1 differences (2,000 shared resamples, seed 42):
+    every v3 row vs lr_handcrafted/all (evaluator does this already);
+    the headline row vs lr_handcrafted/all, cnn_hmm_fused/fused,
+      lr_embeddings/concat, cnn_head_fused/fused, cnn_hmm_v2/task_order;
+    family rows vs v1, where the v1 group exists in the reference files:
+      cnn_head_v3_fused/{drawing,word,cursive} vs cnn_head/{same}
+      cnn_hmm_v3_fused/{word,cursive}           vs cnn_hmm/{same}
+      cnn_hmm_v3_fused/word_cursive             vs cnn_hmm_fused/fused
+      A missing v1 group is written as "no v1 counterpart", never skipped
+      silently.
+
+  Paths (all under EMHA_OUTPUT_ROOT = /content/drive/MyDrive/EMHA/run_outputs):
+    models/cnn_v3/primary/<cell>/fold_<k>.pth
+    models/hmm_v3/primary/<cell>/fold_<k>.joblib
+    results/per_task_v3/primary/run_config.json        rerun refuses mismatch
+    results/per_task_v3/primary/parts/<model>__<cell>__fold<k>.csv  test rows
+    results/per_task_v3/primary/parts/<model>__<cell>__fold<k>.val.csv
+                                                       inner-val rows
+    results/per_task_v3/primary/parts/cnn_hmm_v3__<cell>__fold<k>.json
+                                                       HMM selection record
+    results/per_task_v3/primary/predictions.csv        test rows only
+    results/per_task_v3/primary/inner_val_predictions.csv   never evaluated
+    results/per_task_v3/primary/selected_cell.csv      fold, cell, score
+    results/per_task_v3/primary/per_task_table.csv     24 rows, form order
+    results/per_task_v3/primary/metrics.csv, per_fold.csv, confusion.csv,
+                                paired.csv
+    results/per_task_v3/primary/permutation_lr/<kind>__<cell>.npy  nulls
+    results/per_task_v3/primary/permutation_lr.csv     p and BH q per cell
+    results/per_task_v3/primary/permutation_cnn.json   all24 test (if run)
+    results/final/permutation_runs/primary_v3/seed_42/run_config.json
+    results/final/permutation_runs/primary_v3/seed_42/perm_0000.csv ...
+    results/final/EXPLORATORY_v3.txt
+    results/final/fig_v3_per_task_forest.png
+    results/final/fig_v3_per_task_heatmap.png
+    results/final/permutation_null_v3.png
+    logs/v3_<step>_<UTC time>.log                      notebook logs
+
+
+================================================================================
+6. DEVIATION 6 TEXT (append verbatim in step 1.2; fill BUDGET_HOURS)
+================================================================================
+
+6. 2026-10-27 — Exploratory analysis added at the adviser's request, after
+   all v1 and v2 results were seen: v3, per-exercise training. Each of the
+   24 FINALE exercises (src/data/crop_manifest.py ALL_CELLS: D1-D4,
+   W1_LH ... W5_UC, CS1-CS5) is modelled on its own, one image per
+   participant, one model per (exercise, outer fold), on the primary set
+   and folds.csv. The inner split is run_cnn's (inner_split, 15%, seed
+   TrainingConfig.seed + fold, drawn on the true labels) and is the same
+   for all 24 exercises in a fold. Per-exercise models: lr_handcrafted_v3
+   (the exercise's rows of results/features/handcrafted_crop.csv, fit_lr as
+   in run_baselines; imputed values come only from the same participant's
+   other crops of that family and are counted and reported), lr_embeddings_v3
+   (the exercise's cached frozen ResNet18 embedding, fit_lr with PCA),
+   cnn_head_v3 (fine-tuned ResNet18 as in run_cnn, CNNConfig and
+   TrainingConfig unchanged, trained on that exercise's crops only) and
+   cnn_hmm_v3 (run_hybrid's layer3 column-sequence HMM on that exercise's
+   cnn_head_v3 checkpoint, HybridConfig grid unchanged, setting chosen and
+   Platt-calibrated on the inner validation participants; drawing
+   exercises included). Combinations fixed before any v3 result:
+   cnn_head_v3_fused and cnn_hmm_v3_fused, the equal-weight mean of the
+   per-exercise probabilities over the drawing, word and cursive exercises,
+   over word + cursive (word_cursive, the counterpart of v1's fused
+   CNN-HMM) and over all 24 (all24); cnn_hmm_v3_selected, in each outer
+   fold the single exercise with the highest inner-validation participant
+   macro-F1 of cnn_hmm_v3 (ties in ALL_CELLS order), applied to that
+   fold's test participants. The inner validation set is small (about 39
+   participants per fold), so the selected exercise may differ between
+   folds by chance; this makes cnn_hmm_v3_selected noisy but does not
+   involve any test participant. A participant is SAD when P(SAD) >= 0.5.
+   Nothing is fit, selected, weighted or calibrated on outer-test
+   participants. Reported for every v3 row: macro-F1, accuracy, balanced
+   accuracy and ROC-AUC with 2,000-resample bootstrap CIs (seed 42), the
+   majority baseline, every fold and the confusion matrix; paired macro-F1
+   differences vs lr_handcrafted/all for every row, the all24 row also vs
+   cnn_hmm_fused/fused, lr_embeddings/concat, cnn_head_fused/fused and
+   cnn_hmm_v2/task_order, and each family row vs the v1 model of the same
+   kind and family where it exists. Permutation tests: each per-exercise LR
+   model with N = 1,000 (permutation_seed(seed, draw, fold) as in
+   src/analysis/permutation.py) and Benjamini-Hochberg FDR (q = 0.05)
+   across the 24 exercises within each LR model; one CNN-path test,
+   cnn_hmm_v3_fused/all24, with N = 20 full retrains of all 24 exercises,
+   run only if 20 x (main cnn step time + main hmm step time), read from
+   the run logs before any v3 metric is computed, is at most BUDGET_HOURS
+   GPU-session hours; otherwise no CNN-path test is run and CNN rows report
+   bootstrap CIs only. The decision is recorded as an addendum to this
+   deviation and committed before evaluation. Per-exercise CNN rows from
+   the draws are descriptive only. v1 remains the primary model and v2
+   stays exploratory; their outputs are not changed (SHA-256 snapshot of
+   the output root before and after, scripts/hash_tree.py); v3 writes only
+   to v3 paths, is labeled EXPLORATORY everywhere and is reported in full
+   whatever its result. Implementation note: the new PerTaskV3Config
+   section is excluded from the pipeline runner's config fingerprint, like
+   HybridV2Config, so v1's step markers stay valid. Reason: the adviser
+   asked that each exercise be trained and evaluated one by one, to show
+   which tasks carry information about the self-reported state. Real
+   results seen: all v1 and v2 results; no v3 result exists.
+
+
+================================================================================
+7. PHASES, STEPS AND PASTE-READY PROMPTS
+================================================================================
+
+  Where each prompt goes
+    [CURSOR]  paste into Claude Code in Cursor, repo root D:\EMHA_Thesis\EMHA-1
+    [COLAB]   set the variables in cell 1 of notebooks/colab_per_task_v3.ipynb
+              and Run all (the notebook is built in step 2.9)
+    [CHAT]    paste into this Claude Project chat
+    [YOU]     a manual action
+
+  Every [CURSOR] prompt assumes Claude Code reads CLAUDE.md first. Every
+  prompt ends with a stop. Don't chain steps.
+
+--------------------------------------------------------------------------------
+PHASE 0 — Protect v1 and v2 in git                               (local, 20 min)
+--------------------------------------------------------------------------------
+
+STEP 0.1 [YOU] Save this file as D:\EMHA_Thesis\EMHA-1\DOCS\plans\
+EMHA_V3_MASTER_PLAN.txt (don't commit yet; step 0.2 does it).
+
+STEP 0.2 [CURSOR]
+--- prompt ---
+EMHA v3, step 0.2: protect v1 and v2. Repo root D:\EMHA_Thesis\EMHA-1.
+Read CLAUDE.md first.
+1. git checkout main. Show git status. If anything other than
+   DOCS/plans/EMHA_V3_MASTER_PLAN.txt is modified or untracked, STOP and
+   show me; do not stash or discard anything.
+2. git pull. Show git log --oneline -3. HEAD must be 1b26411 or a later
+   commit; if it is not, stop and tell me.
+3. Show git tag -l "cnn-hmm-*" and git tag -l protocol-frozen.
+4. If cnn-hmm-v2 does not exist: git tag -a cnn-hmm-v2 -m "CNN-HMM v2
+   (Deviation 5) complete; state before v3" on HEAD, then
+   git push origin cnn-hmm-v2. Do not touch any other tag.
+5. git add DOCS/plans/EMHA_V3_MASTER_PLAN.txt and commit it alone:
+   "docs: add v3 master plan (per-exercise training, rev. 2)". Push main.
+6. git checkout -b feat/per-task-v3 and git push -u origin feat/per-task-v3.
+Do not run any model or script. No force push. Report in 5 lines: HEAD,
+tags, plan commit hash, branch, push status.
+--- end ---
+Done when: tag cnn-hmm-v2 on GitHub, plan committed on main, branch pushed.
+
+--------------------------------------------------------------------------------
+PHASE 1 — Decide and log Deviation 6 before any v3 code exists   (local, 20 min)
+--------------------------------------------------------------------------------
+
+STEP 1.1 [YOU] Decide D1 (recommended: exploratory) and BUDGET_HOURS for
+D2 (how many Colab GPU-session hours you can still spend on 20 draws; pick
+a number you can actually afford, e.g. 25). Optional: tell the adviser in
+one line that v3 is logged as exploratory.
+
+STEP 1.2 [CURSOR]
+--- prompt ---
+EMHA v3, step 1.2: log Deviation 6. Branch feat/per-task-v3.
+Read CLAUDE.md and EVALUATION_PROTOCOL.md section 9 (Deviations 1-5).
+1. Append the Deviation 6 text from DOCS/plans/EMHA_V3_MASTER_PLAN.txt
+   section 6 to the END of EVALUATION_PROTOCOL.md section 9, verbatim, as
+   item 6, with one blank line before it, matching the indentation of
+   item 5. Replace BUDGET_HOURS with: <TYPE YOUR NUMBER, e.g. 25>.
+   Change nothing else in the file (show git diff --stat: 1 file, only
+   insertions).
+2. Commit it alone: "docs: log Deviation 6 (v3 per-exercise training,
+   exploratory)". Push the branch.
+3. Show the commit hash and its date (git log -1 --format="%H %ci").
+Do not touch code. Do not run anything else.
+--- end ---
+(If you chose D1 = b, tell me before this step and I'll write the
+Deviation 7 text; it goes in the same commit.)
+Done when: Deviation 6 commit is pushed. From here on the v3 design is
+frozen; nothing changes because of a v3 number.
+
+--------------------------------------------------------------------------------
+PHASE 2 — Build v3 on synthetic data only               (Cursor, ~1-2 days)
+--------------------------------------------------------------------------------
+Build in small prompts. After each one: pytest for that part, black, flake8,
+then stop. Nothing in Phase 2 touches real data.
+
+STEP 2.1 [CURSOR] config
+--- prompt ---
+EMHA v3, step 2.1: config only. Branch feat/per-task-v3. Read CLAUDE.md,
+EVALUATION_PROTOCOL.md section 9 item 6, DOCS/plans/EMHA_V3_MASTER_PLAN.txt
+sections 0-5, and src/utils/config.py (HybridV2Config and RunnerConfig as
+the pattern).
+In src/utils/config.py:
+1. Add, right after HybridV2Config, a dataclass PerTaskV3Config with a
+   docstring pointing to src/training/run_per_task_v3.py and
+   EVALUATION_PROTOCOL.md section 9, Deviation 6. The docstring also says
+   that n_cnn_permutations = -1 means "undecided (Deviation 6, D2); set to
+   20 or 0 in plan step 7.1". No inline comments anywhere (the codebase has
+   none since the remove-comments merge). Fields:
+     cells: Tuple[str, ...] = the 24 codes as a literal, in form order:
+       D1 D2 D3 D4, W1_LH W1_RH W1_UC ... W5_LH W5_RH W5_UC, CS1 ... CS5
+       (literal because config.py cannot import crop_manifest: circular)
+     lr_kinds: Tuple[str, ...] = ("lr_handcrafted_v3", "lr_embeddings_v3")
+     cnn_model: str = "cnn_head_v3"
+     hmm_model: str = "cnn_hmm_v3"
+     fused_cnn_model: str = "cnn_head_v3_fused"
+     fused_hmm_model: str = "cnn_hmm_v3_fused"
+     selected_model: str = "cnn_hmm_v3_selected"
+     selected_feature_set: str = "inner_val_best"
+     embedding_prefix: str = "resnet18"
+     fuse_sets: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+         ("drawing", ("drawing",)), ("word", ("word",)),
+         ("cursive", ("cursive",)), ("word_cursive", ("word", "cursive")),
+         ("all24", ("drawing", "word", "cursive")))
+     headline: Tuple[str, str] = ("cnn_hmm_v3_fused", "all24")
+     n_lr_permutations: int = 1000
+     n_cnn_permutations: int = -1
+     fdr_q: float = 0.05
+     paired_references: Tuple[Tuple[str, str], ...] = (
+         ("lr_handcrafted", "all"), ("cnn_hmm_fused", "fused"),
+         ("lr_embeddings", "concat"), ("cnn_head_fused", "fused"),
+         ("cnn_hmm_v2", "task_order"))
+     family_references: Tuple[Tuple[str, str, str, str], ...] = (
+         ("cnn_head_v3_fused", "drawing", "cnn_head", "drawing"),
+         ("cnn_head_v3_fused", "word", "cnn_head", "word"),
+         ("cnn_head_v3_fused", "cursive", "cnn_head", "cursive"),
+         ("cnn_hmm_v3_fused", "word", "cnn_hmm", "word"),
+         ("cnn_hmm_v3_fused", "cursive", "cnn_hmm", "cursive"),
+         ("cnn_hmm_v3_fused", "word_cursive", "cnn_hmm_fused", "fused"))
+     analysis: str = "primary"
+     output_subdir: str = "per_task_v3"
+     cnn_model_subdir: str = "cnn_v3"
+     hmm_model_subdir: str = "hmm_v3"
+     runs_name: str = "primary_v3"
+     report_name: str = "EXPLORATORY_v3.txt"
+     figure_prefix: str = "fig_v3_"
+2. In Config, right after hybrid_v2, add
+   per_task_v3: PerTaskV3Config = field(default_factory=PerTaskV3Config).
+3. Add "per_task_v3" as the last entry of RunnerConfig.fingerprint_exclude.
+Change nothing else in config.py.
+Tests, in a NEW file tests/test_per_task_v3.py (create it now with only
+these two tests):
+  - test_cells_match_crop_manifest: config.per_task_v3.cells ==
+    src.data.crop_manifest.ALL_CELLS.
+  - test_v3_settings_leave_the_run_fingerprint_unchanged: like
+    tests/test_hybrid_v2.py's fingerprint test, monkeypatch
+    config.per_task_v3.n_lr_permutations and assert config_fingerprint()
+    is unchanged.
+Acceptance:
+  a) pytest -q tests/test_per_task_v3.py tests/test_config.py
+     tests/test_hybrid_v2.py passes.
+  b) Fingerprint identical to main: run
+     python -c "from src.pipeline_runner import config_fingerprint; print(config_fingerprint())"
+     on this branch and on main (git stash is NOT allowed; use
+     git worktree add ../emha-main main, run it there, then
+     git worktree remove ../emha-main). Show both values; they must match.
+  c) black --check . and flake8 clean.
+Show git diff --stat. Commit: "feat(v3): PerTaskV3Config (Deviation 6)".
+Stop.
+--- end ---
+
+STEP 2.2 [CURSOR] hash script
+--- prompt ---
+EMHA v3, step 2.2: scripts/hash_tree.py. Branch feat/per-task-v3.
+Read scripts/merge_draws.py and scripts/archive_run.py for style.
+Create scripts/hash_tree.py (stdlib only) with:
+  snapshot(root: Path, tops: list[str]) -> list[tuple[str, str, int]]
+    (relative posix path, sha256, size) for every file under root/<top>
+    for each top, sorted by path. Reads in 1 MiB chunks. Skips nothing.
+  write(rows, out: Path, header: str) -> None
+    "# " header lines, then "sha256  size  path" per line.
+  read(path) -> dict[path, sha256]
+  compare(root, before_file, tops, allowed_new_prefixes) -> dict
+    keys: changed, missing, new_outside_allowed, new_allowed (lists).
+CLI:
+  python -m scripts.hash_tree snapshot ROOT --tops results models --out FILE
+  python -m scripts.hash_tree compare ROOT --before FILE --tops results models
+      --allow-new results/per_task_v3/ models/cnn_v3/ models/hmm_v3/
+      results/final/permutation_runs/primary_v3/
+      results/final/EXPLORATORY_v3.txt results/final/fig_v3_
+      results/final/permutation_null_v3.png
+  compare prints counts and every changed / missing / new-outside path,
+  and exits 1 if any of those three lists is non-empty, else 0.
+tests/test_hash_tree.py on a tmp dir: snapshot/read round trip; a changed
+byte -> changed; a deleted file -> missing; a new file under an allowed
+prefix -> new_allowed only, exit 0; a new file elsewhere -> exit 1.
+pytest -q tests/test_hash_tree.py, black, flake8 clean. Commit:
+"feat(v3): hash_tree snapshot/compare script". Stop.
+--- end ---
+
+STEP 2.3 [CURSOR] runner part A: data access, splits, preflight
+--- prompt ---
+EMHA v3, step 2.3: runner part A. Branch feat/per-task-v3.
+Read CLAUDE.md, EVALUATION_PROTOCOL.md section 9 item 6, and
+DOCS/plans/EMHA_V3_MASTER_PLAN.txt sections 0-5. Read these files fully
+before writing: src/training/run_hybrid_v2.py (structure to copy),
+src/training/run_cnn.py, src/training/splits.py, src/data/dataloader.py,
+src/data/crop_manifest.py, src/features/handcrafted.py,
+src/features/embeddings.py, src/preprocessing/pipeline.py
+(_load_qc_dropped), src/utils/protocol_guard.py.
+Create src/training/run_per_task_v3.py with a module docstring in the
+style of run_hybrid_v2.py (what v3 is, Deviation 6, outputs, CLI) and
+only these functions for now:
+  family_of(cell) -> "drawing" | "word" | "cursive"
+      by prefix (D / W / CS); raises on anything else.
+  output_dir(cfg=config) -> results/<output_subdir>/<analysis>
+  cnn_ckpt_path(cell, fold, cfg) -> models/<cnn_model_subdir>/<analysis>/
+      <cell>/fold_<fold>.pth
+  hmm_model_path(cell, fold, cfg) -> models/<hmm_model_subdir>/<analysis>/
+      <cell>/fold_<fold>.joblib
+  runs_dir(seed, cfg) -> results/final/permutation_runs/<runs_name>/
+      seed_<seed>   (evaluator.output_dir(None, cfg) /
+      cfg.permutation.runs_subdir / runs_name / f"seed_{seed}")
+  context(cfg) -> (labels, ids, folds)
+      labels.csv via labels_csv_path, participants.csv, load_folds,
+      ids = analysis_ids(labels, participants, cfg.per_task_v3.analysis).
+  fold_splits(fold, ids, labels, folds, cfg) -> (inner_train, inner_val,
+      test): fold_ids, assert_no_leakage(train, test), inner_split(train,
+      labels, cfg.cv.inner_val_fraction, cfg.training.seed + fold),
+      assert_no_leakage(inner_train, inner_val, test). This ONE function is
+      used by every model (L3).
+  cell_manifest(manifest, cell, ids, dropped) -> DataFrame
+      processed_manifest rows of that cell for ids, excluding dropped;
+      raises unless every id has exactly one row.
+  cell_loader(manifest_cell, labels, ids, family, train: bool, cfg)
+      -> DataLoader  built directly from CropDataset (do NOT call
+      build_loaders: it reloads the full manifest). train=True: train
+      transform, shuffle=True, generator torch.Generator().manual_seed(
+      cfg.training.seed); else eval transform, shuffle=False. Same
+      batch_size and num_workers as build_loaders.
+  handcrafted_cell(cell, cfg) -> DataFrame indexed by participant_id,
+      columns features_for_family(family_of(cell)), from
+      results/features/handcrafted_crop.csv rows of that cell; raises on
+      NaN or duplicate participant.
+  embedding_cell(cell, cfg) -> DataFrame indexed by participant_id, 512
+      columns, from results/embeddings/<prefix>_<family>.npz rows whose
+      cell == cell; raises on duplicates.
+  imputed_counts(cfg) -> DataFrame cell, n_crops_with_imputed_values
+      (from the "imputed" column of handcrafted_crop.csv, non-empty).
+  settings(cfg) -> dict  (json-safe) with: asdict(per_task_v3) MINUS
+      n_cnn_permutations and n_lr_permutations, asdict of cnn, training,
+      hmm, hybrid, baselines, aggregate; seed; inner_val_fraction;
+      threshold; SHA-256 of folds.csv, labels.csv, processed_manifest.csv,
+      the three resnet18_*.npz and handcrafted_crop.csv.
+  check_settings(path, want) -> bool  (as run_hybrid_v2._check_settings;
+      message names the differing keys and says to log a Deviation 6
+      addendum, never to delete).
+  preflight(cfg) -> dict, and prints it. Raises on any failure:
+      require_frozen_or_synthetic(cfg, "run_per_task_v3") first;
+      on a real root folds/labels SHA-256 must equal the values in plan
+      section 3 L2 (put them in module constants FOLDS_SHA256 /
+      LABELS_SHA256; skip this check only on a synthetic root);
+      n primary, n HAPPY, n SAD; every primary participant has exactly
+      one processed crop for each of the 24 cells; zero dropped crops for
+      primary participants (list them if any); every (participant, cell)
+      present in handcrafted_crop.csv and the embeddings with no NaN;
+      cfg.per_task_v3.cells == ALL_CELLS; the inner split sizes per fold;
+      imputed_counts per cell.
+CLI (argparse, --step with choices; only "preflight" wired for now):
+  python -m src.training.run_per_task_v3 --step preflight
+Every step calls require_frozen_or_synthetic first. No magic numbers:
+everything comes from config. Add tests to tests/test_per_task_v3.py on a
+synthetic root (make_synthetic_root(..., n_participants=60, signal=True,
+images=True); shrink canvas sizes as tests/test_run_cnn.py does) plus a
+test helper _write_handcrafted_crop(root, labels) that writes a
+crop-level table with ID columns, every features_for_family column per
+cell, and an "imputed" column (synthetic.py does not write it; do not
+edit synthetic.py):
+  T1 family_of maps all 24 cells correctly and rejects "X1".
+  T2 cell_manifest gives one row per participant; a duplicated row and a
+     missing row each raise.
+  T3 fold_splits: identical for every cell in a fold; inner_train,
+     inner_val, test pairwise disjoint; union = primary ids.
+  T12 preflight raises on: a dropped crop of a primary participant
+     (write qc_log.csv), a missing embedding row, a NaN handcrafted value.
+pytest -q tests/test_per_task_v3.py, black, flake8 clean. Commit:
+"feat(v3): runner data access, splits and preflight". Stop.
+--- end ---
+
+STEP 2.4 [CURSOR] runner part B: per-exercise LR
+--- prompt ---
+EMHA v3, step 2.4: per-exercise LR. Branch feat/per-task-v3. Read
+src/training/run_baselines.py (fit_lr, _prob_sad, _rows) and the current
+src/training/run_per_task_v3.py.
+Add:
+  lr_cell(kind, cell, fold, ids, labels, folds, cfg, y_train=None)
+      -> DataFrame (PRED_COLUMNS) for that fold's test participants.
+      X = handcrafted_cell(cell) for lr_handcrafted_v3 (pca=False) or
+      embedding_cell(cell) for lr_embeddings_v3 (pca=True).
+      train, test from fold_ids + assert_no_leakage (outer-train is what
+      run_baselines fits on; C by inner CV inside fit_lr).
+      y_train None = true label indices of train; else the given vector.
+      pipe = fit_lr(X.loc[train], y_train, cfg, pca=..., seed=
+      cfg.training.seed + fold); prob = _prob_sad(pipe, X.loc[test]);
+      pred = SAD if prob >= cfg.aggregate.threshold.
+      model = kind, feature_set = cell, analysis = "primary",
+      in_middle_band = False.
+  write_part(frame, path): atomic (.tmp then replace).
+  step_lr(cfg): for kind in lr_kinds, cell in cells, fold in range(
+      n_splits): skip if parts/<kind>__<cell>__fold<k>.csv exists, else
+      fit and write. Before the loop: check_settings(run_config.json,
+      settings(cfg)), writing it if absent. Prints only counts and
+      elapsed time, never a metric.
+Wire --step lr. Tests:
+  T4a test isolation (LR): replace the test participants' rows of one
+      cell's handcrafted and embedding data with random values -> the
+      fitted pipeline coefficients/scaler/PCA for that fold are allclose
+      to before; only test prob_sad changes.
+  T7a parts cover each primary participant exactly once per
+      (kind, cell), all 5 folds, no participant in two folds.
+  T8a rerun skips finished parts (capsys shows "resume"), and a changed
+      setting (monkeypatch cfg.training.seed) raises RuntimeError.
+pytest, black, flake8 clean. Commit: "feat(v3): per-exercise LR". Stop.
+--- end ---
+
+STEP 2.5 [CURSOR] runner part C: per-exercise CNN and CNN-HMM
+--- prompt ---
+EMHA v3, step 2.5: per-exercise CNN and CNN-HMM. Branch feat/per-task-v3.
+Read fully: src/training/run_cnn.py (_fit_fold), src/training/
+run_hybrid.py (extract_set, select_hmm, fit_final, _check_split, _fold),
+src/models/hybrid.py, src/models/hmm.py (save, predict_proba, classes_),
+src/training/trainer.py, and the current run_per_task_v3.py.
+Add:
+  fit_cnn_cell(cell, fold, ids, labels, folds, manifest, dropped, device,
+      ckpt, cfg, shuffle_seed=None) -> (test_rows, val_rows)
+      Mirror run_cnn._fit_fold step by step, but with cell loaders:
+      inner_train, inner_val, test = fold_splits(...)
+      fit_labels = labels if shuffle_seed is None else
+        run_cnn.shuffled_labels(labels, train, shuffle_seed)
+        (train = inner_train + inner_val, i.e. the outer-train ids)
+      set_seed(cfg.training.seed + fold); train/val loaders from
+      cell_loader with fit_labels; EmotionCNN(cfg.cnn);
+      Trainer(model, cfg, device).fit(train, val);
+      trainer.save(ckpt, {"cell", "family", "fold", "cnn": asdict(cfg.cnn),
+        "inner_train_ids", "inner_val_ids", "test_ids", "middle_ids": []}).
+      Predict test and inner_val with eval loaders built on the TRUE
+      labels; one crop per participant -> participant rows directly
+      (prob_sad = crop prob, pred by threshold), model = cnn_model,
+      feature_set = cell.
+  fit_hmm_cell(cell, fold, ids, labels, folds, manifest, dropped, device,
+      ckpt, cfg, shuffle_seed=None, save_path=None)
+      -> (test_rows, val_rows, selection)
+      Do NOT call run_hybrid._fold (it saves under models/hmm/ and returns
+      no inner-val predictions). Repeat its steps:
+      fold_splits; refuse with FileNotFoundError if ckpt is missing;
+      cnn, state = load_cnn(ckpt); _check_split(state, inner_train,
+      inner_val, test, ckpt); fit_labels as above; set_seed(seed);
+      sets via run_hybrid.extract_set(cnn, manifest_cell, role_labels,
+      role_ids, family_of(cell), dropped, device) for inner_train and
+      inner_val (fit_labels) and test (true labels);
+      best, table = run_hybrid.select_hmm(sets["inner_train"],
+      sets["inner_val"], seed) WITHOUT passing n_jobs (it falls back to
+      cfg.runner.hmm_n_jobs, the same value fit_final uses); clf = run_hybrid.fit_final(same, best,
+      seed); if save_path: clf.save(save_path).
+      sad column = list(clf.classes_).index(label_to_index["SAD"]);
+      test and inner-val participant rows from clf.predict_proba.
+      inner-val rows use the TRUE labels in the label column.
+      selection = {"cell", "fold", "chosen": best, "grid": table,
+      "refit_restarts", "restart_log", "cnn_checkpoint",
+      "n_inner_train", "n_inner_val", "n_test"}.
+  step_cnn(cfg, cells=None, folds=None, device="auto") and
+  step_hmm(cfg, cells=None, folds=None, device="auto", n_jobs=None):
+      resume units = (cell, fold). cnn unit done when its test part, its
+      .val.csv part and its checkpoint all exist. hmm unit done when its
+      test part, .val.csv part, .json selection and joblib all exist.
+      hmm refuses a (cell, fold) whose CNN checkpoint is missing and says
+      to run --step cnn first. --n-jobs sets cfg.runner.hmm_n_jobs once
+      at CLI start, and that is the ONLY way n_jobs is set: fit_final has
+      no n_jobs argument and reads the config, so select_hmm must read the
+      same value (never pass n_jobs to it). RunnerConfig is an execution
+      setting, excluded from settings() and from the run fingerprint, and
+      results don't depend on it (Deviation 2). Both call
+      check_settings first. Both print only progress and elapsed time per
+      unit ("cnn D1 fold 0: 312.4 s"), never a metric or val score.
+      Load manifest/labels/dropped once (load_tables) and filter per cell.
+Wire --step cnn and --step hmm with --cells D1,W2_RH --folds 0,1
+--device --n-jobs. Tests (tiny settings via monkeypatch, as in
+tests/test_hybrid_v2.py and tests/test_run_hybrid.py: epochs 1, small
+canvas, hmm n_iter 10, n_restarts 1, selection_restarts 1, grid
+n_states (2,), pca (4,), hmm_n_jobs 1; use 2 cells, e.g. ("D1", "CS1"),
+by monkeypatching cfg.per_task_v3.cells for speed where a test allows):
+  T3b every saved v3 checkpoint's inner_train/inner_val/test IDs equal
+      fold_splits for that fold, for every cell.
+  T4b test isolation (CNN + HMM): overwrite the TEST participants'
+      processed images for one cell with noise and rerun that (cell, fold)
+      into a second output root -> saved CNN state_dict allclose, HMM
+      params / scaler / PCA / Platt params allclose; only test prob_sad
+      changes.
+  T6b hmm refuses when the CNN checkpoint is missing.
+  T9  on a root that already holds stand-in v1 and v2 files (copy the
+      V1_FILES pattern from tests/test_hybrid_v2.py, plus
+      models/cnn/primary/word/fold_0.pth and models/hmm/primary/word/
+      fold_0.joblib stand-ins), running lr, cnn and hmm changes no
+      existing file (hash before/after) and creates files only under the
+      v3 prefixes of plan section 5.
+  T11 determinism on CPU: two runs of one (cell, fold) give identical
+      prediction CSV bytes.
+pytest, black, flake8 clean. Commit: "feat(v3): per-exercise CNN and
+CNN-HMM". Stop.
+--- end ---
+
+STEP 2.6 [CURSOR] runner part D: combine, select, evaluate, table, report
+--- prompt ---
+EMHA v3, step 2.6: combine and evaluate. Branch feat/per-task-v3. Read
+src/training/run_hybrid_v2.py (reference_frames, evaluate, write_report,
+_ci), src/training/evaluator.py (evaluate, validate, analysis_frame,
+paired_diff_ci) and the current run_per_task_v3.py.
+Add:
+  load_parts(cfg, kind="test"|"val") -> DataFrame; raises unless every
+      (model, cell, fold) unit for lr_kinds, cnn_model, hmm_model exists.
+  fuse(per_cell, model, out_model, cfg) -> DataFrame: for each fuse set
+      and fold, the plain mean of prob_sad over that set's cells per
+      participant; asserts every participant has all the set's cells;
+      pred by threshold; feature_set = fuse set name.
+  select_cell(val_rows, cfg) -> DataFrame fold, cell,
+      inner_val_macro_f1: per fold, macro-F1 (sklearn f1_score average
+      macro, zero_division 0, labels HAPPY/SAD) of hmm_model's inner-val
+      rows per cell; max; ties -> earlier cell in cfg.per_task_v3.cells.
+      Reads val rows ONLY (never test rows).
+  selected_predictions(test_rows, selected, cfg) -> DataFrame
+      (model selected_model, feature_set selected_feature_set).
+  step_combine(cfg): writes predictions.csv (all per-cell test rows +
+      10 fused groups + 1 selected group, PRED_COLUMNS, sorted),
+      inner_val_predictions.csv, selected_cell.csv. Runs
+      evaluator.validate on predictions.csv. Prints group count and rows
+      per group only.
+  reference_frames(cfg) -> dict (model, fs) -> primary predictions, from
+      results/{baselines|cnn|hybrid|hybrid_v2}/primary/predictions.csv
+      (source map: lr_* -> baselines, cnn_head* -> cnn, cnn_hmm and
+      cnn_hmm_fused -> hybrid, cnn_hmm_v2 -> hybrid_v2). Missing group ->
+      not included, and recorded.
+  step_evaluate(cfg):
+      REFUSES (RuntimeError) while cfg.per_task_v3.n_cnn_permutations
+      == -1, with the message "D2 undecided: do plan step 7.1 first".
+      result = evaluator.evaluate(concat(v3 rows, all reference groups));
+      write metrics.csv, per_fold.csv, confusion.csv for v3 models only;
+      paired.csv: headline vs every paired_references entry, and every
+      family_references pair (row "no v1 counterpart" when the v1 group
+      is missing); per_task_table.csv: 24 rows in cfg.per_task_v3.cells
+      order (never sorted by score), columns cell, family, task (from
+      crop_manifest DRAWING_NAMES / WORD_NAMES / "cursive k", plus style
+      LH/RH/UC), n, majority_baseline, and for each of the 4 per-cell
+      models: macro_f1, macro_f1_ci_low, macro_f1_ci_high, accuracy (+CI),
+      balanced_accuracy (+CI), roc_auc (+CI), imputed_crops (handcrafted
+      only).
+      Prints file paths only. Never prints a metric.
+  step_report(cfg): results/final/EXPLORATORY_v3.txt. First line exactly:
+      "EXPLORATORY, POST HOC (Deviation 6). Not part of the primary
+      claim; the primary model remains CNN-HMM v1 (cnn_hmm_fused/fused)."
+      Then: data and split summary (n, HAPPY/SAD, inner sizes per fold,
+      imputed counts per cell); the headline row with CI, majority
+      baseline, paired diffs and its permutation p (or "not run (D2)" /
+      "draws incomplete k/20"); the fused and selected rows; selected
+      cell per fold; the full 24-row table in form order, all 4 models;
+      LR permutation p and BH q per cell (if present); family-vs-v1
+      paired table; a fixed limitations paragraph (about 217 training
+      images per model; inner-val of about 39 participants used for early
+      stopping, HMM selection, calibration and cell selection; 24-way
+      multiplicity; post hoc design). Figures: forest plot of macro-F1
+      with CI per exercise for the 4 models with a majority-baseline
+      line, and a heatmap exercise x model of macro-F1 (both in form
+      order, same palette/style helpers as evaluator._style), saved as
+      fig_v3_per_task_forest.png and fig_v3_per_task_heatmap.png at
+      cfg.evaluation.dpi.
+Wire --step combine, evaluate, report. Tests:
+  T5  selection isolation: flip every TEST label in the parts ->
+      selected_cell.csv byte-identical.
+  T6  fuse equals the arithmetic mean of per-cell prob_sad for 3 random
+      participants in every fuse set.
+  T7  predictions.csv: each primary participant exactly once per
+      (model, feature_set), all 5 folds, no inner-val row in it;
+      107 groups (24 x 4 + 10 + 1).
+  T7b per_task_table.csv has 24 rows in cells order.
+  T7c step_evaluate refuses while n_cnn_permutations == -1.
+pytest, black, flake8 clean. Commit: "feat(v3): combine, evaluate,
+report". Stop.
+--- end ---
+
+STEP 2.7 [CURSOR] runner part E: permutation tests
+--- prompt ---
+EMHA v3, step 2.7: permutation tests. Branch feat/per-task-v3. Read
+src/analysis/permutation.py (permutation_seed, p_value, _lr_plan,
+_lr_null_one, permuted_train_labels, cache_draws, _settings, _plot) and
+src/training/run_hybrid_v2.py (permutation) and the current runner.
+Add:
+  bh_qvalues(p) -> np.ndarray  Benjamini-Hochberg adjusted p-values
+      (monotone, capped at 1), implemented here (no new dependency).
+  step_permutation_lr(cfg, n_jobs): for kind in lr_kinds, cell in cells:
+      cache file permutation_lr/<kind>__<cell>.npy (skip if present and
+      length == n_lr_permutations). Null draw k: for each fold, y_train =
+      run_cnn.shuffled_labels(labels, train, permutation_seed(seed, k,
+      fold)) indices of train (true labels on test); refit exactly as
+      lr_cell; null value = pooled test macro-F1 at threshold 0.5 against
+      TRUE test labels. Parallel over draws with joblib (n_jobs).
+      After the first (kind, cell) finishes, print its elapsed time and a
+      projected total for all 48, then continue.
+      Observed = pooled macro-F1 of that (kind, cell) from
+      predictions.csv. p = p_value(null, observed). Write
+      permutation_lr.csv: kind, cell, observed, p, q (BH within kind
+      across the 24 cells), n, seed. Writes nothing else.
+  draw(perm, seed, cfg, device) -> DataFrame: one full retrain of every
+      cell x fold: fit_cnn_cell then fit_hmm_cell with shuffle_seed =
+      permutation_seed(seed, perm, fold), checkpoints in a
+      tempfile.TemporaryDirectory(dir=cfg.paths.models_dir), nothing
+      saved under models/; returns per-cell cnn_head_v3 and cnn_hmm_v3
+      test rows plus the 10 fused groups, with a "perm" column.
+  step_draws(cfg, draws: str, device): REFUSES while n_cnn_permutations
+      == -1, and does nothing (prints "D2 = 0: no CNN-path test") when it
+      is 0. draws parsed like permutation.parse_draws ("0-9" or "7",
+      within [0, n_cnn_permutations)). runs folder = runs_dir(seed):
+      run_cnn.check_resume(runs_dir, draw_settings(cfg)) writes or checks
+      run_config.json (draw_settings = settings(cfg) + {"seed": seed,
+      "analysis": "primary", "kind": "v3_draws"}), each draw cached as
+      perm_{perm:04d}.csv atomically, finished draws skipped. Compatible
+      with scripts/merge_draws.py as is.
+  step_permutation_cnn(cfg): needs all n_cnn_permutations draws, else
+      raises "draws incomplete (k/n)" and computes nothing. Null = macro-F1
+      of (headline model, all24) per draw; observed from predictions.csv;
+      p_value; write permutation_cnn.json (observed, p, n, seed, null
+      mean, list of draws) and results/final/permutation_null_v3.png.
+      Per-cell CNN nulls are written to the JSON as descriptive only.
+Wire --step permutation-lr [--n-jobs], draws --draws 0-9 [--device],
+permutation-cnn. Tests (n tiny via monkeypatch: n_lr 5, n_cnn 2):
+  T10 bh_qvalues on a hand-computed example; p formula; in a draw only
+      outer-train labels differ from the truth (test labels identical);
+      the inner split inside a draw equals fold_splits on true labels.
+  T10b permutation-cnn refuses with 1 of 2 draws; works with 2.
+  T10c merge_draws.merge accepts a v3 runs folder copied elsewhere.
+pytest, black, flake8 clean. Commit: "feat(v3): permutation tests". Stop.
+--- end ---
+
+STEP 2.8 [CURSOR] untouched-files check and full suite
+--- prompt ---
+EMHA v3, step 2.8: whole-branch check. Branch feat/per-task-v3.
+1. git diff main --stat. The only changed/new files allowed are:
+   src/utils/config.py, src/training/run_per_task_v3.py,
+   scripts/hash_tree.py, tests/test_per_task_v3.py, tests/test_hash_tree.py,
+   EVALUATION_PROTOCOL.md, DOCS/plans/EMHA_V3_MASTER_PLAN.txt (if it
+   differs), and nothing else. Show the list. If anything else changed,
+   stop and show me the diff.
+2. git diff main -- src/utils/config.py: only the PerTaskV3Config class,
+   the per_task_v3 Config field and the one fingerprint_exclude entry.
+3. git diff main -- EVALUATION_PROTOCOL.md: only insertions (Deviation 6).
+4. Run the WHOLE suite: pytest -q (show the summary line), black --check .,
+   flake8. Everything that passed on main must still pass.
+5. Re-run the fingerprint comparison from step 2.1 (worktree on main vs
+   this branch): identical.
+6. Review src/training/run_per_task_v3.py against plan section 3 (L1-L14)
+   and list, for each rule, the function and line that enforces it.
+Do not commit anything in this step. Stop.
+--- end ---
+
+STEP 2.9 [CURSOR] Colab notebook
+--- prompt ---
+EMHA v3, step 2.9: notebooks/colab_per_task_v3.ipynb. Branch
+feat/per-task-v3. Copy the structure of notebooks/colab_bootstrap.ipynb
+(Drive mount, GITHUB_TOKEN clone, pip install, GPU check, zip unzip to
+local disk, thread pinning, logging to Drive, auto-disconnect). Bootstrap
+only: no pipeline logic.
+Cell 1 variables:
+  MODE = "run"            # "run" | "snapshot" | "compare"
+  STEP = "preflight"      # preflight | lr | cnn | hmm | combine | evaluate
+                          # | permutation-lr | draws | permutation-cnn | report
+  CELLS = None            # e.g. "D1" or "D1,D2"; None = all 24
+  FOLDS = None            # e.g. "0"; None = all 5
+  DRAWS = None            # e.g. "0-9" (STEP = "draws" only)
+  N_JOBS = -1
+  DEVICE = "cuda"         # "cpu" for CPU-only steps
+  REQUIRE_GPU = None      # e.g. "A100"; None = no check
+  AUTO_DISCONNECT = True
+  BRANCH = "feat/per-task-v3"
+  DRIVE_ZIP = "/content/drive/MyDrive/EMHA/emha-crops.zip"
+  LOCAL_DATA_ROOT = "/content/emha-crops"
+  DRIVE_OUTPUT_ROOT = "/content/drive/MyDrive/EMHA/run_outputs"
+  SNAPSHOT_FILE = DRIVE_OUTPUT_ROOT + "/v3_checksums_before.txt"
+Clone with --branch BRANCH. Print git rev-parse HEAD and nproc.
+MODE "snapshot": python -m scripts.hash_tree snapshot DRIVE_OUTPUT_ROOT
+  --tops results models --out SNAPSHOT_FILE (refuse if SNAPSHOT_FILE
+  already exists).
+MODE "compare": python -m scripts.hash_tree compare ... with the
+  --allow-new list from plan step 2.2.
+MODE "run": set EMHA_DATA_ROOT / EMHA_OUTPUT_ROOT and the three thread
+  variables = "1" BEFORE starting Python, then run
+  python -u -m src.training.run_per_task_v3 --step STEP [--cells]
+  [--folds] [--draws] [--n-jobs] [--device], teeing output to
+  DRIVE_OUTPUT_ROOT/logs/v3_<STEP>_<UTC time>.log, with a first log line
+  holding the git HEAD, GPU name (or "cpu") and nproc.
+tests/test_notebooks.py already globs every notebook (no def/class, no
+saved outputs, no tokens) and must pass UNCHANGED: don't edit that test.
+Clone without --depth (full clone, like colab_bootstrap.ipynb). Clear all
+outputs before saving. pytest -q tests/test_notebooks.py, black, flake8.
+Commit: "feat(v3): Colab bootstrap notebook". Push the branch. Stop.
+--- end ---
+
+STEP 2.10 [CURSOR] smoke the whole v3 chain on synthetic data
+--- prompt ---
+EMHA v3, step 2.10: end-to-end synthetic smoke. Branch feat/per-task-v3.
+In a temp folder, make a synthetic root (make_synthetic_root,
+n_participants=60, signal=True, images=True, small canvas as in the
+tests) plus the crop-level handcrafted fixture from the tests, then set
+EMHA_DATA_ROOT and EMHA_OUTPUT_ROOT to it and run, in order, with tiny
+settings passed by a throwaway script under the scratch folder (NOT
+committed, NOT in src/): preflight, lr, cnn, hmm, combine; set
+n_cnn_permutations = 2 and n_lr_permutations = 5 in that script's
+config; evaluate, permutation-lr, draws 0-1, permutation-cnn, report.
+Show: the preflight output, the group count from combine, the first 10
+lines of EXPLORATORY_v3.txt and the list of files written. Confirm the
+signal=True run scores above chance on the fused rows (sanity only).
+Delete the temp folder afterwards. Commit nothing. Stop.
+--- end ---
+Done when: 2.8 and 2.10 are clean. The code is frozen from here; a later
+change is a logged bug fix (L13).
+
+--------------------------------------------------------------------------------
+PHASE 3 — Snapshot the Drive outputs, then preflight         (Colab, ~30 min)
+--------------------------------------------------------------------------------
+
+STEP 3.1 [COLAB] snapshot before anything v3 writes
+  MODE = "snapshot"; DEVICE = "cpu"; REQUIRE_GPU = None
+  (CPU runtime is enough. Takes a few minutes: it hashes results/ and
+  models/ on Drive.)
+  Check: the log ends with the number of files hashed, and
+  MyDrive/EMHA/run_outputs/v3_checksums_before.txt exists.
+
+STEP 3.2 [YOU] Download v3_checksums_before.txt from Drive into
+D:\EMHA_Thesis\EMHA-1\DOCS\plans\.
+
+STEP 3.3 [CURSOR]
+--- prompt ---
+EMHA v3, step 3.3. Branch feat/per-task-v3. DOCS/plans/
+v3_checksums_before.txt was just downloaded from Drive. Show its header
+lines, its line count, and that no path in it starts with any v3 prefix
+from plan section 5 (there must be none). Then commit it alone:
+"docs: snapshot v1+v2 outputs on Drive before v3" and push. Stop.
+--- end ---
+
+STEP 3.4 [COLAB] preflight
+  MODE = "run"; STEP = "preflight"; DEVICE = "cpu"; REQUIRE_GPU = None
+  Expect, exactly: protocol-frozen tag found; folds.csv and labels.csv
+  SHA-256 equal to plan section 3 L2; primary 320 (HAPPY 174, SAD 146);
+  7,680 primary crops (320 x 24), one per (participant, cell); 0 dropped;
+  embeddings and handcrafted rows complete, no NaN; inner sizes per fold
+  about 217 / 39 / 64; imputed counts per cell printed.
+  Anything else -> stop and paste the log into [CHAT].
+
+STEP 3.5 [CURSOR]
+--- prompt ---
+EMHA v3, step 3.5. Create DOCS/plans/v3_result.txt with a title line
+"EMHA v3 (per-exercise) — result note. EXPLORATORY, POST HOC
+(Deviation 6)." and a section "Preflight (Colab, <date>)" containing the
+preflight block I paste below, verbatim. Commit alone: "docs: v3
+preflight" and push. Stop.
+<PASTE THE PREFLIGHT BLOCK FROM THE LOG HERE>
+--- end ---
+
+--------------------------------------------------------------------------------
+PHASE 4 — Per-exercise LR                                (Colab CPU, minutes)
+--------------------------------------------------------------------------------
+
+STEP 4.1 [COLAB]
+  MODE = "run"; STEP = "lr"; DEVICE = "cpu"; REQUIRE_GPU = None
+  Check only: the log says 240 parts written (2 kinds x 24 x 5) and the
+  elapsed time. Do not open any CSV.
+
+--------------------------------------------------------------------------------
+PHASE 5 — Per-exercise CNN (cnn_head_v3)               (Colab GPU, longest)
+--------------------------------------------------------------------------------
+
+STEP 5.1 [COLAB] timing units, one per family
+  MODE = "run"; STEP = "cnn"; CELLS = "D1,W1_LH,CS1"; FOLDS = "0";
+  DEVICE = "cuda"; REQUIRE_GPU = "A100" (or the GPU you'll use for the
+  whole run; keep one GPU type for all 120 units); AUTO_DISCONNECT = False
+  Write down the elapsed seconds per cell (canvas sizes differ by family,
+  so one cell is not typical of all). These 3 units are kept and reused.
+  Rough total = 5 x (4 x t_D1 + 15 x t_W1_LH + 5 x t_CS1), for session
+  planning only; the D2 decision in step 7.1 uses the real step totals.
+
+STEP 5.2 [COLAB] all units (resumes)
+  MODE = "run"; STEP = "cnn"; CELLS = None; FOLDS = None; DEVICE = "cuda";
+  REQUIRE_GPU = <same as 5.1>; AUTO_DISCONNECT = True
+  If the session dies: Run all again with the same values; finished
+  (cell, fold) units are skipped. To split across sessions, run CELLS =
+  "D1,D2,D3,D4,W1_LH,W1_RH,W1_UC,W2_LH" then the next 8, then the last 8.
+  Check: log shows 120 units done; total elapsed time (sum the logs).
+
+--------------------------------------------------------------------------------
+PHASE 6 — Per-exercise CNN-HMM (cnn_hmm_v3)            (Colab, CPU-heavy)
+--------------------------------------------------------------------------------
+The HMM step uses CPU cores, not the GPU (feature extraction is short).
+A GPU session with many vCPUs (A100/L4 sessions show nproc ~12) is
+faster than a 2-core CPU runtime. Check nproc in the log.
+
+STEP 6.1 [COLAB] timing units, one per family
+  MODE = "run"; STEP = "hmm"; CELLS = "D1,W1_LH,CS1"; FOLDS = "0";
+  N_JOBS = -1; DEVICE = "cuda"; AUTO_DISCONNECT = False
+  Write down elapsed seconds per cell and nproc. This is also the first
+  time a drawing HMM runs on real data (v1 only fit word and cursive,
+  HybridConfig.families). If D1 fails with "no HMM setting could be fit",
+  stop and paste the log into [CHAT] (R3); don't change the grid.
+  Rough total = 5 x (4 x t_D1 + 15 x t_W1_LH + 5 x t_CS1).
+
+STEP 6.2 [COLAB] all units (resumes)
+  MODE = "run"; STEP = "hmm"; CELLS = None; FOLDS = None; N_JOBS = -1;
+  DEVICE = "cuda"; AUTO_DISCONNECT = True
+  If a unit fails with "no HMM setting could be fit": stop, don't rerun,
+  paste the log into [CHAT] (risk R3).
+  Check: 120 units done; total elapsed time.
+
+--------------------------------------------------------------------------------
+PHASE 7 — Decide D2 from timing only                         (local, 10 min)
+--------------------------------------------------------------------------------
+
+STEP 7.1 [CURSOR]
+--- prompt ---
+EMHA v3, step 7.1: record the D2 decision. Branch feat/per-task-v3.
+Inputs (from the Colab logs, timing only; no v3 metric has been computed
+or read): total cnn step time = <T_CNN hours>, total hmm step time =
+<T_HMM hours>, GPU = <GPU>, nproc = <N>. BUDGET_HOURS in Deviation 6 =
+<B>.
+1. Compute projected = 20 x (T_CNN + T_HMM). Decision: n = 20 if
+   projected <= B, else n = 0. Show the arithmetic.
+2. Set PerTaskV3Config.n_cnn_permutations to n in src/utils/config.py
+   (only that default changes).
+3. Append to EVALUATION_PROTOCOL.md, directly under Deviation 6, an
+   indented addendum:
+   "Addendum (<today's date>): D2 decided from compute timing only, before
+   any v3 metric was computed. Main run: cnn <T_CNN> h, hmm <T_HMM> h on
+   <GPU>, <N> vCPUs; projected 20 draws = <projected> h; budget <B> h;
+   n_cnn_permutations = <n>."
+4. pytest -q tests/test_per_task_v3.py, black, flake8.
+5. Commit both files together: "docs: v3 D2 decision (n_cnn = <n>,
+   timing only)". Push. Show the commit date.
+Stop.
+--- end ---
+Note: settings() deliberately excludes n_cnn_permutations, so this change
+does not invalidate the finished lr/cnn/hmm parts.
+
+--------------------------------------------------------------------------------
+PHASE 8 — Combine and evaluate                              (Colab CPU, fast)
+--------------------------------------------------------------------------------
+Colab clones the branch fresh, so it picks up the step-7.1 commit.
+
+STEP 8.1 [COLAB]
+  MODE = "run"; STEP = "combine"; DEVICE = "cpu"
+  Check: 107 groups, each 320 participants, 5 folds.
+
+STEP 8.2 [COLAB]
+  MODE = "run"; STEP = "evaluate"; DEVICE = "cpu"
+  Check: metrics.csv, per_fold.csv, confusion.csv, paired.csv,
+  per_task_table.csv written. Still don't open them; the report step
+  shows everything at once, after the permutation files exist.
+
+--------------------------------------------------------------------------------
+PHASE 9 — Permutation tests and report
+--------------------------------------------------------------------------------
+
+STEP 9.1 [COLAB] LR permutations
+  MODE = "run"; STEP = "permutation-lr"; N_JOBS = -1; DEVICE = "cpu"
+  (a high-vCPU session helps). The log prints the projected total after
+  the first (kind, cell); if it says more than one session, just Run all
+  again later; finished cells are cached.
+
+STEP 9.2 [COLAB] CNN draws (only if n_cnn_permutations = 20)
+  MODE = "run"; STEP = "draws"; DRAWS = "0-4"; DEVICE = "cuda";
+  REQUIRE_GPU = <same GPU as Phase 5>; AUTO_DISCONNECT = True
+  Then DRAWS = "5-9", "10-14", "15-19" in later sessions (finished draws
+  are skipped). All draws go into the same Drive runs folder, so no merge
+  is needed. (If you ever compute draws on Kaggle instead, merge them with
+  python -m scripts.merge_draws <kaggle runs folder> <Drive runs folder>,
+  which must print "... now holds 20 draws", and record the machine per
+  draw range in REPRODUCE.md, as in Deviation 3.)
+
+STEP 9.3 [COLAB] (only if n_cnn_permutations = 20)
+  MODE = "run"; STEP = "permutation-cnn"; DEVICE = "cpu"
+  If it says "draws incomplete (k/20)", finish 9.2 first. Never compute a
+  p-value from a partial null (R4).
+
+STEP 9.4 [COLAB]
+  MODE = "run"; STEP = "report"; DEVICE = "cpu"
+  Then download results/final/EXPLORATORY_v3.txt,
+  results/per_task_v3/primary/per_task_table.csv and the three v3 PNGs.
+  This is the first time you read any v3 number. Change nothing after.
+
+--------------------------------------------------------------------------------
+PHASE 10 — Verify, document, write up
+--------------------------------------------------------------------------------
+
+STEP 10.1 [COLAB] after-check on Drive
+  MODE = "compare"; DEVICE = "cpu"
+  Must exit 0: 0 changed, 0 missing, 0 new outside the v3 prefixes.
+  If not 0: stop, paste the output into [CHAT]. Don't fix by hand.
+
+STEP 10.2 [CURSOR]
+--- prompt ---
+EMHA v3, step 10.2: result note. Branch feat/per-task-v3.
+I downloaded EXPLORATORY_v3.txt, per_task_table.csv and the compare log
+into D:\EMHA_Thesis\v3_downloads\. Append to DOCS/plans/v3_result.txt:
+1. "Run" block: dates, branch commit hashes used (from the Colab logs:
+   first line of each), GPU, nproc, total time per step.
+2. The headline block and the 24-row table copied VERBATIM from
+   EXPLORATORY_v3.txt (no retyping, no rounding changes).
+3. The compare result line ("0 changed, 0 missing, 0 new outside").
+4. SHA-256 of every v3 output: run python -m scripts.hash_tree snapshot
+   on D:\EMHA_Thesis\v3_downloads (only the files I downloaded) and, for
+   the files left on Drive, paste the lines I give you below from a
+   Colab compare run.
+Commit alone: "docs: record v3 result and output checksums". Push. Stop.
+<PASTE ANY EXTRA HASH LINES HERE>
+--- end ---
+
+STEP 10.3 [CURSOR]
+--- prompt ---
+EMHA v3, step 10.3: docs. Branch feat/per-task-v3. Read REPRODUCE.md (the
+v2 section as the pattern), README.md, DOCS/drafts/methods.txt,
+results.txt, defense_qa.txt and DOCS/plans/v3_result.txt.
+1. REPRODUCE.md: add "Per-exercise v3 (exploratory, Deviation 6)": the
+   notebook, every STEP in order with its CELLS/FOLDS/DRAWS values, the
+   machines and GPUs from v3_result.txt, the snapshot/compare commands.
+2. README.md: one status line saying v3 per-exercise training is complete
+   and exploratory; v1 stays the primary model.
+3. DOCS/drafts/methods.txt: a "Per-exercise training (v3, exploratory)"
+   subsection: the four per-exercise models, the shared split, the fixed
+   combinations, the inner-val selection rule, the LR FDR rule, the single
+   all24 test and the D2 rule as it was applied, and the imputation note.
+4. DOCS/drafts/results.txt: a v3 subsection with numbers copied only from
+   v3_result.txt. Describe each family in plain words; no ranking words
+   ("best", "top", "strongest") about single exercises; mention the BH q
+   next to any LR p < 0.05.
+5. DOCS/drafts/defense_qa.txt: add Q&A for "Why train per exercise?",
+   "Isn't picking the best exercise cherry-picking?" (answer: L9 and the
+   inner-val selected model), "Why only one CNN-path test / why not more
+   draws?", "Why is the per-exercise accuracy lower than the family
+   models?".
+Write as me (student-professional, plain, no buzzwords). pytest -q,
+black, flake8. Commit: "docs: v3 write-up (exploratory, Deviation 6)".
+Push. Stop.
+--- end ---
+
+STEP 10.4 [CURSOR]
+--- prompt ---
+EMHA v3, step 10.4: merge. Open a PR feat/per-task-v3 -> main with gh
+(title "v3: per-exercise training (exploratory, Deviation 6)"), body =
+the v3_result.txt headline block + the list of commits. Show the diff
+stat. Wait for my OK. After my OK: merge with a merge commit (no squash,
+no rebase), pull main, tag cnn-hmm-v3 on the merge commit, push the tag.
+Show git log --oneline -5 and git tag -l "cnn-hmm-*". Stop.
+--- end ---
+
+STEP 10.5 [CHAT] paper update
+--- prompt ---
+Update my thesis paper for v3 (Google Doc "EMHA Thesis Full Paper
+(Chapters 1–6)"). Make a backup copy first. Use only numbers from
+DOCS/plans/v3_result.txt (I'll paste it below). Everything about v3 is
+labeled exploratory (Deviation 6); v1 stays the primary model.
+- Ch. 3: new subsection "Per-exercise training (v3)": the 24 models, the
+  shared split, fixed combinations, inner-val selection rule, LR FDR rule,
+  the single all24 test and how D2 was decided.
+- Ch. 4: new table "Per-exercise results" exactly as printed (24 rows,
+  form order, 4 models), the forest plot as a figure, a short table for
+  the fused and selected rows, one plain paragraph per family.
+- Ch. 5: what the per-exercise view adds and its limits (about 217
+  training images per model, small inner-val reused for early stopping,
+  selection and calibration, 24-way multiplicity, post hoc).
+- Appendix: Deviation 6 and its addendum verbatim.
+Write as me, student-professional. Show me the changed sections before
+writing them into the doc.
+<PASTE v3_result.txt HERE>
+--- end ---
+
+STEP 10.6 [CHAT] adviser update
+--- prompt ---
+Draft a short email to my adviser (Christian V. Maderazo) with the v3
+per-exercise results: one line on what v3 did, the headline all24 row
+with CI and majority baseline, which exercise families stood out (with
+CIs, no overclaiming), the cnn_hmm_v3_selected result, and that v1 stays
+the primary model with v3 reported as exploratory. Attach-ready: mention
+the per-exercise table and forest plot. Use only numbers from the
+v3_result.txt I paste below. Keep it under 200 words, in my voice.
+<PASTE v3_result.txt HERE>
+--- end ---
+
+
+================================================================================
+8. LEAKAGE AUDIT CHECKLIST (tick before any v3 number goes into the paper)
+================================================================================
+
+  [ ] Deviation 6 commit date is earlier than every v3 output file
+  [ ] D2 addendum commit date is earlier than metrics.csv
+  [ ] preflight matched every number in step 3.4
+  [ ] T3, T3b, T4a, T4b, T5, T7, T9, T10 passed on the merged code
+  [ ] step 2.8: no file outside the allowed list changed vs main
+  [ ] config fingerprint identical on main and the branch
+  [ ] selected_cell.csv came from inner_val_predictions.csv only
+  [ ] fused rows recomputed by hand for 3 participants: exact means
+  [ ] no threshold other than config.aggregate.threshold in v3 code
+  [ ] per-exercise table: 24 rows, form order, all 4 models
+  [ ] step 10.1 compare: 0 changed, 0 missing, 0 new outside v3 paths
+  [ ] every number in the paper was copied from a v3 output file
+
+
+================================================================================
+9. RISKS AND WHAT TO DO
+================================================================================
+
+  R1  Colab session dies mid-step -> Run all again with the same values;
+      finished (model, cell, fold) parts and draws are skipped.
+  R2  "records different settings" on resume -> don't delete anything.
+      Paste the message into [CHAT]. A real change means a logged bug fix
+      (L13), not a quiet rerun.
+  R3  "no HMM setting could be fit" for a (cell, fold) -> the step stops.
+      Log it as a Deviation 6 addendum; the cell is reported as "failed"
+      in every table and in the paper. Never dropped quietly, never
+      re-gridded.
+  R4  Compute runs out before 20 draws -> report "draws incomplete
+      (k/20)"; no p-value from a partial null.
+  R5  An exercise looks strong in the table -> report it with its CI and
+      its BH q (LR) or as descriptive (CNN). It is not a headline, and it
+      is not "the best exercise" (L9).
+  R6  The adviser wants extra variants after seeing v3 -> each is a new
+      logged exploratory deviation, reported beside v3, never instead of it.
+  R7  Drive quota fills (120 extra checkpoints, about 45 MB each for a
+      ResNet18 = roughly 5-6 GB) -> check free space before Phase 5; free
+      space by moving unrelated files, never v1/v2 outputs.
+  R8  Different GPU type mid-run -> GPU training isn't bit-identical
+      across GPU types. Keep one type for all of Phase 5; if forced to
+      switch, record which units ran where in v3_result.txt.
