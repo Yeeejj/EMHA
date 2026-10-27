@@ -1,0 +1,90 @@
+EMHA v3 (per-exercise) — result note. EXPLORATORY, POST HOC (Deviation 6).
+
+Preflight (Colab, 2026-10-27)
+
+Run 2026-10-27 12:21:50 UTC on Colab (NVIDIA L4 runtime, 12 vCPUs), branch
+feat/per-task-v3 at 3e1e96c, EMHA_DATA_ROOT=/content/emha-crops (unzipped
+emha-crops.zip), EMHA_OUTPUT_ROOT=/content/drive/MyDrive/EMHA/run_outputs.
+Log: run_outputs/logs/v3_preflight_20261027T122150Z.log (an earlier run at
+12:17:17 UTC, v3_preflight_20261027T121717Z.log, has byte-identical output).
+Preflight only reads and prints; it ran before the Drive snapshot
+(DOCS/plans/v3_checksums_before.txt, 14:41:25 UTC, 491 files) and wrote
+nothing under results/ or models/. The only commit between 3e1e96c and the
+snapshot commit adds that snapshot file; no code changed.
+
+Log, verbatim:
+
+git HEAD 3e1e96c7ee28e234fbd12706d905bd95b44ee5c0 | GPU NVIDIA L4 | nproc 12
+command: /usr/bin/python3 -u -m src.training.run_per_task_v3 --step preflight --device cuda --n-jobs -1
+/usr/local/lib/python3.13/dist-packages/pandas/core/arrays/masked.py:63: UserWarning: Pandas requires version '1.5.0' or newer of 'bottleneck' (version '1.4.2' currently installed).
+  from pandas.core import (
+{
+  "analysis": "primary",
+  "synthetic_root": false,
+  "folds_sha256": "40403812420cde0e1f7d1980ce02ad0f77c531fdf59aab62b7987ca4b90751bf",
+  "labels_sha256": "694d360091e28dc331422cf7171b8e3afcf5dda16545e7ad5b2a9291204d3006",
+  "n_primary": 320,
+  "n_happy": 174,
+  "n_sad": 146,
+  "n_cells": 24,
+  "n_dropped_primary_crops": 0,
+  "inner_splits": [
+    {
+      "fold": 0,
+      "n_inner_train": 217,
+      "n_inner_val": 39,
+      "n_test": 64
+    },
+    {
+      "fold": 1,
+      "n_inner_train": 217,
+      "n_inner_val": 39,
+      "n_test": 64
+    },
+    {
+      "fold": 2,
+      "n_inner_train": 217,
+      "n_inner_val": 39,
+      "n_test": 64
+    },
+    {
+      "fold": 3,
+      "n_inner_train": 217,
+      "n_inner_val": 39,
+      "n_test": 64
+    },
+    {
+      "fold": 4,
+      "n_inner_train": 217,
+      "n_inner_val": 39,
+      "n_test": 64
+    }
+  ],
+  "imputed_crops_per_cell": {
+    "D1": 0,
+    "D2": 1,
+    "D3": 0,
+    "D4": 0,
+    "W1_LH": 8,
+    "W1_RH": 7,
+    "W1_UC": 0,
+    "W2_LH": 2,
+    "W2_RH": 3,
+    "W2_UC": 4,
+    "W3_LH": 2,
+    "W3_RH": 3,
+    "W3_UC": 2,
+    "W4_LH": 3,
+    "W4_RH": 3,
+    "W4_UC": 0,
+    "W5_LH": 2,
+    "W5_RH": 7,
+    "W5_UC": 4,
+    "CS1": 0,
+    "CS2": 0,
+    "CS3": 2,
+    "CS4": 1,
+    "CS5": 1
+  }
+}
+preflight exit code: 0
