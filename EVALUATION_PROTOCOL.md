@@ -379,3 +379,9 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    asked that each exercise be trained and evaluated one by one, to show
    which tasks carry information about the self-reported state. Real
    results seen: all v1 and v2 results; no v3 result exists.
+
+   Addendum (2026-10-28): D2 decided from compute timing only, before any
+   v3 metric was computed. Main run: cnn 0.357 h, hmm 0.741 h on NVIDIA
+   L4, 12 vCPUs (step totals summed from the Colab logs, timing units
+   included: cnn 24.7 s + 1,258.9 s, hmm 79.9 s + 2,588.5 s); projected
+   20 draws = 20 x 1.098 h = 21.96 h; budget 25 h; n_cnn_permutations = 20.

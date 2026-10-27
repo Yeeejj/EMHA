@@ -279,7 +279,7 @@ class PerTaskV3Config:
     )
     headline: Tuple[str, str] = ("cnn_hmm_v3_fused", "all24")
     n_lr_permutations: int = 1000
-    n_cnn_permutations: int = -1
+    n_cnn_permutations: int = 20
     fdr_q: float = 0.05
     paired_references: Tuple[Tuple[str, str], ...] = (
         ("lr_handcrafted", "all"),
