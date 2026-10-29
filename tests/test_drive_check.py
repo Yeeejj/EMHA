@@ -145,6 +145,50 @@ def test_missing_folder_raises(staging):
         drive_check.check_draws(_Svc(_tree()), staging, "EMHA/nope", 20)
 
 
+def _confirm(rows, path, **kw):
+    naps = []
+    out = drive_check.confirm_draw(
+        _Svc(rows), "f2", path, wait_s=60, poll_s=15, sleep=naps.append, **kw
+    )
+    return out, naps
+
+
+def test_confirm_draw_already_uploaded(staging):
+    rows = _tree([("perm_0005.csv", 105)])
+    (line, ok), naps = _confirm(rows, staging / "perm_0005.csv")
+    assert ok and "confirmed" in line and naps == []
+    assert len([r for r in rows if r["name"] == "perm_0005.csv"]) == 1
+
+
+def test_confirm_draw_uploads_after_waiting(staging):
+    rows = _tree()
+    (line, ok), naps = _confirm(rows, staging / "perm_0005.csv")
+    assert ok and "uploaded through the API (105 bytes)" in line
+    assert naps == [15, 15, 15, 15]
+    assert [r["size"] for r in rows if r["name"] == "perm_0005.csv"] == [105]
+
+
+def test_confirm_draw_sees_a_late_mount_upload(staging):
+    rows = _tree()
+
+    def nap(_):
+        if not any(r["name"] == "perm_0005.csv" for r in rows):
+            rows.append(_row("late", "perm_0005.csv", "f2", 105, False))
+
+    line, ok = drive_check.confirm_draw(
+        _Svc(rows), "f2", staging / "perm_0005.csv", wait_s=60, poll_s=15, sleep=nap
+    )
+    assert ok and "confirmed" in line
+    assert len([r for r in rows if r["name"] == "perm_0005.csv"]) == 1
+
+
+def test_confirm_draw_never_overwrites_a_wrong_size(staging):
+    rows = _tree([("perm_0005.csv", 7)])
+    (line, ok), _ = _confirm(rows, staging / "perm_0005.csv")
+    assert not ok and "MISMATCH" in line
+    assert [r["size"] for r in rows if r["name"] == "perm_0005.csv"] == [7]
+
+
 def test_drive_upload_names_the_file(tmp_path):
     rows = _tree()
     path = tmp_path / "v3_draws_drive_check.log"

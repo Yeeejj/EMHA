@@ -17,11 +17,14 @@ their path relative to My Drive.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 DRAW_GLOB = "perm_*.csv"
 _PAGE_SIZE = 1000
+_CONFIRM_WAIT_S = 300
+_CONFIRM_POLL_S = 15
 
 
 def drive_service():
@@ -76,6 +79,42 @@ def drive_upload(svc, folder: str, path, mimetype: str) -> None:
     media = MediaFileUpload(str(path), mimetype=mimetype, resumable=True)
     body = {"name": Path(path).name, "parents": [folder]}
     svc.files().create(body=body, media_body=media, fields="id").execute()
+
+
+def confirm_draw(
+    svc,
+    folder: str,
+    path,
+    wait_s: int = _CONFIRM_WAIT_S,
+    poll_s: int = _CONFIRM_POLL_S,
+    sleep=time.sleep,
+) -> tuple[str, bool]:
+    """Confirm one draw on the server right after it is written; (line, ok).
+
+    Waits up to wait_s for the mounted Drive to upload `path`. If no file of
+    that name is on the server by then, uploads it through the API. ok means
+    the server holds exactly one file of that name with the local size; a
+    file of that name with another size or a duplicate is never overwritten.
+    """
+    path = Path(path)
+    size = path.stat().st_size
+    waited = 0
+    while True:
+        have = drive_sizes(svc, folder).get(path.name, [])
+        if have == [size]:
+            return f"drive server: {path.name} confirmed ({size} bytes)", True
+        if waited >= wait_s:
+            break
+        sleep(poll_s)
+        waited += poll_s
+    if have:
+        return f"drive server: {path.name} MISMATCH: server {have}, local {size}", False
+    drive_upload(svc, folder, path, "text/csv")
+    have = drive_sizes(svc, folder).get(path.name, [])
+    line = f"drive server: {path.name} uploaded through the API ({size} bytes)"
+    if have != [size]:
+        return f"{line}; server now {have}", False
+    return line, True
 
 
 def check_draws(svc, staging, rel: str, n) -> tuple[list, bool]:
