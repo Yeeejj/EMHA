@@ -236,6 +236,11 @@ Headline and per-exercise table, verbatim from results/final/EXPLORATORY_v3.txt:
   majority baseline: 0.544
   accuracy, balanced accuracy and ROC-AUC: per_task_table.csv
 
+Task names. The task column above is copied verbatim and uses the short
+codes of src/data/crop_manifest.py (DRAWING_NAMES). D3 is "Draw a Person in
+the Rain" and D4 is "Draw a House and a Tree"; write these names in the
+thesis.
+
 Figure note. In fig_v3_per_task_forest.png the dashed line labelled "majority
 baseline" is at 0.544, the majority-class accuracy (174/320). The x-axis is
 macro-F1, where always predicting HAPPY scores about 0.35. The figure is left
@@ -269,3 +274,83 @@ ba6d90fa86d7fdf0be05b6bac08ba06fec40a4e17580a4455d4e63fd6d7e7dfe  549  v3_downlo
 
 The other v3 outputs stay on Drive under the allowed v3 paths (1164 new files
 in the compare above). Their checksums are not listed here.
+
+Fused and selected rows, LR permutation tests and family comparisons,
+verbatim from results/final/EXPLORATORY_v3.txt (sections 3, 5 and 6):
+
+3. Fused and selected rows (descriptive)
+  cnn_head_v3_fused/all24: macro-F1 0.500 [0.444, 0.554]; accuracy 0.516 [0.463, 0.572]; balanced accuracy 0.504 [0.452, 0.557]; ROC-AUC 0.503 [0.441, 0.569]; majority 0.544
+  cnn_head_v3_fused/cursive: macro-F1 0.506 [0.450, 0.563]; accuracy 0.512 [0.459, 0.569]; balanced accuracy 0.507 [0.452, 0.564]; ROC-AUC 0.512 [0.448, 0.579]; majority 0.544
+  cnn_head_v3_fused/drawing: macro-F1 0.510 [0.454, 0.562]; accuracy 0.512 [0.456, 0.566]; balanced accuracy 0.510 [0.455, 0.563]; ROC-AUC 0.500 [0.433, 0.564]; majority 0.544
+  cnn_head_v3_fused/word: macro-F1 0.476 [0.422, 0.532]; accuracy 0.491 [0.438, 0.547]; balanced accuracy 0.480 [0.428, 0.535]; ROC-AUC 0.503 [0.439, 0.570]; majority 0.544
+  cnn_head_v3_fused/word_cursive: macro-F1 0.501 [0.445, 0.555]; accuracy 0.516 [0.462, 0.572]; balanced accuracy 0.504 [0.451, 0.559]; ROC-AUC 0.505 [0.442, 0.573]; majority 0.544
+  cnn_hmm_v3_fused/all24: macro-F1 0.371 [0.337, 0.410]; accuracy 0.534 [0.481, 0.591]; balanced accuracy 0.494 [0.473, 0.513]; ROC-AUC 0.536 [0.471, 0.602]; majority 0.544
+  cnn_hmm_v3_fused/cursive: macro-F1 0.438 [0.386, 0.491]; accuracy 0.525 [0.469, 0.584]; balanced accuracy 0.494 [0.454, 0.534]; ROC-AUC 0.512 [0.445, 0.581]; majority 0.544
+  cnn_hmm_v3_fused/drawing: macro-F1 0.430 [0.382, 0.479]; accuracy 0.534 [0.481, 0.591]; balanced accuracy 0.501 [0.467, 0.535]; ROC-AUC 0.496 [0.432, 0.560]; majority 0.544
+  cnn_hmm_v3_fused/word: macro-F1 0.375 [0.337, 0.415]; accuracy 0.522 [0.469, 0.578]; balanced accuracy 0.483 [0.457, 0.508]; ROC-AUC 0.528 [0.462, 0.589]; majority 0.544
+  cnn_hmm_v3_fused/word_cursive: macro-F1 0.379 [0.342, 0.420]; accuracy 0.528 [0.475, 0.588]; balanced accuracy 0.489 [0.465, 0.512]; ROC-AUC 0.533 [0.467, 0.595]; majority 0.544
+  cnn_hmm_v3_selected/inner_val_best: macro-F1 0.487 [0.431, 0.542]; accuracy 0.500 [0.444, 0.556]; balanced accuracy 0.490 [0.435, 0.545]; ROC-AUC 0.469 [0.404, 0.530]; majority 0.544
+  selected cell per fold (inner-val macro-F1 of cnn_hmm_v3):
+    fold 0: CS1 (0.659)
+    fold 1: W2_RH (0.682)
+    fold 2: W1_UC (0.682)
+    fold 3: CS4 (0.639)
+    fold 4: W3_UC (0.739)
+
+5. LR permutation tests per cell (p, BH q)
+  lr_handcrafted_v3 D1: p = 0.4635, q = 0.7624
+  lr_handcrafted_v3 D2: p = 0.0739, q = 0.4436
+  lr_handcrafted_v3 D3: p = 0.4276, q = 0.7624
+  lr_handcrafted_v3 D4: p = 0.0370, q = 0.4436
+  lr_handcrafted_v3 W1_LH: p = 0.2577, q = 0.7624
+  lr_handcrafted_v3 W1_RH: p = 0.3996, q = 0.7624
+  lr_handcrafted_v3 W1_UC: p = 0.4156, q = 0.7624
+  lr_handcrafted_v3 W2_LH: p = 0.0240, q = 0.4436
+  lr_handcrafted_v3 W2_RH: p = 0.2617, q = 0.7624
+  lr_handcrafted_v3 W2_UC: p = 0.4765, q = 0.7624
+  lr_handcrafted_v3 W3_LH: p = 0.5634, q = 0.7995
+  lr_handcrafted_v3 W3_RH: p = 0.7662, q = 0.7995
+  lr_handcrafted_v3 W3_UC: p = 0.4525, q = 0.7624
+  lr_handcrafted_v3 W4_LH: p = 0.2577, q = 0.7624
+  lr_handcrafted_v3 W4_RH: p = 0.9271, q = 0.9271
+  lr_handcrafted_v3 W4_UC: p = 0.0649, q = 0.4436
+  lr_handcrafted_v3 W5_LH: p = 0.5794, q = 0.7995
+  lr_handcrafted_v3 W5_RH: p = 0.7642, q = 0.7995
+  lr_handcrafted_v3 W5_UC: p = 0.3017, q = 0.7624
+  lr_handcrafted_v3 CS1: p = 0.6494, q = 0.7995
+  lr_handcrafted_v3 CS2: p = 0.6753, q = 0.7995
+  lr_handcrafted_v3 CS3: p = 0.7153, q = 0.7995
+  lr_handcrafted_v3 CS4: p = 0.1439, q = 0.6905
+  lr_handcrafted_v3 CS5: p = 0.6044, q = 0.7995
+  lr_embeddings_v3 D1: p = 0.8671, q = 0.9910
+  lr_embeddings_v3 D2: p = 0.0789, q = 0.3788
+  lr_embeddings_v3 D3: p = 0.3177, q = 0.6354
+  lr_embeddings_v3 D4: p = 0.6863, q = 0.9590
+  lr_embeddings_v3 W1_LH: p = 0.1429, q = 0.5714
+  lr_embeddings_v3 W1_RH: p = 0.7992, q = 0.9590
+  lr_embeddings_v3 W1_UC: p = 0.9850, q = 1.0000
+  lr_embeddings_v3 W2_LH: p = 0.2188, q = 0.6066
+  lr_embeddings_v3 W2_RH: p = 0.2458, q = 0.6066
+  lr_embeddings_v3 W2_UC: p = 0.2907, q = 0.6343
+  lr_embeddings_v3 W3_LH: p = 0.0180, q = 0.2478
+  lr_embeddings_v3 W3_RH: p = 0.3447, q = 0.6363
+  lr_embeddings_v3 W3_UC: p = 0.7612, q = 0.9590
+  lr_embeddings_v3 W4_LH: p = 0.5534, q = 0.9488
+  lr_embeddings_v3 W4_RH: p = 1.0000, q = 1.0000
+  lr_embeddings_v3 W4_UC: p = 0.9840, q = 1.0000
+  lr_embeddings_v3 W5_LH: p = 0.1908, q = 0.6066
+  lr_embeddings_v3 W5_RH: p = 0.6753, q = 0.9590
+  lr_embeddings_v3 W5_UC: p = 0.2527, q = 0.6066
+  lr_embeddings_v3 CS1: p = 0.7722, q = 0.9590
+  lr_embeddings_v3 CS2: p = 0.0549, q = 0.3297
+  lr_embeddings_v3 CS3: p = 0.7972, q = 0.9590
+  lr_embeddings_v3 CS4: p = 0.0260, q = 0.2478
+  lr_embeddings_v3 CS5: p = 0.0310, q = 0.2478
+
+6. Family rows vs v1, paired macro-F1 difference [CI]
+  cnn_head_v3_fused/drawing    vs cnn_head/drawing     -0.039 [-0.099, +0.021]
+  cnn_head_v3_fused/word       vs cnn_head/word        -0.038 [-0.100, +0.026]
+  cnn_head_v3_fused/cursive    vs cnn_head/cursive     -0.012 [-0.071, +0.046]
+  cnn_hmm_v3_fused/word        vs cnn_hmm/word         -0.043 [-0.101, +0.014]
+  cnn_hmm_v3_fused/cursive     vs cnn_hmm/cursive      -0.010 [-0.074, +0.057]
+  cnn_hmm_v3_fused/word_cursive vs cnn_hmm_fused/fused  -0.055 [-0.110, -0.000]

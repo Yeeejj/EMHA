@@ -218,3 +218,63 @@ the problem: the same frozen embeddings averaged per participant
 and v2 was below them on the same resamples, -0.094 [-0.163, -0.024]
 (EXPLORATORY_v2.txt section 4). Modelling transitions between 24 very
 different task images adds parameters without adding signal at n = 320.
+
+--------------------------------------------------------------------------------
+16. Why train per exercise?
+--------------------------------------------------------------------------------
+My adviser asked that each exercise be trained and evaluated one by one, to
+see which of the 24 FINALE tasks carry information about the self-reported
+state. The family models (v1) pool the crops of a task family, so they
+cannot say whether a signal comes from, say, the house-and-tree drawing or the
+melancholic word. v3 answers that question as an exploratory analysis
+(EVALUATION_PROTOCOL.md section 9, Deviation 6). It was added after the v1
+and v2 results were known, so it is not part of the primary claim; v1
+stays the primary model. Same participants, folds, labels, inner split,
+seed and 0.5 threshold as v1 (DOCS/drafts/methods.txt, section 12).
+
+--------------------------------------------------------------------------------
+17. Isn't picking the best exercise cherry-picking?
+--------------------------------------------------------------------------------
+It would be, if I took the highest row of the 24-exercise table and called
+it the result. That is selection on test participants, and the v3 plan
+rules it out (DOCS/plans/EMHA_V3_MASTER_PLAN.txt, leakage rule L9). The only
+"best exercise" model I report is cnn_hmm_v3_selected: in each outer fold it
+picks the exercise with the highest inner-validation macro-F1, using only
+that fold's 39 inner-validation participants, and then scores the fold's
+test participants. It reached macro-F1 0.487 [0.431, 0.542] and ROC-AUC
+0.469 [0.404, 0.530], and it picked a different exercise in every fold (CS1,
+W2_RH, W1_UC, CS4, W3_UC). The per-exercise rows are reported as
+descriptive, all 96 of them, and the LR p-values are corrected with
+Benjamini-Hochberg within each model; no test reached q <= 0.05.
+Source: DOCS/plans/v3_result.txt.
+
+--------------------------------------------------------------------------------
+18. Why only one CNN-path test, and why not more draws?
+--------------------------------------------------------------------------------
+One test, because 24 exercises x 2 CNN models is 48 chances to find
+something by luck. So the CNN path got a single test declared before any
+v3 result: cnn_hmm_v3_fused/all24. Each draw retrains all 24 exercises in
+all 5 folds, about 61 to 67 minutes on one NVIDIA L4. The number of draws
+was set by a rule written before training (Deviation 6, D2): 20 draws if
+20 x (cnn + hmm step time) fit in 25 GPU-session hours. The projection was
+21.96 h, so N = 20, committed on 2026-10-28 before any v3 metric existed.
+With N = 20 the smallest possible p is 1/21 = 0.0476. More draws would not
+change the reading here: the observed macro-F1 (0.371) was below all 20
+permuted values (null mean 0.467), so p = 1.0000.
+Source: EVALUATION_PROTOCOL.md section 9 (D2 addendum);
+DOCS/plans/v3_result.txt.
+
+--------------------------------------------------------------------------------
+19. Why is the per-exercise accuracy lower than the family models?
+--------------------------------------------------------------------------------
+Mainly data. A per-exercise model trains on one image per participant, about
+217 images per fold, while a v1 family model trains on every crop of that
+family for the same participants (4, 15 or 5 crops each). Early stopping,
+HMM selection and Platt calibration all lean on the same 39
+inner-validation participants per fold, which makes those choices noisy.
+The fused CNN-HMM over all 24 exercises had macro-F1 0.371 [0.337, 0.410],
+lower than v1's fused CNN-HMM by -0.063 [-0.118, -0.005] on the same
+participants; its accuracy of 0.534 with a balanced accuracy of 0.494 shows
+it predicted mostly one class. The fused CNN head did not differ from its v1
+counterparts: every family difference had a CI that included zero.
+Source: DOCS/plans/v3_result.txt (sections 2, 3 and 6).

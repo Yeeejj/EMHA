@@ -89,6 +89,10 @@ Full run complete; final write-up in progress (as of 2026-10-24).
   reported in full.
 - **Exploratory:** CNN-HMM v2 (task order), Deviation 5, post hoc and never
   part of the primary claim.
+- **Exploratory:** v3 per-exercise training (one model per FINALE exercise),
+  Deviation 6, is complete (2026-10-30). It is post hoc and exploratory; v1
+  stays the primary model. Result note and checksums:
+  `DOCS/plans/v3_result.txt`.
 - **Where results live:** v1 and every other model on Google Drive
   (`MyDrive/EMHA/run_outputs/results/`, `final/RESULTS.txt`); v2 locally in
   `run_outputs/results/hybrid_v2/` and `final/EXPLORATORY_v2.txt`, with
