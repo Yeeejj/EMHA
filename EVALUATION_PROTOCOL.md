@@ -323,3 +323,65 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    result. Reason: v1's left-to-right column sequences carried no information (AUC 0.485),
    while the same frozen features did (lr_embeddings p = 0.008); task order is the only real
    order in offline scans. Real results seen: all (the full run is complete).
+
+6. 2026-10-27 — Exploratory analysis added at the adviser's request, after
+   all v1 and v2 results were seen: v3, per-exercise training. Each of the
+   24 FINALE exercises (src/data/crop_manifest.py ALL_CELLS: D1-D4,
+   W1_LH ... W5_UC, CS1-CS5) is modelled on its own, one image per
+   participant, one model per (exercise, outer fold), on the primary set
+   and folds.csv. The inner split is run_cnn's (inner_split, 15%, seed
+   TrainingConfig.seed + fold, drawn on the true labels) and is the same
+   for all 24 exercises in a fold. Per-exercise models: lr_handcrafted_v3
+   (the exercise's rows of results/features/handcrafted_crop.csv, fit_lr as
+   in run_baselines; imputed values come only from the same participant's
+   other crops of that family and are counted and reported), lr_embeddings_v3
+   (the exercise's cached frozen ResNet18 embedding, fit_lr with PCA),
+   cnn_head_v3 (fine-tuned ResNet18 as in run_cnn, CNNConfig and
+   TrainingConfig unchanged, trained on that exercise's crops only) and
+   cnn_hmm_v3 (run_hybrid's layer3 column-sequence HMM on that exercise's
+   cnn_head_v3 checkpoint, HybridConfig grid unchanged, setting chosen and
+   Platt-calibrated on the inner validation participants; drawing
+   exercises included). Combinations fixed before any v3 result:
+   cnn_head_v3_fused and cnn_hmm_v3_fused, the equal-weight mean of the
+   per-exercise probabilities over the drawing, word and cursive exercises,
+   over word + cursive (word_cursive, the counterpart of v1's fused
+   CNN-HMM) and over all 24 (all24); cnn_hmm_v3_selected, in each outer
+   fold the single exercise with the highest inner-validation participant
+   macro-F1 of cnn_hmm_v3 (ties in ALL_CELLS order), applied to that
+   fold's test participants. The inner validation set is small (about 39
+   participants per fold), so the selected exercise may differ between
+   folds by chance; this makes cnn_hmm_v3_selected noisy but does not
+   involve any test participant. A participant is SAD when P(SAD) >= 0.5.
+   Nothing is fit, selected, weighted or calibrated on outer-test
+   participants. Reported for every v3 row: macro-F1, accuracy, balanced
+   accuracy and ROC-AUC with 2,000-resample bootstrap CIs (seed 42), the
+   majority baseline, every fold and the confusion matrix; paired macro-F1
+   differences vs lr_handcrafted/all for every row, the all24 row also vs
+   cnn_hmm_fused/fused, lr_embeddings/concat, cnn_head_fused/fused and
+   cnn_hmm_v2/task_order, and each family row vs the v1 model of the same
+   kind and family where it exists. Permutation tests: each per-exercise LR
+   model with N = 1,000 (permutation_seed(seed, draw, fold) as in
+   src/analysis/permutation.py) and Benjamini-Hochberg FDR (q = 0.05)
+   across the 24 exercises within each LR model; one CNN-path test,
+   cnn_hmm_v3_fused/all24, with N = 20 full retrains of all 24 exercises,
+   run only if 20 x (main cnn step time + main hmm step time), read from
+   the run logs before any v3 metric is computed, is at most 25
+   GPU-session hours; otherwise no CNN-path test is run and CNN rows report
+   bootstrap CIs only. The decision is recorded as an addendum to this
+   deviation and committed before evaluation. Per-exercise CNN rows from
+   the draws are descriptive only. v1 remains the primary model and v2
+   stays exploratory; their outputs are not changed (SHA-256 snapshot of
+   the output root before and after, scripts/hash_tree.py); v3 writes only
+   to v3 paths, is labeled EXPLORATORY everywhere and is reported in full
+   whatever its result. Implementation note: the new PerTaskV3Config
+   section is excluded from the pipeline runner's config fingerprint, like
+   HybridV2Config, so v1's step markers stay valid. Reason: the adviser
+   asked that each exercise be trained and evaluated one by one, to show
+   which tasks carry information about the self-reported state. Real
+   results seen: all v1 and v2 results; no v3 result exists.
+
+   Addendum (2026-10-28): D2 decided from compute timing only, before any
+   v3 metric was computed. Main run: cnn 0.357 h, hmm 0.741 h on NVIDIA
+   L4, 12 vCPUs (step totals summed from the Colab logs, timing units
+   included: cnn 24.7 s + 1,258.9 s, hmm 79.9 s + 2,588.5 s); projected
+   20 draws = 20 x 1.098 h = 21.96 h; budget 25 h; n_cnn_permutations = 20.

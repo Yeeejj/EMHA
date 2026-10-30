@@ -221,6 +221,91 @@ class HybridV2Config:
 
 
 @dataclass
+class PerTaskV3Config:
+    """Per-exercise training v3, EXPLORATORY and post hoc -- see
+    src/training/run_per_task_v3.py and EVALUATION_PROTOCOL.md section 9,
+    Deviation 6. Never part of the primary claim, the ensemble, or a v1 or
+    v2 output.
+
+    One model per (exercise, outer fold) for each of the 24 cells, in form
+    order (a literal: config.py cannot import crop_manifest). fuse_sets are
+    the equal-weight combinations by family; headline is the single
+    pre-declared v3 test. n_cnn_permutations = -1 means "undecided
+    (Deviation 6, D2); set to 20 or 0 in plan step 7.1". Listed in
+    RunnerConfig.fingerprint_exclude: v3 changes no v1 result, so the full
+    run's resume markers stay valid.
+    """
+
+    cells: Tuple[str, ...] = (
+        "D1",
+        "D2",
+        "D3",
+        "D4",
+        "W1_LH",
+        "W1_RH",
+        "W1_UC",
+        "W2_LH",
+        "W2_RH",
+        "W2_UC",
+        "W3_LH",
+        "W3_RH",
+        "W3_UC",
+        "W4_LH",
+        "W4_RH",
+        "W4_UC",
+        "W5_LH",
+        "W5_RH",
+        "W5_UC",
+        "CS1",
+        "CS2",
+        "CS3",
+        "CS4",
+        "CS5",
+    )
+    lr_kinds: Tuple[str, ...] = ("lr_handcrafted_v3", "lr_embeddings_v3")
+    cnn_model: str = "cnn_head_v3"
+    hmm_model: str = "cnn_hmm_v3"
+    fused_cnn_model: str = "cnn_head_v3_fused"
+    fused_hmm_model: str = "cnn_hmm_v3_fused"
+    selected_model: str = "cnn_hmm_v3_selected"
+    selected_feature_set: str = "inner_val_best"
+    embedding_prefix: str = "resnet18"
+    fuse_sets: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+        ("drawing", ("drawing",)),
+        ("word", ("word",)),
+        ("cursive", ("cursive",)),
+        ("word_cursive", ("word", "cursive")),
+        ("all24", ("drawing", "word", "cursive")),
+    )
+    headline: Tuple[str, str] = ("cnn_hmm_v3_fused", "all24")
+    n_lr_permutations: int = 1000
+    n_cnn_permutations: int = 20
+    fdr_q: float = 0.05
+    paired_references: Tuple[Tuple[str, str], ...] = (
+        ("lr_handcrafted", "all"),
+        ("cnn_hmm_fused", "fused"),
+        ("lr_embeddings", "concat"),
+        ("cnn_head_fused", "fused"),
+        ("cnn_hmm_v2", "task_order"),
+    )
+    family_references: Tuple[Tuple[str, str, str, str], ...] = (
+        ("cnn_head_v3_fused", "drawing", "cnn_head", "drawing"),
+        ("cnn_head_v3_fused", "word", "cnn_head", "word"),
+        ("cnn_head_v3_fused", "cursive", "cnn_head", "cursive"),
+        ("cnn_hmm_v3_fused", "word", "cnn_hmm", "word"),
+        ("cnn_hmm_v3_fused", "cursive", "cnn_hmm", "cursive"),
+        ("cnn_hmm_v3_fused", "word_cursive", "cnn_hmm_fused", "fused"),
+    )
+    analysis: str = "primary"
+    output_subdir: str = "per_task_v3"
+    cnn_model_subdir: str = "cnn_v3"
+    hmm_model_subdir: str = "hmm_v3"
+    runs_name: str = "primary_v3"
+    report_name: str = "EXPLORATORY_v3.txt"
+    figure_prefix: str = "fig_v3_"
+
+
+@dataclass
 class TrainingConfig:
     """Training configuration. Checkpoints are written under Config.paths.models_dir."""
 
@@ -657,6 +742,7 @@ class RunnerConfig:
         "package",
         "headline",
         "hybrid_v2",
+        "per_task_v3",
     )
 
 
@@ -771,6 +857,7 @@ class Config:
     hmm: HMMConfig = field(default_factory=HMMConfig)
     hybrid: HybridConfig = field(default_factory=HybridConfig)
     hybrid_v2: HybridV2Config = field(default_factory=HybridV2Config)
+    per_task_v3: PerTaskV3Config = field(default_factory=PerTaskV3Config)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)

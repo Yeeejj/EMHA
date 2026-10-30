@@ -184,6 +184,100 @@ Outputs (under `EMHA_OUTPUT_ROOT`; none are written to v1 paths):
 Checksums of the run-of-record outputs: `DOCS/plans/v2_result.txt`; backup
 archive: `DOCS/plans/v2_outputs_backup.sha256`.
 
+### Per-exercise v3 (exploratory, Deviation 6)
+
+Post hoc and never part of the primary claim (EVALUATION_PROTOCOL.md
+section 9, Deviation 6 and its D2 addendum). One model per FINALE exercise
+(24 cells), primary set, `folds.csv`. Plan: `DOCS/plans/EMHA_V3_MASTER_PLAN.txt`.
+Settings: `PerTaskV3Config` in `src/utils/config.py`. The full v1 and v2
+outputs live on Drive, so every real-data step runs on Colab against the
+Drive output root.
+
+Notebook: `notebooks/colab_per_task_v3.ipynb` on branch `feat/per-task-v3`
+(tag `cnn-hmm-v3` after the merge), opened from GitHub in Colab, with the
+Colab secret `GITHUB_TOKEN` (notebook access on). It needs the same
+`MyDrive/EMHA/emha-crops.zip` as the v1 Colab run and writes to
+`MyDrive/EMHA/run_outputs/`. Set the values in cell 1, then Run all. Each run
+writes `logs/v3_<STEP>_<UTC time>.log` (snapshot and compare:
+`logs/v3_<MODE>_<UTC time>.log`) whose first line records the git commit,
+GPU and `nproc`.
+
+Steps of record, in order (`MODE = "run"` unless stated; `CELLS`, `FOLDS`
+and `DRAWS` are `None` unless stated):
+
+| # | Cell 1 values | Runtime | Notes |
+|---|---|---|---|
+| 1 | `STEP = "preflight"` | NVIDIA L4, 12 vCPUs | read only; prints n, inner splits, imputed counts |
+| 2 | `MODE = "snapshot"` | CPU, 2 vCPUs | `v3_checksums_before.txt` (491 files; copy in `DOCS/plans/`) |
+| 3 | `STEP = "lr"`, `DEVICE = "cpu"` | CPU, 2 vCPUs | 240 parts, 2.6 min |
+| 4 | `STEP = "cnn"`, `CELLS = "D1,W1_LH,CS1"`, `FOLDS = "0"` | NVIDIA L4, 12 vCPUs | smoke check, 24.7 s |
+| 5 | `STEP = "cnn"` | NVIDIA L4, 12 vCPUs | 1,258.9 s; the 3 smoke units are reused |
+| 6 | `STEP = "hmm"`, `CELLS = "D1,W1_LH,CS1"`, `FOLDS = "0"` | NVIDIA L4, 12 vCPUs | smoke check, 79.9 s |
+| 7 | `STEP = "hmm"` | NVIDIA L4, 12 vCPUs | 2,588.5 s |
+| 8 | (D2 decision committed: `n_cnn_permutations = 20`) | local | before any v3 metric |
+| 9 | `STEP = "combine"`, `DEVICE = "cpu"` | NVIDIA L4, 12 vCPUs | |
+| 10 | `STEP = "evaluate"`, `DEVICE = "cpu"` | NVIDIA L4, 12 vCPUs | |
+| 11 | `STEP = "permutation-lr"`, `DEVICE = "cpu"` | NVIDIA L4, 12 vCPUs | N = 1,000 per cell; resumes per cell |
+| 12 | `STEP = "draws"`, `DRAWS = "<range>"`, `DEVICE = "cuda"` | NVIDIA L4, 12 vCPUs | 20 draws, about 61 to 67 min each |
+| 13 | `STEP = "permutation-cnn"`, `DEVICE = "cpu"` | CPU, 2 vCPUs | reads the 20 draws |
+| 14 | `STEP = "report"`, `DEVICE = "cpu"` | CPU, 2 vCPUs | `results/final/EXPLORATORY_v3.txt` and figures |
+| 15 | `MODE = "compare"` | CPU, 2 vCPUs | must print `OK` and exit 0 |
+
+Draws are seeded by (seed, draw, fold) and resumable: a draw whose
+`perm_<kkkk>.csv` exists is skipped, so disjoint `DRAWS` ranges can run in
+parallel sessions, each in its own Colab runtime (a separate copy or URL of
+the notebook; one tab per runtime). The ranges used,
+and which commit made each final draw file, are in `DOCS/plans/v3_result.txt`.
+With `STEP = "draws"` the notebook also signs in to the Drive API and, after
+each draw, confirms the file on the Drive server or uploads it
+(`scripts/drive_check.py`).
+
+Snapshot and compare (steps 2 and 15) run `scripts/hash_tree.py` on the Drive
+output root; the notebook builds these commands from `TOPS` and `ALLOW_NEW`:
+
+```bash
+python -m scripts.hash_tree snapshot /content/drive/MyDrive/EMHA/run_outputs \
+    --tops results models --out /content/drive/MyDrive/EMHA/run_outputs/v3_checksums_before.txt
+python -m scripts.hash_tree compare /content/drive/MyDrive/EMHA/run_outputs \
+    --before /content/drive/MyDrive/EMHA/run_outputs/v3_checksums_before.txt \
+    --tops results models --allow-new results/per_task_v3/ models/cnn_v3/ \
+    models/hmm_v3/ results/final/permutation_runs/primary_v3/ \
+    results/final/EXPLORATORY_v3.txt results/final/fig_v3_ \
+    results/final/permutation_null_v3.png
+```
+
+Run of record: 2026-10-27 to 2026-10-30, commits 3e1e96c to bfb8a8d (only
+da43da1, the D2 setting, changes `src/`). Compare: 0 changed, 0 missing, 0
+new outside the v3 paths, 1,164 new under them.
+
+Lessons from the run of record (details in `DOCS/plans/v3_result.txt`):
+
+- Keep free space on Drive. When the 100 GB quota was full, the mounted
+  Drive dropped uploads without any error. Each draw creates temporary
+  checkpoint folders under `models/tmp*` (about 45 MB per `.pth`); over the
+  mount, their deletion did not always reach Drive. After a run, delete
+  leftover `tmp*` folders created by that run, then empty them from Drive
+  Trash.
+- With `AUTO_DISCONNECT = False` the run of record's notebook did not flush
+  the mount, and a first permutation-cnn run lost its outputs. The notebook
+  now ends every run with `drive.flush_and_unmount()`, also when
+  `AUTO_DISCONNECT = False`; still check the outputs on Drive before
+  disconnecting.
+
+Outputs (under `run_outputs/`; none are written to v1 or v2 paths):
+
+- `results/per_task_v3/primary/`: `predictions.csv`, `inner_val_predictions.csv`,
+  `parts/`, `selected_cell.csv`, `metrics.csv`, `per_fold.csv`,
+  `confusion.csv`, `paired.csv`, `per_task_table.csv`, `permutation_lr.csv`,
+  `permutation_lr/`, `permutation_cnn.json`, `run_config.json`
+- `models/cnn_v3/`, `models/hmm_v3/`
+- `results/final/permutation_runs/primary_v3/seed_42/perm_0000.csv` to
+  `perm_0019.csv`
+- `results/final/EXPLORATORY_v3.txt`, `fig_v3_per_task_forest.png`,
+  `fig_v3_per_task_heatmap.png`, `permutation_null_v3.png`
+
+Checksums of the downloaded outputs: `DOCS/plans/v3_result.txt`.
+
 ## 3. Checking a reproduction
 
 Compare the new `results/final/RESULTS.txt` sections 1-4 (and

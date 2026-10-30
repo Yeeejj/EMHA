@@ -60,9 +60,29 @@ ReportConfig); src/analysis/questionnaire_report.py; src/data/labeler.py.
 
 Each participant completed a drawing page and a writing page.
 
-Drawing page: four drawings, coded D1 to D4: circles, dots, a person, and a
-house. [MISSING: exact drawing instructions and any time limits]
-[CITE: projective drawing tasks, e.g. House-Tree-Person]
+Drawing page: four drawings, coded D1 to D4: D1 circles, D2 dots, D3 "Draw
+a Person in the Rain", and D4 "Draw a House and a Tree". [MISSING: exact
+drawing instructions and any time limits]
+
+Background of the two projective drawings. D3 follows the
+Draw-a-Person-in-the-Rain task, in which the rain is read as a stressor and
+protection such as an umbrella as coping [CITE: Draw-a-Person-in-the-Rain,
+original source and a scoring system]. One computer-scoring study reported
+that self-reported stress was associated with the number, spacing and area
+of the raindrops [CITE: Social Behavior and Personality, computer scoring of
+the DAPR], while another found no association between the stress
+indicators and a self-report stress scale [CITE: Willis, Joy and Kaiser
+2010, The Arts in Psychotherapy]. D4 is taken from the House-Tree-Person
+family [CITE: Buck, House-Tree-Person]. A 2022 meta-analysis linked several
+house and tree characteristics to mental disorders in general [CITE:
+Frontiers in Psychiatry 2022 meta-analysis of HTP], while a large 2022
+study found no reliable association between the standard HTP indicators
+and mental health problems [CITE: Acta Psychologica 2022, HTP and deep
+learning]. Reviews judge the validity evidence for figure drawings to be
+weak [CITE: Lilienfeld, Wood and Garb 2000]. In this study the drawings are
+not scored with these systems; they are measured with the handcrafted
+drawing features (section 5.1) and used as images by the models.
+[CHECK: verify each source in full text before citing]
 
 Writing page: five emotion words (content, disconnected, melancholic,
 optimistic, vibrant), each written three ways: with the non-dominant left
@@ -386,6 +406,97 @@ freeze and in the results report. [MISSING: software versions, hardware
 (GPU) used for the final run, and the Kaggle/Colab environment details]
 
 Sources: CLAUDE.md; src/utils/run_log.py; src/analysis/report.py.
+
+================================================================================
+12. PER-EXERCISE TRAINING (v3, EXPLORATORY)
+================================================================================
+
+This analysis was added at my adviser's request after all v1 and v2 results
+were known. The question was which of the 24 FINALE exercises, taken one at
+a time, carry information about the self-reported state. It is post hoc and
+exploratory (Deviation 6). v1 stays the primary model, and no v1 or v2
+output was changed.
+
+Models. Each exercise (D1 to D4, the 15 word boxes W1_LH to W5_UC, and CS1
+to CS5) is modelled on its own, with one image per participant and one model
+per exercise and outer fold. There are four per-exercise models:
+
+  - lr_handcrafted_v3: logistic regression on that exercise's handcrafted
+    features, fitted as in section 6.2.
+  - lr_embeddings_v3: logistic regression with PCA on that exercise's frozen
+    ResNet18 embedding, fitted as in section 6.3.
+  - cnn_head_v3: the fine-tuned ResNet18 of section 6.4, with the same
+    settings, trained on that exercise's crops only.
+  - cnn_hmm_v3: the column-sequence HMM of section 6.5 on that exercise's
+    cnn_head_v3 network, with the same setting grid, chosen and
+    Platt-calibrated on inner-validation participants. Unlike v1, drawing
+    exercises are included.
+
+Split. v3 uses the same primary set (n = 320), the same outer folds
+(folds.csv) and the same labels as v1. Within each outer fold the inner
+split is the one the CNN models use (15% of the training participants,
+stratified, seed 42 + fold, drawn on the true labels), and it is the same
+for all 24 exercises. This gives 217 inner-training, 39 inner-validation
+and 64 test participants per fold. Every model checks that no participant
+appears on two sides of a split.
+
+Fixed combinations. Before any v3 result existed, I fixed how the
+per-exercise probabilities are combined. cnn_head_v3_fused and
+cnn_hmm_v3_fused are equal-weight means over the drawing exercises, the word
+exercises, the cursive exercises, word and cursive together (word_cursive,
+the counterpart of v1's fused CNN-HMM), and all 24 exercises (all24).
+Nothing in a combination is learned.
+
+Selected exercise. cnn_hmm_v3_selected is the only "best exercise" model. In
+each outer fold it takes the one exercise whose cnn_hmm_v3 has the highest
+inner-validation participant macro-F1 (ties go to the earlier exercise in
+form order) and applies it to that fold's test participants. Only 39
+participants per fold are used for this choice, so the chosen exercise can
+change between folds by chance. This makes the row noisy, but no test
+participant is involved in the choice.
+
+Threshold and metrics. A participant is SAD when P(SAD) is 0.5 or higher.
+Every v3 row reports macro-F1, accuracy, balanced accuracy and ROC-AUC with
+2,000-resample bootstrap CIs (seed 42), the majority baseline, every fold
+and the confusion matrix, as in section 8. Every row also gets a paired
+macro-F1 difference from lr_handcrafted/all. The all24 row is also compared
+with cnn_hmm_fused/fused, lr_embeddings/concat, cnn_head_fused/fused and
+cnn_hmm_v2/task_order, and each family row is compared with the v1 model of
+the same kind and family.
+
+Permutation tests. Each per-exercise logistic regression gets N = 1,000
+label permutations, as in section 8. Because each LR model is tested on 24
+exercises, the p-values within each model are corrected with the
+Benjamini-Hochberg false discovery rate at q = 0.05 [CITE: Benjamini and
+Hochberg, FDR]. The CNN path gets only one test, cnn_hmm_v3_fused/all24,
+declared before any v3 result. Per-exercise CNN rows are descriptive only.
+
+How the number of CNN draws was set (D2). The CNN-path test retrains all 24
+exercises in all 5 folds for every draw, so its cost had to be decided
+first. The rule, written into Deviation 6 before training, was: after the
+main cnn and hmm steps, take 20 x (cnn step time + hmm step time) from the
+run logs; if that is at most 25 GPU-session hours, run N = 20, otherwise run
+no CNN-path test. The main steps took 0.357 h (cnn) and 0.741 h (hmm) on one
+NVIDIA L4, so 20 draws were projected at 21.96 h, under the 25 h budget. N =
+20 was committed on 2026-10-28, before any v3 metric was computed. The
+smallest attainable p-value is then 1/21 = 0.0476.
+
+Imputation. Some handcrafted feature values of a single crop can be
+missing. A missing value is filled from the same participant's other crops of that task family
+(or a fixed 0.0 when there are none). No other participant and no label is
+used. In v3 this means an imputed value for one exercise comes from the same
+person's other exercises, so the number of crops with imputed values is
+reported per exercise: from 0 (for example D1, W1_UC, CS1) up to 8 (W1_LH)
+of the 320.
+
+Checks. Before v3 ran, SHA-256 checksums of all v1 and v2 outputs on Drive
+were stored. After v3, the same check found 0 changed, 0 missing and 0 new
+files outside the v3 paths.
+
+Sources: EVALUATION_PROTOCOL.md section 9 (Deviation 6 and its D2
+addendum); DOCS/plans/EMHA_V3_MASTER_PLAN.txt (leakage rules L1 to L14);
+DOCS/plans/v3_result.txt; src/training/run_per_task_v3.py;
+src/utils/config.py (PerTaskV3Config); scripts/hash_tree.py.
 
 ================================================================================
 [MISSING] ITEMS

@@ -181,6 +181,95 @@ state that the maps show where the network's prediction was sensitive, not
 why a participant was labeled HAPPY or SAD.
 
 ================================================================================
+PER-EXERCISE TRAINING (v3, EXPLORATORY, Deviation 6)
+================================================================================
+
+Every number in this section is copied from DOCS/plans/v3_result.txt, which
+holds the blocks of results/final/EXPLORATORY_v3.txt verbatim. v3 is post
+hoc and exploratory; it is not part of the primary claim, and v1 remains
+the primary model.
+
+Sample. The primary set held 320 participants (174 HAPPY, 146 SAD). In each
+of the 5 folds, 217 participants trained each per-exercise model, 39 were
+used for inner validation, and 64 were tested. The majority baseline
+accuracy was 0.544.
+
+Pre-declared test. The one test declared before any v3 result was the
+fused CNN-HMM over all 24 exercises, cnn_hmm_v3_fused/all24. It reached
+macro-F1 0.371 [0.337, 0.410], accuracy 0.534 [0.481, 0.591], balanced
+accuracy 0.494 [0.473, 0.513] and ROC-AUC 0.536 [0.471, 0.602], against a
+majority baseline of 0.544. The permutation test gave p = 1.0000 (N = 20,
+seed 42), with a null mean of 0.467: the observed macro-F1 was lower than
+every one of the 20 permuted values. Under the permutation test, its
+macro-F1 was not distinguishable from what would be expected if
+handwriting and label were unrelated.
+
+Its macro-F1 was lower than each reference model on the same participants:
+-0.144 [-0.206, -0.079] against lr_handcrafted/all, -0.063 [-0.118, -0.005]
+against v1's cnn_hmm_fused/fused, -0.204 [-0.268, -0.139] against
+lr_embeddings/concat, -0.163 [-0.227, -0.098] against cnn_head_fused/fused,
+and -0.110 [-0.163, -0.053] against cnn_hmm_v2/task_order. All five CIs
+excluded zero.
+
+Other combinations (descriptive). The fused CNN head had macro-F1 0.500
+[0.444, 0.554] over all 24 exercises, 0.510 [0.454, 0.562] over drawing,
+0.476 [0.422, 0.532] over word, 0.506 [0.450, 0.563] over cursive and 0.501
+[0.445, 0.555] over word and cursive. The fused CNN-HMM had 0.430 [0.382,
+0.479] over drawing, 0.375 [0.337, 0.415] over word, 0.438 [0.386, 0.491]
+over cursive and 0.379 [0.342, 0.420] over word and cursive. The
+inner-validation-selected model, cnn_hmm_v3_selected, had macro-F1 0.487
+[0.431, 0.542] and ROC-AUC 0.469 [0.404, 0.530]. The exercise it used
+differed in every fold (CS1, W2_RH, W1_UC, CS4 and W3_UC).
+
+Compared with the v1 model of the same kind and family, each v3 family row
+had a macro-F1 difference whose CI included zero (drawing, word and cursive
+for the CNN head; word and cursive for the CNN-HMM). For word_cursive
+against v1's fused CNN-HMM the difference was -0.055 [-0.110, -0.000]; the
+upper bound rounds to zero as printed.
+
+Per exercise (descriptive). Table V3 lists macro-F1 [CI] for the four
+models on each of the 24 exercises (v3_result.txt, "4. Per exercise"). Across
+the 24 exercises, macro-F1 ranged from 0.453 to 0.559 for lr_handcrafted_v3,
+0.367 to 0.556 for lr_embeddings_v3, 0.437 to 0.574 for cnn_head_v3 and
+0.397 to 0.514 for cnn_hmm_v3. These rows are descriptive. With 24
+exercises per model, some rows are expected to land high or low by chance,
+and no single row is reported as a finding.
+
+LR permutation tests. Each per-exercise LR model was tested with N = 1,000
+permutations, and the 24 p-values of each model were corrected with
+Benjamini-Hochberg (q = 0.05). Five of the 48 tests had p < 0.05 before
+correction: lr_handcrafted_v3 on D4 (p = 0.0370, q = 0.4436) and W2_LH
+(p = 0.0240, q = 0.4436), and lr_embeddings_v3 on W3_LH (p = 0.0180,
+q = 0.2478), CS4 (p = 0.0260, q = 0.2478) and CS5 (p = 0.0310, q = 0.2478).
+No test had q at or below 0.05.
+
+Reading the fused CNN-HMM. A balanced accuracy of 0.494 and a macro-F1 of
+0.371 next to an accuracy of 0.534 point to a model that predicted mostly
+one class; the confusion matrix (results/per_task_v3/primary/confusion.csv)
+gives the exact split. Accuracy alone would hide this, which is why
+macro-F1 and balanced accuracy are reported next to it.
+
+Figure note. In fig_v3_per_task_forest.png the dashed "majority baseline"
+line is at 0.544, the majority-class accuracy, while the x-axis is
+macro-F1. The caption must say this. A classifier that always predicts
+HAPPY has a macro-F1 of about 0.35, not 0.544.
+
+Limitations. Each per-exercise model trained on about 217 images, far fewer
+than the v1 family models. The same 39 inner-validation participants per
+fold were used for CNN early stopping, HMM selection, Platt calibration and
+the selected exercise. The whole v3 design was set after v1 and v2 results
+were known.
+
+Tables and figures (v3):
+  TV3a  Pre-declared test and paired differences  v3_result.txt > "2. Pre-declared v3 test"
+  TV3b  Fused and selected rows                   v3_result.txt > "3. Fused and selected rows"
+  TV3c  Per exercise, 24 x 4 macro-F1 [CI]        v3_result.txt > "4. Per exercise"
+  TV3d  LR permutation tests (p, BH q)            v3_result.txt > "5. LR permutation tests"
+  FV3a  Per-exercise forest plot                  results/final/fig_v3_per_task_forest.png
+  FV3b  Per-exercise heatmap                      results/final/fig_v3_per_task_heatmap.png
+  FV3c  CNN-path permutation null                 results/final/permutation_null_v3.png
+
+================================================================================
 FIGURE AND TABLE INDEX
 ================================================================================
 
