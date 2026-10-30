@@ -258,9 +258,11 @@ Lessons from the run of record (details in `DOCS/plans/v3_result.txt`):
   mount, their deletion did not always reach Drive. After a run, delete
   leftover `tmp*` folders created by that run, then empty them from Drive
   Trash.
-- With `AUTO_DISCONNECT = False` the notebook does not flush the mount. Run
-  `from google.colab import drive; drive.flush_and_unmount()` in a scratch
-  cell, and check the outputs on Drive, before disconnecting.
+- With `AUTO_DISCONNECT = False` the run of record's notebook did not flush
+  the mount, and a first permutation-cnn run lost its outputs. The notebook
+  now ends every run with `drive.flush_and_unmount()`, also when
+  `AUTO_DISCONNECT = False`; still check the outputs on Drive before
+  disconnecting.
 
 Outputs (under `run_outputs/`; none are written to v1 or v2 paths):
 

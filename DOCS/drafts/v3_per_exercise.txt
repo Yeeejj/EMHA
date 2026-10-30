@@ -1,0 +1,175 @@
+PER-EXERCISE RESULTS (v3, EXPLORATORY): HOW TO PRESENT THEM (DRAFT)
+
+Purpose. This draft shows how the thesis can report, exercise by exercise,
+whether each of the 24 FINALE exercises identified the respondent's
+self-reported state (HAPPY or SAD). Every number is copied from
+DOCS/plans/v3_result.txt (verbatim blocks of results/final/EXPLORATORY_v3.txt).
+Tables A and B were generated from that file by script, not typed.
+
+Where it goes. Results chapter, after the primary result (v1) and the
+exploratory v2 result, under a heading such as "Per-exercise analysis
+(exploratory)". Methods: DOCS/drafts/methods.txt section 12.
+
+================================================================================
+1. LEAD PARAGRAPH (suggested text)
+================================================================================
+
+To see which exercises carry information about the self-reported state, each
+of the 24 FINALE exercises was modelled on its own, with four models per
+exercise, on the primary set of 320 respondents (174 HAPPY, 146 SAD). This
+analysis was added after the main results were known and is exploratory
+(Deviation 6). No single exercise identified the respondents' self-reported
+state better than chance. Across the 96 exercise-and-model results,
+macro-F1 ranged from 0.367 to 0.574, against a majority-class accuracy of
+0.544. Five of the 48 logistic-regression tests had p < 0.05 before
+correction, and none remained after correcting for the 24 exercises tested
+per model (smallest q = 0.2478). The fused CNN-HMM over all 24 exercises,
+the one test declared in advance, reached macro-F1 0.371 [0.337, 0.410]
+with a permutation p of 1.0000 (N = 20).
+
+================================================================================
+2. TABLE A. Macro-F1 [95% CI] per exercise and model
+================================================================================
+
+Caption: Participant-level macro-F1 [95% bootstrap CI, 2,000 resamples] of
+each per-exercise model on the primary set (n = 320; 5-fold cross-validation,
+same folds as the main analysis). Folder = crop folder under DATASET/.
+Majority-class accuracy: 0.544. Always predicting HAPPY gives a macro-F1 of
+about 0.35. Exploratory (Deviation 6); rows are descriptive and are not
+corrected for multiple comparisons. (The pipeline's own output files label
+D3 and D4 with the short codes "person" and "house"; the tasks are "Draw a
+Person in the Rain" and "Draw a House and a Tree".)
+
+  Exercise  Folder            Task                        LR handcrafted         LR embeddings          CNN head               CNN-HMM
+  D1        raw-3Page/D1      circles                     0.500 [0.444, 0.556]   0.468 [0.412, 0.522]   0.550 [0.494, 0.603]   0.456 [0.402, 0.507]
+  D2        raw-3Page/D2      dots                        0.543 [0.485, 0.596]   0.539 [0.479, 0.593]   0.492 [0.434, 0.544]   0.473 [0.420, 0.528]
+  D3        raw-3Page/D3      person in the rain          0.503 [0.446, 0.556]   0.514 [0.455, 0.569]   0.485 [0.431, 0.536]   0.397 [0.351, 0.445]
+  D4        raw-3Page/D4      house and a tree            0.547 [0.494, 0.602]   0.485 [0.430, 0.540]   0.492 [0.434, 0.548]   0.482 [0.429, 0.537]
+  W1_LH     raw-4Page/W1_LH   content (left hand)         0.516 [0.463, 0.570]   0.526 [0.472, 0.578]   0.523 [0.467, 0.576]   0.508 [0.451, 0.563]
+  W1_RH     raw-4Page/W1_RH   content (right hand)        0.506 [0.447, 0.559]   0.477 [0.422, 0.531]   0.517 [0.461, 0.570]   0.411 [0.364, 0.461]
+  W1_UC     raw-4Page/W1_UC   content (uppercase)         0.505 [0.446, 0.561]   0.442 [0.387, 0.495]   0.523 [0.468, 0.581]   0.459 [0.405, 0.516]
+  W2_LH     raw-4Page/W2_LH   melancholic (left hand)     0.559 [0.503, 0.615]   0.517 [0.459, 0.570]   0.536 [0.478, 0.590]   0.461 [0.407, 0.515]
+  W2_RH     raw-4Page/W2_RH   melancholic (right hand)    0.517 [0.462, 0.574]   0.517 [0.460, 0.571]   0.437 [0.383, 0.493]   0.477 [0.425, 0.531]
+  W2_UC     raw-4Page/W2_UC   melancholic (uppercase)     0.501 [0.444, 0.557]   0.516 [0.463, 0.568]   0.505 [0.447, 0.557]   0.469 [0.417, 0.520]
+  W3_LH     raw-4Page/W3_LH   optimistic (left hand)      0.497 [0.443, 0.550]   0.556 [0.500, 0.610]   0.536 [0.482, 0.590]   0.459 [0.408, 0.513]
+  W3_RH     raw-4Page/W3_RH   optimistic (right hand)     0.478 [0.422, 0.531]   0.509 [0.453, 0.562]   0.477 [0.424, 0.531]   0.409 [0.360, 0.457]
+  W3_UC     raw-4Page/W3_UC   optimistic (uppercase)      0.503 [0.447, 0.559]   0.478 [0.423, 0.529]   0.470 [0.413, 0.523]   0.447 [0.393, 0.501]
+  W4_LH     raw-4Page/W4_LH   disconnected (left hand)    0.518 [0.462, 0.571]   0.494 [0.439, 0.549]   0.551 [0.493, 0.604]   0.404 [0.361, 0.449]
+  W4_RH     raw-4Page/W4_RH   disconnected (right hand)   0.453 [0.396, 0.504]   0.367 [0.314, 0.421]   0.460 [0.406, 0.516]   0.438 [0.385, 0.488]
+  W4_UC     raw-4Page/W4_UC   disconnected (uppercase)    0.545 [0.489, 0.600]   0.442 [0.386, 0.496]   0.516 [0.461, 0.571]   0.514 [0.459, 0.569]
+  W5_LH     raw-4Page/W5_LH   vibrant (left hand)         0.493 [0.439, 0.549]   0.523 [0.469, 0.578]   0.454 [0.396, 0.509]   0.450 [0.398, 0.504]
+  W5_RH     raw-4Page/W5_RH   vibrant (right hand)        0.479 [0.426, 0.536]   0.488 [0.434, 0.541]   0.463 [0.409, 0.518]   0.436 [0.386, 0.487]
+  W5_UC     raw-4Page/W5_UC   vibrant (uppercase)         0.514 [0.461, 0.569]   0.516 [0.461, 0.568]   0.496 [0.443, 0.550]   0.514 [0.459, 0.569]
+  CS1       raw-4Page/CS1     passage 1                   0.489 [0.437, 0.544]   0.478 [0.422, 0.532]   0.496 [0.440, 0.552]   0.455 [0.400, 0.511]
+  CS2       raw-4Page/CS2     passage 2                   0.484 [0.427, 0.540]   0.545 [0.495, 0.601]   0.479 [0.422, 0.532]   0.446 [0.395, 0.497]
+  CS3       raw-4Page/CS3     passage 3                   0.484 [0.430, 0.540]   0.475 [0.419, 0.530]   0.460 [0.403, 0.515]   0.450 [0.398, 0.504]
+  CS4       raw-4Page/CS4     passage 4                   0.528 [0.472, 0.581]   0.556 [0.500, 0.608]   0.574 [0.519, 0.627]   0.479 [0.425, 0.535]
+  CS5       raw-4Page/CS5     passage 5                   0.491 [0.434, 0.546]   0.550 [0.494, 0.603]   0.503 [0.449, 0.556]   0.438 [0.386, 0.493]
+
+================================================================================
+3. TABLE B. Permutation tests of the two logistic regressions per exercise
+================================================================================
+
+Caption: Permutation p-value (N = 1,000 label shuffles within the training
+folds) and Benjamini-Hochberg q across the 24 exercises of each model. A
+result counts only if q <= 0.05; no exercise met this.
+
+  Exercise  LR handcrafted: p (q)   LR embeddings: p (q)
+  D1        0.4635 (0.7624)          0.8671 (0.9910)
+  D2        0.0739 (0.4436)          0.0789 (0.3788)
+  D3        0.4276 (0.7624)          0.3177 (0.6354)
+  D4        0.0370 (0.4436)          0.6863 (0.9590)
+  W1_LH     0.2577 (0.7624)          0.1429 (0.5714)
+  W1_RH     0.3996 (0.7624)          0.7992 (0.9590)
+  W1_UC     0.4156 (0.7624)          0.9850 (1.0000)
+  W2_LH     0.0240 (0.4436)          0.2188 (0.6066)
+  W2_RH     0.2617 (0.7624)          0.2458 (0.6066)
+  W2_UC     0.4765 (0.7624)          0.2907 (0.6343)
+  W3_LH     0.5634 (0.7995)          0.0180 (0.2478)
+  W3_RH     0.7662 (0.7995)          0.3447 (0.6363)
+  W3_UC     0.4525 (0.7624)          0.7612 (0.9590)
+  W4_LH     0.2577 (0.7624)          0.5534 (0.9488)
+  W4_RH     0.9271 (0.9271)          1.0000 (1.0000)
+  W4_UC     0.0649 (0.4436)          0.9840 (1.0000)
+  W5_LH     0.5794 (0.7995)          0.1908 (0.6066)
+  W5_RH     0.7642 (0.7995)          0.6753 (0.9590)
+  W5_UC     0.3017 (0.7624)          0.2527 (0.6066)
+  CS1       0.6494 (0.7995)          0.7722 (0.9590)
+  CS2       0.6753 (0.7995)          0.0549 (0.3297)
+  CS3       0.7153 (0.7995)          0.7972 (0.9590)
+  CS4       0.1439 (0.6905)          0.0260 (0.2478)
+  CS5       0.6044 (0.7995)          0.0310 (0.2478)
+
+================================================================================
+4. TEXT PER TASK FAMILY (suggested; no ranking words)
+================================================================================
+
+Drawings (D1 circles, D2 dots, D3 "Draw a Person in the Rain", D4 "Draw a
+House and a Tree"). Macro-F1 ranged from
+0.500 to 0.547 for the handcrafted LR, 0.468 to 0.539 for the embedding LR,
+0.485 to 0.550 for the CNN head and 0.397 to 0.482 for the CNN-HMM. The
+handcrafted LR on D4 had p = 0.0370 before correction (q = 0.4436).
+
+Words (content, melancholic, optimistic, disconnected, vibrant; each written
+with the left hand, the right hand and in uppercase). Macro-F1 ranged from
+0.453 to 0.559 for the handcrafted LR, 0.367 to 0.556 for the embedding LR,
+0.437 to 0.551 for the CNN head and 0.404 to 0.514 for the CNN-HMM. Two
+word results had p < 0.05 before correction: the handcrafted LR on W2_LH
+(melancholic, left hand; p = 0.0240, q = 0.4436) and the embedding LR on
+W3_LH (optimistic, left hand; p = 0.0180, q = 0.2478).
+
+Cursive (passages CS1 to CS5). Macro-F1 ranged from 0.484 to 0.528 for the
+handcrafted LR, 0.475 to 0.556 for the embedding LR, 0.460 to 0.574 for the
+CNN head and 0.438 to 0.479 for the CNN-HMM. Two cursive results had
+p < 0.05 before correction: the embedding LR on CS4 (p = 0.0260, q =
+0.2478) and on CS5 (p = 0.0310, q = 0.2478).
+
+Selected exercise. The model that picks one exercise per fold using only
+inner-validation respondents (cnn_hmm_v3_selected) reached macro-F1 0.487
+[0.431, 0.542]. It picked a different exercise in each of the 5 folds (CS1,
+W2_RH, W1_UC, CS4, W3_UC), so no exercise was chosen consistently.
+
+================================================================================
+5. FIGURES
+================================================================================
+
+Figure V3-1. results/final/fig_v3_per_task_forest.png
+  Caption: Macro-F1 with 95% CI per exercise for the four per-exercise
+  models. The dashed line marks 0.544, the majority-class ACCURACY, shown
+  for reference; on the macro-F1 scale, always predicting HAPPY scores about
+  0.35. Exploratory (Deviation 6).
+
+Figure V3-2. results/final/fig_v3_per_task_heatmap.png
+  Caption: Per-exercise macro-F1 as a heatmap (rows: exercises in form
+  order; columns: models). Descriptive; no multiplicity correction.
+
+Figure V3-3. results/final/permutation_null_v3.png
+  Caption: Permutation null distribution of macro-F1 for the fused CNN-HMM
+  over all 24 exercises (N = 20 full retrains). Observed 0.371; p = 1.0000.
+
+================================================================================
+6. WORDING RULES FOR THIS SECTION
+================================================================================
+
+  - Say "no exercise identified the self-reported state better than chance
+    after correction". Do not call any exercise "the best", "the strongest"
+    or "the most predictive": with 24 exercises per model, some rows land
+    high or low by chance.
+  - Whenever an LR p below 0.05 is mentioned, give its q next to it.
+  - Treat the rows with a CI lower bound above 0.5 (handcrafted LR on
+    W2_LH, 0.559 [0.503, 0.615]; CNN head on CS4, 0.574 [0.519, 0.627]) as
+    descriptive only; neither model on those exercises has a test that
+    survives correction (the CNN head has no per-exercise test).
+  - Write "associated with" or "predicted", never "detects", "reveals" or
+    "diagnoses". The label is a concurrent self-report, not a diagnosis.
+  - Keep v1 as the primary result; this section is exploratory.
+
+================================================================================
+7. ONE-SENTENCE VERSION (abstract, defense slide)
+================================================================================
+
+When each of the 24 FINALE exercises was modelled on its own, no exercise
+identified respondents' self-reported happiness or sadness better than
+chance after correcting for the number of exercises tested.
+
+Source: DOCS/plans/v3_result.txt (sections 2 to 6).
