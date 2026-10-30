@@ -88,3 +88,184 @@ command: /usr/bin/python3 -u -m src.training.run_per_task_v3 --step preflight --
   }
 }
 preflight exit code: 0
+
+Run (Colab, 2026-10-27 to 2026-10-30)
+
+All times UTC. Commit, GPU and nproc are the first line of each Colab log in
+run_outputs/logs/. Every step ran from notebooks/colab_per_task_v3.ipynb on
+branch feat/per-task-v3. Between 3e1e96c and bfb8a8d the only change under
+src/ is da43da1 (the D2 decision): n_cnn_permutations -1 -> 20 in
+src/utils/config.py, which the draws and permutation-cnn steps require.
+644f11a is docs only; d84f7e2 and bfb8a8d change only the notebook and add
+scripts/drive_check.py (the Drive server check of the draw files).
+
+  step            started (log)        commit   machine       time
+  preflight       10-27 12:17, 12:21   3e1e96c  L4, nproc 12  (read only; see above)
+  snapshot        10-27 13:07          3e1e96c  CPU, nproc 2  364 files, superseded (below)
+  snapshot        10-27 14:40          3e1e96c  CPU, nproc 2  491 files (committed, 31f1b55)
+  lr              10-27 15:07          3e1e96c  CPU, nproc 2  2.6 min, 240 parts
+  cnn (smoke)     10-27 15:28          644f11a  L4, nproc 12  24.7 s, 3 units (D1, W1_LH, CS1 fold 0)
+  cnn             10-27 15:34          644f11a  L4, nproc 12  1258.9 s, 117 units + 3 cached
+  hmm (smoke)     10-27 16:03          644f11a  L4, nproc 12  79.9 s, 3 units
+  hmm             10-27 16:07          644f11a  L4, nproc 12  2588.5 s, 117 units + 3 cached
+  combine         10-27 17:22          da43da1  L4, nproc 12  no total printed; 107 groups x 320 rows
+  evaluate        10-27 17:34          da43da1  L4, nproc 12  no total printed
+  permutation-lr  10-27 23:49          da43da1  L4, nproc 12  210.0 min for 18 cells; 30 cached
+  draws           10-28 08:14 to 10-30 da43da1, d84f7e2, bfb8a8d; L4, nproc 12; table below
+  permutation-cnn 10-30 01:09          bfb8a8d  CPU, nproc 2  58 s (Colab cell time; log has no total)
+  report          10-30 01:25          bfb8a8d  CPU, nproc 2  32 s (Colab cell time; log has no total)
+  compare         10-30 01:49          bfb8a8d  CPU, nproc 2  16 min (Colab cell time)
+
+The first snapshot (13:07, 364 files) was taken before the v2 outputs were
+uploaded to Drive. It was removed and the snapshot rerun at 14:40 after the
+upload, so the committed v3_checksums_before.txt (491 files) covers v1 and v2.
+
+permutation-lr: the 23:49 log says "18 computed, 30 cached". The 30 cached
+cells (all 24 lr_handcrafted_v3 cells and lr_embeddings_v3 D1 to W1_RH) came
+from an earlier permutation-lr session whose log is not on Drive.
+
+Draws (n_cnn_permutations = 20, D2). Final file per draw, the run that made it
+and its time from the log ("draw k: s"):
+
+  draw  commit   log (v3_draws_<UTC>.log)         seconds
+  0     da43da1  20261028T081446Z                 3748.6
+  1     da43da1  20261028T081446Z                 3726.2
+  2     da43da1  20261028T105502Z                 3892.5
+  3     da43da1  20261028T125359Z                 4015.9
+  4     da43da1  20261028T125359Z                 3897.9
+  5     d84f7e2  20261029T095951Z                 3688.7
+  6-11  bfb8a8d  session A, first run (log not on Drive)  not recorded
+  12    bfb8a8d  20261029T224859Z (session A rerun)       3744.9 (Colab output)
+  13    bfb8a8d  20261029T103042Z (session B)     3969.1
+  14    bfb8a8d  20261029T103042Z                 3739.8
+  15    bfb8a8d  20261029T103042Z                 3756.1
+  16    bfb8a8d  20261029T103042Z                 3937.7
+  17    bfb8a8d  20261029T103042Z                 3953.3
+  18    bfb8a8d  20261029T103042Z                 4042.1
+  19    bfb8a8d  20261029T224952Z (session B rerun)       3905.9 (Colab output)
+
+Recorded draw times run from 3688.7 to 4042.1 s (about 61 to 67 min on one
+L4). Draws are seeded by (seed, draw, fold), so a rerun of a draw trains the
+same models; no draw was kept from two different runs.
+
+Incidents during the run, in order:
+1. Draws 0 to 4 took three sessions: the 08:14 and 10:55 logs end during
+   draws 2 and 3; the 12:53 session resumed and finished draws 3 and 4.
+2. Draws 5 to 9 (da43da1; logs 10-28 20:40 for draws 5-6 and 10-29 05:43
+   for draws 8-9; no first-run log for draw 7 is on Drive) wrote their files
+   to the mounted Drive and the runner counted them, but the files never
+   reached the Drive server ("7/20 present" after draws 8 and 9). Commit d84f7e2 added a server-side check through the Drive
+   API; draw 5 was rerun with it. bfb8a8d moved the check to after each draw:
+   it waits up to 5 minutes for the file on the server and uploads it through
+   the API if it is still missing. Draws 6 to 19 ran with bfb8a8d in two
+   parallel L4 sessions on disjoint ranges (A: 6-12, B: 13-19).
+3. For draws 13 and 14 the mount uploaded its copy after the API had already
+   uploaded one, leaving two files of the same name and size. The API copies
+   were moved to Drive Trash; one copy of each remains. The runner's count
+   through the mount read "22/20 present" during draw 18; the server listing
+   shows exactly one file per draw.
+4. The PC slept from about 10-29 19:25 to 22:39 UTC, which ended draw 12
+   (session A) and draw 19 (session B) in progress. Both sessions were rerun
+   at 22:48 and 22:49 with the same ranges; finished draws were skipped
+   ("resume"). The log of session A's first run (draws 6 to 11) did not
+   reach Drive.
+5. Drive reached its 100 GB quota (99.98 GB used). Once full, the mount
+   dropped uploads without an error: the 22:48 and 22:49 logs stop at the
+   start of draws 12 and 19, draws 12 and 19 reached the server only through the API, and the
+   end-of-session flush hung in both sessions, which were stopped by hand
+   after the per-draw check had confirmed both draws (no drive_check.log was
+   written for those sessions). The space was taken by temporary checkpoint
+   folders (run_outputs/models/tmp*, about 45 MB per .pth) that the draws
+   create and delete; over the mount the deletes never reached Drive. The six
+   folders created during v3 (tmp0h8d3pr8, tmpwej16byi, tmpt6x89ee5,
+   tmpvxz4p7eq, tmp00lqbh89, tmpvyjhsa61) were moved to Trash and deleted for
+   good (86.78 GB used afterwards). Three older tmp* folders from 10-22 were
+   left as they are.
+6. permutation-cnn: a first attempt, made while Drive was full, left nothing
+   on the server (no JSON, figure or log). It was rerun at 01:09 after the
+   space was freed, with AUTO_DISCONNECT =
+   False and a manual drive.flush_and_unmount(); the JSON, the figure and the
+   log were then confirmed on Drive. report was run the same way. The step
+   only reads the 20 draws and the saved predictions, so the rerun gives the
+   same result.
+7. HMM fits logged restarts whose log-likelihood was -inf ("Current: -inf is
+   not greater than ...") in hmm D1 fold 2 and in draws 5, 8, 9 and 16, next
+   to the usual hmmlearn convergence and "transmat_ zero sum" warnings. Every
+   step still exited 0.
+8. Compute: Colab Pay As You Go; 100 compute units were bought during the
+   draws. 75.47 units were left after compare.
+
+Headline and per-exercise table, verbatim from results/final/EXPLORATORY_v3.txt:
+
+2. Pre-declared v3 test: cnn_hmm_v3_fused/all24
+  macro-F1 0.371 [0.337, 0.410]; accuracy 0.534 [0.481, 0.591]; balanced accuracy 0.494 [0.473, 0.513]; ROC-AUC 0.536 [0.471, 0.602]; majority 0.544
+  permutation test: p = 1.0000 (N = 20, seed 42, null mean 0.467)
+  paired macro-F1 difference, headline - reference [CI]:
+    lr_handcrafted/all       -0.144 [-0.206, -0.079]
+    cnn_hmm_fused/fused      -0.063 [-0.118, -0.005]
+    lr_embeddings/concat     -0.204 [-0.268, -0.139]
+    cnn_head_fused/fused     -0.163 [-0.227, -0.098]
+    cnn_hmm_v2/task_order    -0.110 [-0.163, -0.053]
+
+4. Per exercise, form order (macro-F1 [CI])
+  cell    task          style  lr_handcrafted_v3  lr_embeddings_v3  cnn_head_v3  cnn_hmm_v3
+  D1      circles              0.500 [0.444, 0.556]  0.468 [0.412, 0.522]  0.550 [0.494, 0.603]  0.456 [0.402, 0.507]
+  D2      dots                 0.543 [0.485, 0.596]  0.539 [0.479, 0.593]  0.492 [0.434, 0.544]  0.473 [0.420, 0.528]
+  D3      person               0.503 [0.446, 0.556]  0.514 [0.455, 0.569]  0.485 [0.431, 0.536]  0.397 [0.351, 0.445]
+  D4      house                0.547 [0.494, 0.602]  0.485 [0.430, 0.540]  0.492 [0.434, 0.548]  0.482 [0.429, 0.537]
+  W1_LH   content       LH     0.516 [0.463, 0.570]  0.526 [0.472, 0.578]  0.523 [0.467, 0.576]  0.508 [0.451, 0.563]
+  W1_RH   content       RH     0.506 [0.447, 0.559]  0.477 [0.422, 0.531]  0.517 [0.461, 0.570]  0.411 [0.364, 0.461]
+  W1_UC   content       UC     0.505 [0.446, 0.561]  0.442 [0.387, 0.495]  0.523 [0.468, 0.581]  0.459 [0.405, 0.516]
+  W2_LH   melancholic   LH     0.559 [0.503, 0.615]  0.517 [0.459, 0.570]  0.536 [0.478, 0.590]  0.461 [0.407, 0.515]
+  W2_RH   melancholic   RH     0.517 [0.462, 0.574]  0.517 [0.460, 0.571]  0.437 [0.383, 0.493]  0.477 [0.425, 0.531]
+  W2_UC   melancholic   UC     0.501 [0.444, 0.557]  0.516 [0.463, 0.568]  0.505 [0.447, 0.557]  0.469 [0.417, 0.520]
+  W3_LH   optimistic    LH     0.497 [0.443, 0.550]  0.556 [0.500, 0.610]  0.536 [0.482, 0.590]  0.459 [0.408, 0.513]
+  W3_RH   optimistic    RH     0.478 [0.422, 0.531]  0.509 [0.453, 0.562]  0.477 [0.424, 0.531]  0.409 [0.360, 0.457]
+  W3_UC   optimistic    UC     0.503 [0.447, 0.559]  0.478 [0.423, 0.529]  0.470 [0.413, 0.523]  0.447 [0.393, 0.501]
+  W4_LH   disconnected  LH     0.518 [0.462, 0.571]  0.494 [0.439, 0.549]  0.551 [0.493, 0.604]  0.404 [0.361, 0.449]
+  W4_RH   disconnected  RH     0.453 [0.396, 0.504]  0.367 [0.314, 0.421]  0.460 [0.406, 0.516]  0.438 [0.385, 0.488]
+  W4_UC   disconnected  UC     0.545 [0.489, 0.600]  0.442 [0.386, 0.496]  0.516 [0.461, 0.571]  0.514 [0.459, 0.569]
+  W5_LH   vibrant       LH     0.493 [0.439, 0.549]  0.523 [0.469, 0.578]  0.454 [0.396, 0.509]  0.450 [0.398, 0.504]
+  W5_RH   vibrant       RH     0.479 [0.426, 0.536]  0.488 [0.434, 0.541]  0.463 [0.409, 0.518]  0.436 [0.386, 0.487]
+  W5_UC   vibrant       UC     0.514 [0.461, 0.569]  0.516 [0.461, 0.568]  0.496 [0.443, 0.550]  0.514 [0.459, 0.569]
+  CS1     cursive 1            0.489 [0.437, 0.544]  0.478 [0.422, 0.532]  0.496 [0.440, 0.552]  0.455 [0.400, 0.511]
+  CS2     cursive 2            0.484 [0.427, 0.540]  0.545 [0.495, 0.601]  0.479 [0.422, 0.532]  0.446 [0.395, 0.497]
+  CS3     cursive 3            0.484 [0.430, 0.540]  0.475 [0.419, 0.530]  0.460 [0.403, 0.515]  0.450 [0.398, 0.504]
+  CS4     cursive 4            0.528 [0.472, 0.581]  0.556 [0.500, 0.608]  0.574 [0.519, 0.627]  0.479 [0.425, 0.535]
+  CS5     cursive 5            0.491 [0.434, 0.546]  0.550 [0.494, 0.603]  0.503 [0.449, 0.556]  0.438 [0.386, 0.493]
+  majority baseline: 0.544
+  accuracy, balanced accuracy and ROC-AUC: per_task_table.csv
+
+Figure note. In fig_v3_per_task_forest.png the dashed line labelled "majority
+baseline" is at 0.544, the majority-class accuracy (174/320). The x-axis is
+macro-F1, where always predicting HAPPY scores about 0.35. The figure is left
+as produced; text and captions must say which scale the line is on.
+
+Drive after-check (step 10.1), verbatim from
+logs/v3_compare_20261030T014951Z.log:
+
+git HEAD bfb8a8d6c82429c2eab221af637671d10cfcb87e | GPU cpu | nproc 2
+command: /usr/bin/python3 -u -m scripts.hash_tree compare /content/drive/MyDrive/EMHA/run_outputs --before /content/drive/MyDrive/EMHA/run_outputs/v3_checksums_before.txt --tops results models --allow-new results/per_task_v3/ models/cnn_v3/ models/hmm_v3/ results/final/permutation_runs/primary_v3/ results/final/EXPLORATORY_v3.txt results/final/fig_v3_ results/final/permutation_null_v3.png
+changed: 0
+missing: 0
+new_outside_allowed: 0
+new_allowed: 1164
+OK
+compare exit code: 0
+
+SHA-256 of the downloaded v3 outputs (python -m scripts.hash_tree snapshot
+D:/EMHA_Thesis --tops v3_downloads):
+
+# hash_tree snapshot of D:/EMHA_Thesis
+# tops: v3_downloads
+# utc: 2026-10-30T02:13:24Z
+# files: 6
+18da36ba197cbf2e446db4546c2ab7e0a5c7dda6e58dea180a4f383bff4f2f84  10289  v3_downloads/EXPLORATORY_v3.txt
+acd3899a5b17afb8a8de71d7a8efabd7b032fe0b97f0fddcbf8c9f8de61249c4  185203  v3_downloads/fig_v3_per_task_forest.png
+1dcc75387db0bfba980e0cbae70ec8c111d54264569b4f96dd08399beed79e1c  276958  v3_downloads/fig_v3_per_task_heatmap.png
+c9ce4c13cafac13fda84d5cf355a729337519950f3014fce360627872932ee08  21383  v3_downloads/per_task_table.csv
+a30290c4dcba05b1f1488468279d6b0a941d269c6c52de4153d61084df0267d5  74545  v3_downloads/permutation_null_v3.png
+ba6d90fa86d7fdf0be05b6bac08ba06fec40a4e17580a4455d4e63fd6d7e7dfe  549  v3_downloads/v3_compare_20261030T014951Z.log
+
+The other v3 outputs stay on Drive under the allowed v3 paths (1164 new files
+in the compare above). Their checksums are not listed here.
