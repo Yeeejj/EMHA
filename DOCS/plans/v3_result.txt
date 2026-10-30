@@ -354,3 +354,53 @@ verbatim from results/final/EXPLORATORY_v3.txt (sections 3, 5 and 6):
   cnn_hmm_v3_fused/word        vs cnn_hmm/word         -0.043 [-0.101, +0.014]
   cnn_hmm_v3_fused/cursive     vs cnn_hmm/cursive      -0.010 [-0.074, +0.057]
   cnn_hmm_v3_fused/word_cursive vs cnn_hmm_fused/fused  -0.055 [-0.110, -0.000]
+
+Leakage audit (plan section 8), 2026-10-30, on main at 92eedfc (tag
+cnn-hmm-v3), before any v3 number goes into the paper:
+
+   1  Deviation 6 committed before every v3 output: PASS. 17dd2e6,
+      2026-10-27 02:03 UTC; the first v3 output is from lr at 15:07 UTC
+      (preflight writes nothing).
+   2  D2 addendum committed before metrics.csv: PASS. da43da1,
+      2026-10-27 17:15 UTC; combine ran at 17:22 and evaluate (writes
+      metrics.csv) at 17:34. evaluate refuses while D2 is undecided.
+   3  Preflight matched step 3.4: PASS. folds.csv and labels.csv SHA-256
+      equal L2; n 320 (174 HAPPY, 146 SAD); 0 dropped crops; 217 / 39 / 64
+      in every fold; imputed counts printed. Tag, crop-count and NaN checks
+      stop preflight when they fail; it exited 0.
+   4  T3, T3b, T4a, T4b, T5, T7, T9, T10 on the merged code: PASS. 11 tests
+      (with T6 and the fingerprint test) passed on 92eedfc.
+   5  No file outside the allowed list changed: PASS. Under src/ only
+      run_per_task_v3.py and config.py changed; config.py has no removed
+      lines; EVALUATION_PROTOCOL.md has insertions only. Every other v3
+      file is new (scripts, tests, notebook, docs).
+   6  Config fingerprint identical: PASS. 425c53c603d29aaec3cb023cae9dee28
+      b01373bdd5d2c37bc91dbdc91b5779ef at 1b26411 (before v3) and at
+      92eedfc.
+   7  selected_cell.csv from inner_val_predictions.csv only: PASS.
+      select_cell() reads inner-validation rows only (T5). Recomputed from
+      inner_val_predictions.csv alone, the selection is CS1 0.659, W2_RH
+      0.682, W1_UC 0.682, CS4 0.639, W3_UC 0.739, equal to
+      selected_cell.csv. The 39 inner-validation and 64 test participants
+      of each fold do not overlap; no inner-validation row is in
+      predictions.csv; the 320 cnn_hmm_v3_selected rows equal the selected
+      cell's test rows.
+   8  Fused rows recomputed by hand for 3 participants: PASS. Participants
+      037, 256 and 308 (seed 42): the 30 fused prob_sad values
+      (cnn_head_v3_fused and cnn_hmm_v3_fused x drawing, word, cursive,
+      word_cursive, all24) equal the plain mean of the per-cell prob_sad
+      (atol 1e-9), and each pred follows P(SAD) >= 0.5. predictions.csv
+      has 107 groups.
+   9  No threshold other than config.aggregate.threshold: PASS. Every
+      SAD/HAPPY decision in run_per_task_v3.py uses it; the other 0.5
+      literals are plot spacing and heatmap text colour.
+  10  Per-exercise table, 24 rows, form order, 4 models: PASS.
+  11  Step 10.1 compare 0 / 0 / 0: PASS.
+  12  Every paper number copied from a v3 output: applies in step 10.5.
+
+Items 7 and 8 were checked with a standalone script (no project imports)
+on these copies of results/per_task_v3/primary/:
+
+9cbbe82d0b2c0184afc9be13cb4aef7e456e129a624139027a7f5c92c52fe3c0  621409  v3_downloads/inner_val_predictions.csv
+83be27741dec7dfba53de4f0fde92539eef657751598db51c113f537414bf56b  2391752  v3_downloads/predictions.csv
+da8ce1698a315e03bedba8b487411cbc74e1ae2ab7e1bb9e986d68ed1c86859b  160  v3_downloads/selected_cell.csv
