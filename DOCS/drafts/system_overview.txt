@@ -1,0 +1,151 @@
+4.5 System Overview
+
+EMHA is a set of modules that turns one respondent's completed FINALE assessment into a prediction. The input is the scanned drawing page, the scanned writing page, and the self-report responses, which supply the label. The output is HAPPY or SAD with a probability P(SAD). It predicts the concurrently self-reported state, not a clinical diagnosis.
+
+Basis of the hypothesis. Handwriting is a coordinated motor and cognitive act, and motor models treat the trace as the output of the neuromuscular system (Plamondon & Maarse, 1989). A change in the writer's state can therefore appear in size, slant, baseline, spacing, and pressure (Fairhurst et al., 2015; Kedar et al., 2015). EMOTHAW showed that handwriting and drawing tasks carry information about emotional state, but it used tablets that record timing and pressure (Likforman-Sulem et al., 2017). Most handwriting exists only on paper, and offline studies are few (Section 2.6). Whether the static scanned image alone still carries this information became the primary hypothesis (Section 1.2.3): the CNN-HMM hybrid classifies unseen writers of the primary set as happy or sad with a higher macro-averaged F1-score than expected by chance, as judged by a permutation test. Earlier work relied on handcrafted features; because writing is produced from left to right and CNN-HMM hybrids have worked on images with sequential structure (Goumiri et al., 2023), the secondary hypothesis is that the CNN-HMM hybrid obtains a higher macro-averaged F1-score than the logistic regression baseline on handcrafted features.
+
+Labeling module. It reads each respondent's label and adjusted total verbatim from the exported scoring sheet and never recomputes them. The label follows the cutoff of 72 on the adjusted total (Section 3.2). The 20% of respondents closest to the cutoff, the 80 with totals of 70 to 74, form the middle band set aside from the primary set.
+
+Cropping module. Each scanned page is cut at fixed pixel coordinates into 24 task images per respondent: four drawings (D1 to D4), fifteen word cells (W1 to W5, each in left hand, right hand, and uppercase), and five cursive sentences (CS1 to CS5). The scans are only read.
+
+Preprocessing module. Each crop is converted to grayscale, its background is flattened, noise is removed with a median filter, and each task family is scaled by one fixed factor, padded with white, and inverted. No binarization, skew correction, or stretch-resizing is applied (Section 3.3).
+
+Feature extractor. A pretrained ResNet18, fine-tuned for each task family, turns each image into a left-to-right sequence of column feature vectors from its third residual stage.
+
+Sequence classifier. For each task family, one Gaussian HMM is trained per class. The difference between the two length-normalized log-likelihoods is converted into P(SAD) by Platt scaling.
+
+Decision module. P(SAD) is averaged over a respondent's images within each family, and the word and cursive families are combined with equal weights. The respondent is predicted SAD when P(SAD) is at least 0.5. Drawings are analyzed separately and never fused.
+
+Reference models. The hybrid is compared with a majority-class baseline, logistic regression on handcrafted features, logistic regression on frozen ResNet18 embeddings, and a fixed equal-weight ensemble. The CNN-HMM hybrid (v1) is the primary model; the ensemble is supporting only (Deviation 4).
+
+Evaluation module. It runs participant-level stratified five-fold cross-validation, with macro-averaged F1-score as the primary metric, bootstrap confidence intervals, permutation tests, and Grad-CAM.
+
+Data move one way, from the raw scans and the label export to the predictions and reports (Figures 3 and 4). Each module reads the previous module's output and writes to its own folder, so a later stage cannot change an earlier one. All splits are by respondent, so no respondent's images appear in both training and testing.
+
+The code is written locally and kept in a GitHub repository; the Colab and Kaggle notebooks only clone it and call its modules, so the same code runs everywhere. All hyperparameters are defined in one configuration module (Table 6).
+
+Versions of the system. Three versions share the respondents, images, labels, folds, and image backbone; they differ in what the HMMs treat as a sequence and in the unit each model learns from. Version 1 (v1), described above, reads the columns of one word or sentence image from left to right; it replaced the ensemble as the primary model after the results were known (Deviation 4). Version 2 (v2) was defined and recorded before it was run, but after the v1 results were known (Deviation 5). It reads a respondent's 24 task images in the order of the FINALE form, each represented by one frozen ResNet18 embedding, with one Gaussian HMM per class and the same folds, inner selection, and calibration rules as v1. It does not replace v1.
+
+Version 3 (v3), added at the adviser's request (Deviation 6), models each of the 24 tasks on its own, one image per respondent, drawings included. Four models are trained per task and fold: logistic regression on handcrafted features, logistic regression on the frozen embedding, a ResNet18 fine-tuned on that task only, and the CNN-HMM on that network. It keeps the primary set, folds, labels, and 0.5 threshold, with 217 training, 39 validation, and 64 test respondents per fold. Its combinations (drawings, words, cursive, words and sentences, all 24 tasks) and one model that picks a task per fold from the validation respondents were fixed in advance. Per-task logistic regression p-values are corrected with the Benjamini-Hochberg procedure, and the CNN path has one pre-declared test, the hybrid averaged over all 24 tasks. v3 is built on the existing modules. Because v2 and v3 were added after the v1 results were known, both are exploratory and cannot change the primary conclusion. Table 13 compares the versions, and Table 15 and Figure 13 give the per-task results.
+
+Testing the hypothesis. Either outcome counts as evidence. Chance level is measured, not assumed: the permutation test retrains the pipeline on shuffled training labels inside every fold and compares the observed macro-averaged F1-score with that null (Section 3.9). The hybrid faces the majority-class baseline and both logistic regression models on the same test respondents, so any gain must beat simple alternatives. The protocol, including folds, seed, middle band, threshold, models, and grids, was frozen before any model saw real data, and nothing is tuned or calibrated on test respondents, so the values are not inflated by leakage or by choosing the best analysis. Grad-CAM checks that the network responds to ink rather than scanning artifacts. Later changes are recorded as Deviations 4 to 6, and every model is reported in full.
+
+Section 4.6 describes the feature extractor and sequence classifier in detail, and Chapter 5 reports the outcome of each test.
+
+================================================================
+SOURCE MAP (not for the paper)
+
+Input / output          -> src/app/predict.py (one participant -> HAPPY/SAD + P(SAD), results/demo/<code>/prediction.json); AggregateConfig.threshold = 0.5
+Basis of the hypothesis -> paper Sections 1.2.3, 2.6; bibliography (Plamondon & Maarse 1989; Fairhurst et al. 2015; Kedar et al. 2015; Likforman-Sulem et al. 2017; Goumiri et al. 2023)
+Labeling module         -> src/data/labeler.py (LabelLoader; label/total read verbatim from label_column/score_column; in_middle_band = middle_band_fraction of participants with smallest |total - cutoff|); LabelingConfig.cutoff = 72.0, middle_band_fraction = 0.20, score_column = "adjusted_total", label_column = "label"
+Cropping module         -> src/cropping/p3/crop_pictures.py (BOXES D1-D4), src/cropping/p4/crop_p4.py (_default_boxes W1_LH ... CS5); scans read only, crops saved to D1..D4 / W1_LH..CS5 subfolders
+Preprocessing module    -> src/preprocessing/pipeline.py (flatten_background, median denoise, fixed scale + white pad, invert; ink_mask_for_stats is the only Otsu use, statistics only); PreprocessingConfig.background_blur_ksize = 51, denoise = "median3", scale_factor, canvas_size, invert; src/data/transforms.py (train/eval transforms)
+Feature extractor       -> src/models/cnn.py (EmotionCNN; one_channel_conv1 sums pretrained filters; frozen stem + early blocks; seq_layer = layer3 averaged over height -> (W/16, 256)); CNNConfig; src/training/run_cnn.py (one network per task family and fold)
+Sequence classifier     -> src/models/hmm.py (HMMClassifier: scaler + PCA, GaussianHMM per class, decision score = LL_sad/T - LL_happy/T + log prior ratio, Platt calibrator); src/training/run_hybrid.py (select_hmm, fit_final); HMMConfig; HybridConfig (n_states_grid, pca_grid, topology_grid, families = word + cursive, secondary_family = drawing)
+Decision module         -> src/models/hybrid.py (predict_participant: mean_prob per family, equal-weight mean over HybridConfig.families; drawing never fused); src/training/aggregate.py (mean_prob primary rule, fuse_task_families); AggregateConfig.threshold
+Reference models        -> src/training/run_baselines.py (majority, lr_handcrafted, lr_embeddings via fit_lr); src/training/run_ensemble.py (fixed equal-weight combine of lr_handcrafted/all, lr_embeddings/concat, cnn_hmm_fused/fused); EVALUATION_PROTOCOL.md section 9 Deviation 4
+Evaluation module       -> src/training/splits.py (make_outer_folds, StratifiedKFold, inner_split, assert_no_leakage); src/training/cross_validate.py (CrossValidator); src/training/evaluator.py; src/analysis/permutation.py (shuffled outer-train labels, full refits, p = (1 + #null >= obs)/(1 + N)); src/analysis/gradcam.py; CVConfig.n_splits = 5, inner_val_fraction = 0.15; PermutationConfig.n_lr = 1000, n_cnn = 20; TrainingConfig.seed = 42
+How the parts connect   -> CLAUDE.md Data Layout and non-negotiables 1-2; DATASET/raw-*Page read-only, DATASET/processed/, results/, models/
+Where it runs           -> notebooks/colab_bootstrap.ipynb, notebooks/kaggle_bootstrap.ipynb, notebooks/colab_per_task_v3.ipynb (clone + call modules only); src/utils/config.py; REPRODUCE.md
+v1                      -> src/training/run_hybrid.py; HybridConfig; EVALUATION_PROTOCOL.md Deviation 4
+v2                      -> src/training/run_hybrid_v2.py (24 frozen ResNet18 embeddings in ALL_CELLS form order; run_hybrid selection rule; Platt on inner-val); HybridV2Config (n_states_grid 2-4, pca_grid, topology_grid, n_permutations); DOCS/plans/v2_result.txt; Deviation 5
+v3                      -> src/training/run_per_task_v3.py; PerTaskV3Config (cells, fused sets, selected model, n_lr_permutations = 1000, n_cnn_permutations = 20, fdr_q = 0.05); DOCS/plans/EMHA_V3_MASTER_PLAN.txt (section 4 REUSE list); DOCS/plans/v3_result.txt; Deviation 6 and its D2 addendum
+Frozen protocol         -> git tag protocol-frozen; src/utils/protocol_guard.py (runners refuse real data before the tag)
+
+RENUMBERING CHECKLIST (not for the paper)
+
+New Heading 2 "4.5 System Overview" goes after 4.4 Conceptual Framework (Figure 3), before the current 4.5.
+  4.5    Analysis and Design                          -> 4.6
+  4.6    Development Model                            -> 4.7
+  4.7    Development Approach                         -> 4.8
+  4.8    Software Development Tools                   -> 4.9
+  4.9    Project Management                           -> 4.10
+  4.9.1  Schedule and Timeline                        -> 4.10.1
+  4.9.2  Budget and Cost Management                   -> 4.10.2
+  4.10   Verification, Validation, and Testing        -> 4.11
+  4.11   Ethical Considerations and Data Management   -> 4.12
+Also refresh the table of contents after renaming.
+
+OPTIONAL TABLE: VERSIONS OF THE CNN-HMM SYSTEM (only if I decide to insert it)
+
+Aspect	v1 (primary)	v2 (exploratory)	v3 (exploratory)
+Status / deviation	Primary model (Deviation 4: replaced the ensemble as primary after results were known)	Exploratory (Deviation 5)	Exploratory (Deviation 6)
+What the HMM reads as a sequence	Columns of one word or sentence image, read left to right	A respondent's 24 task images in the order of the FINALE form	Columns of one task image, read left to right, for each task separately
+Image features	Fine-tuned ResNet18, third-stage feature map averaged over height	One frozen ImageNet ResNet18 embedding per task image	Fine-tuned ResNet18 trained on that task only, third-stage feature map; plus frozen embeddings and handcrafted features for the two logistic regression models
+Unit of training	Per task family (all images of the family)	Per respondent (one 24-image sequence)	Per task (one image per respondent)
+Task families used (drawing fused or not)	Words and cursive sentences fused; drawings only as a separate secondary analysis	Drawings, words, and cursive sentences, all in one sequence	All 24 tasks, drawings included, each modeled on its own
+How predictions are combined	Mean P(SAD) per family, then equal-weight mean of word and cursive	No combination: one P(SAD) per respondent from the sequence	Fixed equal-weight means over drawings, words, cursive, words and sentences, and all 24 tasks; one task chosen per fold on validation respondents
+Models trained	One fine-tuned CNN per family and fold; one Gaussian HMM per class per family and fold	One Gaussian HMM per class per fold	Per task and fold: LR on handcrafted features, LR on frozen embedding, fine-tuned CNN, CNN-HMM
+Permutation test (N, correction)	20 full retrains; no correction (one of five pre-specified tests)	100 full refits; none	LR: 1,000 per task, Benjamini-Hochberg q = 0.05 across 24 tasks; CNN path: one pre-declared test, 20 full retrains of all 24 tasks
+When and why it was added	Pre-registered proposed method (titled method)	23 Oct 2026, after v1 results: v1's column sequences carried no information while the same image features did	27 Oct 2026, at the adviser's request: to show which tasks carry information
+Where results are reported	Table 13 (and Table 12)	Table 13 (and Table 12)	Table 13; Table 15 and Figure 13 (and Table 16, Appendix J)
+
+Note: inserted at the end of Section 4.5 it becomes Table 6, so the current Tables 6 to 18 and every in-text mention of them must move up by one. Mentions found in the paper (list entry + caption + text):
+  Table 6  -> 7 : List of Tables; caption and text in 4.5 Analysis and Design; also "(Table 6)" in this new section
+  Table 7  -> 8 : List of Tables; caption and text in 4.8 Software Development Tools; text in Appendix I (Table I1)
+  Table 8  -> 9 : List of Tables; caption and text in 4.9.1
+  Table 9  -> 10: List of Tables; caption and text in 4.9.2; text in Appendix I (Table I1)
+  Table 10 -> 11: List of Tables; caption and text in 5.1
+  Table 11 -> 12: List of Tables; caption and text in 5.1; text in Appendix I (Table I1)
+  Table 12 -> 13: List of Tables; text in 5.3; caption in 5.4
+  Table 13 -> 14: List of Tables; caption and text in 5.4; also "Table 13" in this new section
+  Table 14 -> 15: List of Tables; caption and text in 5.5
+  Table 15 -> 16: List of Tables; caption and text in 5.5; also "Table 15" in this new section
+  Table 16 -> 17: List of Tables; caption and text in 5.5
+  Table 17 -> 18: List of Tables; caption and text in 5.7 Discussion
+  Table 18 -> 19: List of Tables; caption and text in 5.7 Discussion; text in the note of Table I1 (Appendix I)
+Appendix tables (I1, J1, J2) keep their numbers.
+
+DEFENSE NOTES (not for the paper)
+
+A. How I came up with the hypothesis
+
+Handwriting isn't just ink on paper. It's a motor skill, so whatever state you're in when you write can show up in the trace: how big you write, the slant, the baseline, the spacing, how hard you press. EMOTHAW tested this properly and found that handwriting and drawing tasks do carry information about emotional state. But they recorded everything on a tablet, with timing and pressure.
+
+Most handwriting in real life is on paper, though. So my question was simple: if all I have is a scanned page, is that information still there? That's my primary hypothesis: the CNN-HMM classifies unseen writers better than chance, tested with a permutation test on macro F1.
+
+Then, since writing is produced left to right, a sequence model made sense, and CNN-HMM hybrids have worked on images with that kind of structure. Earlier offline work mostly used handcrafted features. So my secondary hypothesis was that the CNN-HMM would beat logistic regression on handcrafted features.
+
+B. What proves the study
+
+I want to be exact here. My primary hypothesis was not supported. The CNN-HMM got a macro F1 of 0.434, p = 0.714 over 20 retrains, with balanced accuracy 0.501. Basically it predicted HAPPY for almost everyone. My secondary hypothesis was also not supported: compared with logistic regression on handcrafted features, the difference was -0.081, with a 95% CI from -0.157 to +0.001.
+
+What the study does show is this. Logistic regression on frozen ResNet18 embeddings separated HAPPY and SAD better than chance: macro F1 0.576, accuracy 0.578, p = 0.008. That stays significant even with a Bonferroni correction for the five pre-specified tests, where the threshold is 0.01. So a scanned page does carry a real but small signal about self-reported happy or sad state. It just got lost when I modeled the images as left-to-right sequences.
+
+The per-exercise analysis, which is exploratory, found that no single task works on its own after correction. So the signal is spread across the whole assessment, not sitting in one drawing or one word.
+
+Why you can trust these numbers: the protocol was frozen before any model saw real data, every split is by respondent, chance level comes from permutation nulls, and I report every model, including the ones that failed.
+
+And some things stand no matter what the accuracy is: the FINALE dataset of 400 respondents with a self-report reviewed by four psychometricians (Cronbach's alpha 0.880), and a leak-free, reproducible pipeline that gives the first estimate of how much emotional information survives on paper for this population.
+
+B2. v1 vs v2 vs v3
+
+v1 is the model I proposed. It reads the columns of each word and sentence image left to right. It mostly predicted HAPPY: 153 of 174 HAPPY right, but only 18 of 146 SAD.
+
+After seeing that, I asked whether the problem was what I was calling a sequence. The only real order in a scanned form is the order of the tasks, so v2 reads a respondent's 24 task images in form order. It did a bit better on paper, but the difference from v1 wasn't real: +0.047, with a CI that includes zero. Its HMM settings looked good on the validation respondents, 0.54 to 0.68, but dropped to 0.480 on test, so the selection was fitting noise. And plain logistic regression on the same embeddings beat it by 0.094.
+
+v3 came from my adviser asking which tasks actually carry information. I trained everything on each task separately. Across 96 results, macro F1 ranged from 0.367 to 0.574, and nothing survived correction; the smallest q was 0.2478. Averaging the 24 per-task hybrids gave 0.371, p = 1.0.
+
+So the takeaway is: changing what the HMM treats as a sequence never brought the signal back. The same features without sequence modeling did: 0.576, p = 0.008.
+
+  Version   Macro F1 [95% CI]        Accuracy  Balanced acc.  ROC-AUC  Correct HAPPY; SAD   Permutation p (N)
+  v1        0.434 [0.384, 0.486]     0.534     0.501          0.485    153/174; 18/146      0.714 (20)
+  v2        0.480 [0.427, 0.536]     0.537     0.512          0.487    139/174; 33/146      0.584 (100)
+  v3 all24  0.371 [0.337, 0.410]     0.534     0.494          0.536    167/174; 4/146       1.0000 (20)
+  LR emb.   0.576 [0.520, 0.630]     0.578     0.576          0.563    -                    0.008 (1,000)
+
+C. Likely panel questions
+
+1. "Your primary model didn't beat chance. Why should we accept the study?"
+Because the study was designed to answer a question, not to get a high number. The protocol was frozen beforehand, so the null result for the CNN-HMM is a real finding about how this kind of model handles static handwriting. And the study still found a significant signal with the embedding model, plus it delivers a new dataset and a leak-free pipeline.
+
+2. "Why did the CNN-HMM do worse than simple logistic regression?"
+My best explanation is that the column sequences vary much more between writers and between words than between happy and sad writers, so both HMMs learn the same variation and their likelihood difference says little about the label. I want to be clear that I didn't test this directly. What I can show is that the same image features carried a signal when averaged and given to logistic regression, so the signal was lost at the sequence-modeling step.
+
+3. "How do you know the 0.576 isn't a fluke or leakage?"
+Every split is by respondent, so no writer is in both training and test, and nothing was tuned on test respondents. The p = 0.008 comes from 1,000 refits on shuffled labels, and it stays below the Bonferroni threshold of 0.01 for the five pre-specified tests. It's still a small effect with a wide interval, so I describe it as an association, not a ready classifier.
+
+4. "Why did you make v2 and v3 after seeing the results? Isn't that fishing?"
+It would be fishing if I had swapped them in as the main result. I didn't. Both were written down as deviations before they ran, both are labeled exploratory, every result is reported whatever it showed, and the primary conclusion still rests on v1. In v3 I also only used the validation respondents to pick a task, and corrected the per-task tests for multiple comparisons.
+
+WORD COUNT: section body = 1,099
