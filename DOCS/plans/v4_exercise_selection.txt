@@ -1,0 +1,71 @@
+EMHA v4 -- EXERCISE SELECTION (EXPLORATORY, Deviation 7)
+
+What it is
+  Test every exercise on its own, rank them, drop the weak ones, and train on
+  the strong ones. Code: src/training/run_select_v4.py. Settings:
+  SelectV4Config in src/utils/config.py. Notebook: notebooks/colab_select_v4.ipynb.
+
+The one rule that makes it defensible
+  The exercises are chosen inside each outer fold, using that fold's training
+  respondents only. We never pick exercises from v3's results table, because
+  those numbers were measured on the same respondents we would then test on.
+  Picking the "winners" from that table and re-testing them would inflate
+  the score (the panel will ask about this). Doing it per fold means the
+  test respondents never influence which exercises are kept.
+
+How it works, per outer fold
+  1. Score each of the 24 exercises on the ~256 training respondents:
+     5-fold out-of-fold ROC-AUC of the two per-exercise LR models
+     (handcrafted, embeddings), averaged. 0.5 = chance.
+  2. Keep the top k exercises, k in {1, 3, 6, 12, 24}. top24 = keep all
+     (the control).
+  3. Predict the fold's test respondents with:
+       lr_handcrafted_v4, lr_embeddings_v4  -- one LR on the kept exercises
+       cnn_head_v4, cnn_hmm_v4              -- average of v3's per-exercise
+                                               model outputs, kept exercises only
+     No GPU and no retraining of CNNs: v3's per-exercise models were already
+     trained on the same training respondents.
+
+Pre-declared headline: cnn_hmm_v4/top6. Everything else is descriptive.
+Do not pick a different k after seeing the curve.
+
+What to expect
+  v3 found every single exercise near chance (macro-F1 0.37-0.57, all CIs
+  overlapping). Selection can only help if a few exercises carry a real
+  signal. If the kept set changes a lot from fold to fold, that itself is the
+  finding: no exercise is consistently stronger than the rest. If one or two
+  exercises are kept in 5/5 folds, that is worth reporting as a candidate
+  signal for future work.
+
+Before running
+  [ ] Commit Deviation 7 (EVALUATION_PROTOCOL.md) and push the branch
+      feat/select-v4 BEFORE any v4 output exists.
+  [ ] Colab CPU runtime is enough. Drive must hold, under run_outputs/:
+      results/features/handcrafted_crop.csv, results/embeddings/resnet18_*.npz,
+      results/per_task_v3/primary/predictions.csv,
+      results/final/permutation_runs/primary_v3/seed_42/perm_0000..0019.csv
+
+Run it (notebook, MODE = "all", the default): one Run all does
+  snapshot     checksums of results/ and models/ (skipped if it exists)
+  preflight    checks every input; prints v3_draws_present 20/20
+  rank         ~3-5 min on 2 vCPUs (measured on a synthetic root of 320)
+  combine, evaluate
+  draws        20 null draws, ~5-8 min each on 2 vCPUs
+  permutation, report   the report is the first v4 number you look at
+  compare      must print OK (v1-v3 untouched)
+  It stops at the first error. Rank folds and draws are cached on Drive, so
+  after a disconnect just Run all again. MODE = "run" + STEP still runs a
+  single step if needed.
+
+Outputs
+  results/final/EXPLORATORY_v4.txt        the report
+  results/final/fig_v4_k_curve.png        macro-F1 vs number of exercises kept
+  results/final/fig_v4_selection.png      rank of every exercise in every fold
+  results/select_v4/primary/selection_frequency.csv   how often each exercise
+                                          was kept (the "strong exercises" table)
+
+How to write it up (Results, after v3)
+  Lead with the headline row and its permutation p, then the top6 - top24
+  difference ("did removing exercises help?"), then the selection-frequency
+  table. Say plainly that exercise choice was made on training respondents
+  only, in every fold.

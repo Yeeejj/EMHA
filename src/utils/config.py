@@ -306,6 +306,48 @@ class PerTaskV3Config:
 
 
 @dataclass
+class SelectV4Config:
+    """Exercise selection v4, EXPLORATORY and post hoc -- see
+    src/training/run_select_v4.py and EVALUATION_PROTOCOL.md section 9,
+    Deviation 7. Never part of the primary claim; v1 stays the primary model.
+
+    Per outer fold, every exercise is ranked by how well it separates HAPPY
+    from SAD on that fold's training participants only (rank_inner_folds-fold
+    out-of-fold ROC-AUC of the per-exercise LR models in rank_kinds,
+    averaged). The top k exercises are kept for k in k_grid; top24 keeps all
+    of them and is the no-removal control. headline_k is fixed before any v4
+    result. The CNN rows reuse v3's per-exercise test predictions (v3
+    trained them on outer-train participants only); n_permutations reuses
+    v3's cached null draws, so it must equal PerTaskV3Config.n_cnn_permutations.
+    Listed in RunnerConfig.fingerprint_exclude: v4 changes no v1 result.
+    """
+
+    analysis: str = "primary"
+    rank_kinds: Tuple[str, ...] = ("lr_handcrafted_v3", "lr_embeddings_v3")
+    rank_inner_folds: int = 5
+    k_grid: Tuple[int, ...] = (1, 3, 6, 12, 24)
+    headline_k: int = 6
+    lr_models: Tuple[Tuple[str, str], ...] = (
+        ("lr_handcrafted_v4", "lr_handcrafted_v3"),
+        ("lr_embeddings_v4", "lr_embeddings_v3"),
+    )
+    fused_models: Tuple[Tuple[str, str], ...] = (
+        ("cnn_head_v4", "cnn_head_v3"),
+        ("cnn_hmm_v4", "cnn_hmm_v3"),
+    )
+    headline_model: str = "cnn_hmm_v4"
+    paired_references: Tuple[Tuple[str, str], ...] = (
+        ("cnn_hmm_fused", "fused"),
+        ("lr_handcrafted", "all"),
+    )
+    n_permutations: int = 20
+    output_subdir: str = "select_v4"
+    runs_name: str = "primary_v4"
+    report_name: str = "EXPLORATORY_v4.txt"
+    figure_prefix: str = "fig_v4_"
+
+
+@dataclass
 class TrainingConfig:
     """Training configuration. Checkpoints are written under Config.paths.models_dir."""
 
@@ -743,6 +785,7 @@ class RunnerConfig:
         "headline",
         "hybrid_v2",
         "per_task_v3",
+        "select_v4",
     )
 
 
@@ -858,6 +901,7 @@ class Config:
     hybrid: HybridConfig = field(default_factory=HybridConfig)
     hybrid_v2: HybridV2Config = field(default_factory=HybridV2Config)
     per_task_v3: PerTaskV3Config = field(default_factory=PerTaskV3Config)
+    select_v4: SelectV4Config = field(default_factory=SelectV4Config)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)
