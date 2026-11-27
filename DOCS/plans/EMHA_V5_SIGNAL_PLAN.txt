@@ -1,0 +1,286 @@
+EMHA -- VERSION 5 PLAN: SIGNAL BOOST (EXPLORATORY, Deviation 8)
+================================================================================
+Author : Cyrel Jane A. Edaño           Adviser : Christian V. Maderazo, MEng
+Date   : 2026-11-28 (rev. 2: two headlines)                    Repo    : Yeeejj/EMHA
+Branch : feat/signal-v5 (from main @ 2f15991, v4 merged)
+Status : PLAN, nothing built or run
+
+
+================================================================================
+0. STRAIGHT TALK FIRST
+================================================================================
+
+Where v1-v4 landed (primary set, n = 320, majority baseline 0.544):
+
+  model                          macro-F1 [95% CI]     acc     perm. p
+  cnn_hmm_fused/fused (v1, PRIM) 0.434 [0.384, 0.486]  0.534   0.714
+  lr_embeddings/concat (v1)      0.576 [0.520, 0.630]  0.578   0.008  <- only one above chance
+  cnn_hmm_v2/task_order          0.480 [0.427, 0.536]  0.537   0.584
+  cnn_hmm_v3_fused/all24         0.371 [0.337, 0.410]  0.534   1.000
+  cnn_hmm_v4/top6                0.470 [0.418, 0.524]  0.550   0.667
+
+What the four versions tell us:
+  - Training a CNN on ~256 respondents per fold overfits. Every fine-tuned model
+    (v1, v2, v3) did worse than frozen ImageNet features + logistic
+    regression.
+  - Choosing exercises (v3, v4) didn't help. The signal, if any, is spread
+    across all 24 exercises.
+  - The one result that beat chance was frozen features, averaged over
+    crops, fed to a simple linear model.
+
+So v5 doesn't try a new architecture. It builds on the only thing that
+worked and gives it more information to work with.
+
+Honest expectation: no leak-free method is guaranteed to reach 70% here.
+My estimate is that the primary-set accuracy lands somewhere around 0.55-0.62.
+H2, the strict extreme group (section 3), is where 65-70% is possible,
+on about half the respondents, if the signal is real. Either way, v5 is
+designed so that whatever number comes out can be defended in front of
+the panel.
+
+The one thing that would sink the thesis: trying versions until one hits
+70% and reporting that one. The panel will ask how many things were tried.
+That's why v5 has two pre-declared headlines with a Holm correction,
+the same folds and nested CV as v1. I'd also make v5 the LAST version
+before the defense.
+
+
+================================================================================
+1. WHAT V5 CHANGES (three things, nothing else)
+================================================================================
+
+C1. Better frozen features (no fine-tuning, no labels used)
+    Two new feature blocks per crop, computed once, cached like resnet18:
+      style   Channel-wise mean and std of frozen ResNet18 layer1, layer2,
+              layer3 activations (64+128+256 channels x 2 = 896 dims).
+              These are texture statistics: stroke thickness, ink density,
+              pen pressure, shakiness. That's closer to "how" someone writes
+              than the 512-d object-recognition vector.
+      dinov2  Frozen DINOv2 ViT-S/14 (torch.hub facebookresearch/dinov2,
+              dinov2_vits14). CLS token + mean patch token = 768 dims.
+              Self-supervised, so it is less tied to ImageNet object
+              classes. Crops are un-inverted to dark-on-white (same rule as
+              embeddings_handwriting.py), resized so the long side is 434 px
+              (31 x 14) keeping the aspect ratio, padded with white to a
+              multiple of 14.
+    Same input crops, same participant-mean-per-family step as
+    lr_embeddings/concat. PyTorch only.
+
+C2. Use the whole score, not just the HAPPY/SAD label
+    v1-v4 threw away the questionnaire score and trained on 2 classes.
+    ridge_v5 predicts total_score (42-114) with ridge regression. A
+    respondent scoring 45 and one scoring 68 are both "SAD", but the score
+    tells the model one is much further from the cutoff. That's more
+    information per respondent at zero extra data cost.
+
+C3. Train on all 400 respondents, test on the same primary set
+    The 80 middle-band respondents (scores 70-74) were never used for
+    training. For ridge_v5 they join the TRAINING side of each outer fold
+    (their scores are real data). They are NEVER in the headline test
+    metric. The headline is still computed on the same 320 primary
+    respondents, same folds.csv, so it is directly comparable to v1-v4.
+
+Not in v5 (on purpose): no CNN fine-tuning, no exercise selection, no new
+HMM, no threshold tuning, no new folds, no new labels. v5 is labeled
+exploratory; the CNN-HMM v1 stays the primary model and the title stays.
+
+
+================================================================================
+2. RULES (same as v3/v4, plus three for v5)
+================================================================================
+
+  R1  Same folds.csv and labels.csv (SHA-256 as in the v3 plan, L2).
+  R2  Features are frozen and label-free, computed once for every crop.
+  R3  Scaler, PCA, C / alpha and the calibrator are fit on outer-train only.
+      C and alpha are picked by inner 5-fold CV on outer-train only.
+  R4  Threshold = config.aggregate.threshold (0.5) on P(SAD). No tuning.
+  R5  v5 never writes outside its own paths. hash_tree snapshot before and
+      compare after, like v3/v4.
+  R6  Nothing is changed after a v5 number is seen. A bug fix is a logged
+      addendum, rerun once, both reported.
+  NEW for v5:
+  R7  Middle-band respondents can be on the training side of a fold
+      (ridge_v5 only). They are scored as test in their own fold, but those
+      rows carry in_middle_band = True and never enter the headline metric.
+  R8  The ridge calibrator (predicted score -> P(SAD)) is fit on inner
+      out-of-fold predictions of outer-train respondents. Never on test.
+  R9  The extremity curve (section 3) subsets test respondents by
+      boundary_distance from labels.csv only, never by a model output. The
+      distances are fixed now. No single point of the curve is the headline.
+  R10 The H2 strict group is defined from labels.csv total_score only
+      (quartiles of all labeled respondents), never from a model output,
+      and is fixed in Deviation 8 before any v5 result.
+
+
+================================================================================
+3. PRE-DECLARED ROWS, HEADLINES AND CURVE
+================================================================================
+
+Feature sets (participant mean per family, then concat across the three
+families, same as lr_embeddings/concat):
+  resnet18   existing 512-d cache       (bridge to v1)
+  style      new 896-d                  (C1)
+  dinov2     new 768-d                  (C1)
+  all_v5     resnet18 + style + dinov2  (C1, all blocks)
+
+Models:
+  lr_v5     run_baselines.fit_lr(pca=True), trained on PRIMARY outer-train
+            only, binary label. Isolates the feature change (C1).
+  ridge_v5  StandardScaler -> PCA (same component rule as fit_lr) -> Ridge,
+            alpha from (1, 10, 100, 1e3, 1e4, 1e5) by inner 5-fold CV (mean
+            squared error) on FULL outer-train (primary + middle band),
+            target total_score. The inner folds are stratified on the TRUE
+            labels (also inside permutation draws, like v3's L3).
+            Calibration: the inner out-of-fold predicted scores of
+            outer-train -> 1-D LogisticRegression(class_weight="balanced")
+            on the true labels -> P(SAD). Final ridge refit on all of
+            outer-train. Adds C2 + C3.
+
+  4 feature sets x 2 models = 8 rows. All 8 are reported, in this order.
+  ridge_v5/resnet18 vs lr_embeddings/concat (v1) isolates C2 + C3 on the
+  old features. lr_v5/all_v5 vs lr_embeddings/concat isolates C1.
+
+TWO PRE-DECLARED HEADLINES, same model (ridge_v5 / all_v5), same
+out-of-fold predictions, two respondent sets fixed now:
+  H1  primary set: the 320 primary respondents (middle band excluded),
+      exactly as v1-v4.
+  H2  strict extreme group: the lowest 25% and the highest 25% of
+      total_score among all labeled respondents (np.quantile on
+      labels.csv, method "lower" for the 25th percentile and "higher" for
+      the 75th; ties at the edge are kept). Every respondent in the low
+      group must be SAD and every one in the high group HAPPY, else the
+      step stops. Quartiles instead of a fixed score cut keep the two
+      classes about equal in size (about 100 vs 100), so the majority
+      baseline stays near 0.5 and the accuracy means something.
+  Each headline reports macro-F1, accuracy, balanced accuracy and ROC-AUC
+  with 2,000 bootstrap CIs (seed 42), the majority baseline, per fold,
+  confusion matrix, and paired macro-F1 differences vs
+  lr_embeddings/concat and cnn_hmm_fused/fused on the same respondents.
+  Permutation test: N = 200 draws (total_score and label shuffled together
+  among outer-train respondents, test labels true, permutation_seed as in
+  src/analysis/permutation.py). Each draw gives a null value for H1 and H2.
+  Statistic: macro-F1 (as in v1-v4); accuracy p-values are reported next
+  to it. Two tests, so Holm correction over H1 and H2 (alpha 0.05).
+
+EXTREMITY CURVE (descriptive, ridge_v5/all_v5 and lr_v5/all_v5 only):
+  From the same out-of-fold predictions (incl. middle-band rows), keep test
+  respondents with boundary_distance >= d, for d in (0, 3, 8, 13, 18).
+    d = 0   everyone (400)
+    d = 3   about the primary set (scores <= 69 or >= 75)
+    d = 18  scores <= 54 or >= 90
+  Each point: n, n HAPPY, n SAD, majority baseline, accuracy, balanced
+  accuracy, macro-F1, ROC-AUC with bootstrap CIs. Read it as a
+  dose-response check: if accuracy rises with d, the model is picking up
+  something tied to how happy or sad people report being. No single point
+  of the curve is a headline.
+
+
+================================================================================
+4. DEVIATION 8 TEXT (in EVALUATION_PROTOCOL.md section 9)
+================================================================================
+
+8. 2026-11-28 — Exploratory analysis added after all v1-v4 results were
+   seen: v5, signal boost. Two new frozen, label-free feature blocks are
+   computed for every processed crop: style (channel-wise mean and std of
+   ImageNet ResNet18 layer1-layer3 activations, 896 dims) and dinov2
+   (DINOv2 ViT-S/14 CLS token and mean patch token, 768 dims; crops
+   un-inverted to dark-on-white, long side resized to 434 px with the
+   aspect ratio kept, padded with white to a multiple of 14). Feature
+   sets: resnet18, style, dinov2 and all_v5 (all three), each the
+   per-family participant mean concatenated over drawing, word and
+   cursive. Models: lr_v5 (fit_lr with PCA on primary outer-train
+   respondents, binary label) and ridge_v5 (StandardScaler, PCA with
+   fit_lr's component rule, Ridge with alpha from 1, 10, 100, 1e3, 1e4,
+   1e5 chosen by inner 5-fold CV (mean squared error) on all outer-train
+   respondents including the middle band, target total_score, inner folds
+   stratified on the true labels; predicted scores mapped to P(SAD) by a
+   balanced 1-D logistic calibrator fit on the inner out-of-fold
+   predictions of outer-train respondents). Same folds.csv, labels.csv,
+   seed and 0.5 threshold as v1-v4. Middle-band respondents are used for
+   training by ridge_v5 only and are never in a headline metric. Two
+   pre-declared headlines, both ridge_v5/all_v5 on the same out-of-fold
+   predictions: H1 the primary set; H2 the strict extreme group, the
+   lowest 25% and highest 25% of total_score among all labeled
+   respondents (25th percentile with method "lower", 75th with method
+   "higher", ties kept; every low respondent must be SAD and every high
+   respondent HAPPY). Each with bootstrap CIs, the majority baseline,
+   paired differences vs lr_embeddings/concat and cnn_hmm_fused/fused on
+   the same respondents, and a permutation test (N = 200; total_score and
+   label shuffled together among outer-train respondents; statistic
+   macro-F1, accuracy p reported alongside), Holm-corrected over H1 and
+   H2. All 8 rows (4 feature sets x 2 models) are reported. Descriptive
+   extremity curve for ridge_v5/all_v5 and lr_v5/all_v5 at
+   boundary_distance >= 0, 3, 8, 13, 18 (from labels.csv only). Nothing
+   is fit, selected or calibrated on outer-test respondents. v1 remains
+   the primary model; v2-v4 stay exploratory; their outputs are not
+   changed (hash_tree snapshot before and after). v5 is the last model
+   version before the defense. Reason: v1-v4 showed that only frozen
+   features with a linear model rose above chance and that fine-tuned and
+   exercise-selected models did not; v5 tests whether richer frozen
+   features and the full questionnaire score improve that model, and
+   whether it separates clearly happy from clearly sad respondents. Real
+   results seen: all v1-v4 results; no v5 result exists.
+
+
+================================================================================
+5. STEPS
+================================================================================
+Phases 0 and 1 (Deviation 8, the code, tests and notebook) were done on
+branch feat/signal-v5 by Claude in the EMHA-Thesis Project chat; see the
+commit list on GitHub. What's left is the run.
+
+  [COLAB] notebooks/colab_signal_v5.ipynb: set cell 1, then Run all
+  [YOU]   manual
+
+PHASE 2 -- Run on Colab                       (GPU only for the features step)
+STEP 2.0 [YOU] Look over the branch on GitHub (or have Claude Code in Cursor
+  review it), then run pytest -q tests/test_signal_v5.py locally if you can.
+STEP 2.1 [COLAB] MODE "snapshot", DEVICE "cpu". Writes
+  run_outputs/v5_checksums_before.txt. Check Drive free space first (v3 hit
+  the 100 GB quota); the new caches are small (~100 MB).
+STEP 2.2 [COLAB] MODE "run", STEP "features", DEVICE "cuda" (T4 is fine).
+  Expect ~10-20 min for 9,600 crops. DINOv2 downloads from torch.hub.
+STEP 2.3 [COLAB] STEP "preflight", DEVICE "cpu". Must show primary 320
+  (174/146), middle band 80, all three blocks complete, and the H2 sizes
+  (low SAD / high HAPPY). Anything else: stop, paste the log into chat.
+STEP 2.4 [COLAB] STEP "fit", then "evaluate". Don't open any CSV yet.
+STEP 2.5 [COLAB] STEP "permutation", N_JOBS -1. Read the projected time
+  after the first draws. Draws are cached; if the session ends, Run all
+  again. p-values are computed only when all 200 exist.
+STEP 2.6 [COLAB] STEP "curve", then "report". Download
+  EXPLORATORY_v5.txt and the fig_v5_*.png files. This is the first time
+  you read a v5 number. Change nothing after.
+STEP 2.7 [COLAB] MODE "compare". Must be 0 changed, 0 missing, 0 new
+  outside v5 paths.
+
+PHASE 3 -- Write-up                                                ([CHAT])
+Paste EXPLORATORY_v5.txt into the Project chat and ask for: the Ch. 3
+subsection (v5 method), Ch. 4 results paragraph + table + curve figure,
+Ch. 5 discussion lines, DOCS/plans/v5_result.txt, and a short adviser
+email. Same rules as v3/v4: numbers copied from the report only, v5
+labeled exploratory, v1 stays primary.
+
+
+================================================================================
+6. HOW TO READ AND FRAME WHAT COMES OUT
+================================================================================
+
+  H2 >= 0.70 accuracy, Holm-adjusted p < 0.05
+    Report it as: on respondents with clearly high or clearly low
+    self-reported scores, the v5 model reached 0.70+ accuracy, above a
+    near-0.5 majority baseline. Say plainly that it's the strict group
+    (about half the sample), pre-declared, exploratory (Deviation 8).
+
+  H1 above chance but under 0.70, curve rising with d
+    The most likely good outcome. There is a weak but real association,
+    and it gets stronger for respondents with clearer self-reported
+    states. That's a finding, not a failure.
+
+  Both at chance, curve flat
+    Same conclusion as v3/v4 from a stronger angle: even with better
+    features and the full score, handwriting in this dataset doesn't carry
+    a reliable signal for self-reported HAPPY vs SAD. The contribution
+    stays the dataset and the leak-free pipeline.
+
+  In every case: quote H1 and H2 with their CIs, majority baselines and
+  Holm-adjusted p. Don't quote the best curve point as "the accuracy".

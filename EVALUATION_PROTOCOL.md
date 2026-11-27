@@ -427,3 +427,45 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    near chance with overlapping CIs, so the selection must be honest about
    its own noise. Real results seen: all v1, v2 and v3 results; no v4
    result exists.
+
+8. 2026-11-28 — Exploratory analysis added after all v1-v4 results were
+   seen: v5, signal boost. Two new frozen, label-free feature blocks are
+   computed for every processed crop: style (channel-wise mean and std of
+   ImageNet ResNet18 layer1-layer3 activations, 896 dims) and dinov2
+   (DINOv2 ViT-S/14 CLS token and mean patch token, 768 dims; crops
+   un-inverted to dark-on-white, long side resized to 434 px with the
+   aspect ratio kept, padded with white to a multiple of 14). Feature
+   sets: resnet18, style, dinov2 and all_v5 (all three), each the
+   per-family participant mean concatenated over drawing, word and
+   cursive. Models: lr_v5 (fit_lr with PCA on primary outer-train
+   respondents, binary label) and ridge_v5 (StandardScaler, PCA with
+   fit_lr's component rule, Ridge with alpha from 1, 10, 100, 1e3, 1e4,
+   1e5 chosen by inner 5-fold CV (mean squared error) on all outer-train
+   respondents including the middle band, target total_score, inner folds
+   stratified on the true labels; predicted scores mapped to P(SAD) by a
+   balanced 1-D logistic calibrator fit on the inner out-of-fold
+   predictions of outer-train respondents). Same folds.csv, labels.csv,
+   seed and 0.5 threshold as v1-v4. Middle-band respondents are used for
+   training by ridge_v5 only and are never in a headline metric. Two
+   pre-declared headlines, both ridge_v5/all_v5 on the same out-of-fold
+   predictions: H1 the primary set; H2 the strict extreme group, the
+   lowest 25% and highest 25% of total_score among all labeled
+   respondents (25th percentile with method "lower", 75th with method
+   "higher", ties kept; every low respondent must be SAD and every high
+   respondent HAPPY). Each with bootstrap CIs, the majority baseline,
+   paired differences vs lr_embeddings/concat and cnn_hmm_fused/fused on
+   the same respondents, and a permutation test (N = 200; total_score and
+   label shuffled together among outer-train respondents; statistic
+   macro-F1, accuracy p reported alongside), Holm-corrected over H1 and
+   H2. All 8 rows (4 feature sets x 2 models) are reported. Descriptive
+   extremity curve for ridge_v5/all_v5 and lr_v5/all_v5 at
+   boundary_distance >= 0, 3, 8, 13, 18 (from labels.csv only). Nothing
+   is fit, selected or calibrated on outer-test respondents. v1 remains
+   the primary model; v2-v4 stay exploratory; their outputs are not
+   changed (hash_tree snapshot before and after). v5 is the last model
+   version before the defense. Reason: v1-v4 showed that only frozen
+   features with a linear model rose above chance and that fine-tuned and
+   exercise-selected models did not; v5 tests whether richer frozen
+   features and the full questionnaire score improve that model, and
+   whether it separates clearly happy from clearly sad respondents. Real
+   results seen: all v1-v4 results; no v5 result exists.
