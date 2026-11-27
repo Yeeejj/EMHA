@@ -348,6 +348,67 @@ class SelectV4Config:
 
 
 @dataclass
+class SignalV5Config:
+    """Signal boost v5, EXPLORATORY and post hoc -- see
+    src/features/embeddings_v5.py, src/training/run_signal_v5.py and
+    EVALUATION_PROTOCOL.md section 9, Deviation 8. Never part of the primary
+    claim; v1 stays the primary model.
+
+    Feature blocks (frozen, label-free, one row per crop): resnet18 (the v1
+    cache), style (channel mean and std of the ImageNet ResNet18
+    style_layers) and dinov2 (DINOv2 CLS token and mean patch token; crops
+    un-inverted when stored inverted, long side resized to
+    dinov2_long_side, padded with white to a multiple of dinov2_patch).
+    lr_v5 is fit_lr on primary outer-train participants; ridge_v5 predicts
+    total_score from all outer-train participants (middle band included)
+    and maps it to P(SAD) with a balanced 1-D logistic calibrator fit on
+    inner out-of-fold scores. Two headlines, both on ridge_v5/all_v5: H1
+    the primary set; H2 the strict group, total_score at or below the
+    strict_quantile and at or above 1 - strict_quantile of all labeled
+    participants. Listed in RunnerConfig.fingerprint_exclude: v5 changes no
+    v1 result.
+    """
+
+    analysis: str = "primary"
+    style_layers: Tuple[str, ...] = ("layer1", "layer2", "layer3")
+    dinov2_repo: str = "facebookresearch/dinov2"
+    dinov2_model: str = "dinov2_vits14"
+    dinov2_long_side: int = 434
+    dinov2_patch: int = 14
+    uninvert: bool = True
+    batch_size: int = 16
+    blocks: Tuple[str, ...] = ("resnet18", "style", "dinov2")
+    feature_sets: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+        ("resnet18", ("resnet18",)),
+        ("style", ("style",)),
+        ("dinov2", ("dinov2",)),
+        ("all_v5", ("resnet18", "style", "dinov2")),
+    )
+    models: Tuple[str, ...] = ("lr_v5", "ridge_v5")
+    ridge_alphas: Tuple[float, ...] = (1.0, 10.0, 100.0, 1e3, 1e4, 1e5)
+    inner_cv: int = 5
+    calibrator_C: float = 1.0
+    headline: Tuple[str, str] = ("ridge_v5", "all_v5")
+    strict_quantile: float = 0.25
+    strict_name: str = "strict"
+    paired_references: Tuple[Tuple[str, str], ...] = (
+        ("lr_embeddings", "concat"),
+        ("cnn_hmm_fused", "fused"),
+    )
+    extremity_distances: Tuple[float, ...] = (0.0, 3.0, 8.0, 13.0, 18.0)
+    curve_rows: Tuple[Tuple[str, str], ...] = (
+        ("ridge_v5", "all_v5"),
+        ("lr_v5", "all_v5"),
+    )
+    n_permutations: int = 200
+    alpha: float = 0.05
+    output_subdir: str = "signal_v5"
+    runs_name: str = "primary_v5"
+    report_name: str = "EXPLORATORY_v5.txt"
+    figure_prefix: str = "fig_v5_"
+
+
+@dataclass
 class TrainingConfig:
     """Training configuration. Checkpoints are written under Config.paths.models_dir."""
 
@@ -786,6 +847,7 @@ class RunnerConfig:
         "hybrid_v2",
         "per_task_v3",
         "select_v4",
+        "signal_v5",
     )
 
 
@@ -902,6 +964,7 @@ class Config:
     hybrid_v2: HybridV2Config = field(default_factory=HybridV2Config)
     per_task_v3: PerTaskV3Config = field(default_factory=PerTaskV3Config)
     select_v4: SelectV4Config = field(default_factory=SelectV4Config)
+    signal_v5: SignalV5Config = field(default_factory=SignalV5Config)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)

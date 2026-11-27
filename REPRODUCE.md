@@ -278,6 +278,41 @@ Outputs (under `run_outputs/`; none are written to v1 or v2 paths):
 
 Checksums of the downloaded outputs: `DOCS/plans/v3_result.txt`.
 
+### Signal boost v5 (exploratory, Deviation 8)
+
+Post hoc and never part of the primary claim (EVALUATION_PROTOCOL.md
+section 9, Deviation 8). Plan: `DOCS/plans/EMHA_V5_SIGNAL_PLAN.txt`.
+Settings: `SignalV5Config` in `src/utils/config.py`. Code:
+`src/features/embeddings_v5.py` (style and DINOv2 feature caches) and
+`src/training/run_signal_v5.py` (lr_v5, ridge_v5, evaluation, extremity
+curve, permutation test, report).
+
+Notebook: `notebooks/colab_signal_v5.ipynb` on branch `feat/signal-v5`, with
+the Colab secret `GITHUB_TOKEN`, `MyDrive/EMHA/emha-crops.zip` and the v1
+outputs under `MyDrive/EMHA/run_outputs/`. `MODE = "all"` runs, in order:
+snapshot (`v5_checksums_before.txt`), features (GPU if available),
+preflight, fit, evaluate, curve, permutation (N = 200, cached per draw),
+report, compare. The same steps on a local machine:
+
+    python -m src.features.embeddings_v5 --blocks style,dinov2 --device auto
+    python -m src.training.run_signal_v5 --step preflight
+    python -m src.training.run_signal_v5 --step fit
+    python -m src.training.run_signal_v5 --step evaluate
+    python -m src.training.run_signal_v5 --step curve
+    python -m src.training.run_signal_v5 --step permutation --n-jobs -1
+    python -m src.training.run_signal_v5 --step report
+
+Outputs (under `run_outputs/`; none are written to v1-v4 paths):
+
+- `results/embeddings/style_<family>.npz`, `dinov2_<family>.npz`
+- `results/signal_v5/primary/`: `run_config.json`, `predictions.csv`,
+  `ridge_alpha.csv`, `metrics.csv`, `per_fold.csv`, `confusion.csv`,
+  `paired.csv`, `extremity_curve.csv`, `permutation.json`
+- `results/final/permutation_runs/primary_v5/seed_42/perm_0000.csv` to
+  `perm_0199.csv`
+- `results/final/EXPLORATORY_v5.txt`, `fig_v5_extremity.png`,
+  `fig_v5_permutation_null_h1.png`, `fig_v5_permutation_null_h2.png`
+
 ## 3. Checking a reproduction
 
 Compare the new `results/final/RESULTS.txt` sections 1-4 (and
