@@ -385,3 +385,45 @@ participants' data. Every such file must post-date the `protocol-frozen` tag.
    L4, 12 vCPUs (step totals summed from the Colab logs, timing units
    included: cnn 24.7 s + 1,258.9 s, hmm 79.9 s + 2,588.5 s); projected
    20 draws = 20 x 1.098 h = 21.96 h; budget 25 h; n_cnn_permutations = 20.
+
+7. 2026-11-18 — Exploratory analysis added after all v1, v2 and v3 results
+   were seen: v4, exercise selection. Question: does dropping the weak
+   exercises and keeping the strong ones help? To avoid choosing exercises
+   on the participants they are scored on, the whole selection is repeated
+   inside every outer fold (folds.csv, primary set) on that fold's training
+   participants only, and v3's outer-test results are never used to choose
+   anything. Per fold: each of the 24 exercises (ALL_CELLS) gets a score,
+   the mean over lr_handcrafted_v3 and lr_embeddings_v3 of the 5-fold
+   out-of-fold ROC-AUC on the training participants (StratifiedKFold,
+   shuffle, seed TrainingConfig.seed + fold; fit_lr as in run_baselines);
+   rank 1 is the highest score, ties in ALL_CELLS order. The top k are kept
+   for k in {1, 3, 6, 12, 24}; top24 keeps all and is the no-removal
+   control. Models on the kept exercises: lr_handcrafted_v4 and
+   lr_embeddings_v4 (one fit_lr on the kept exercises' features side by
+   side, PCA for embeddings), cnn_head_v4 and cnn_hmm_v4 (the equal-weight
+   mean of v3's per-exercise test prob_sad over the kept exercises; v3
+   trained those models on the same fold's training participants, so
+   nothing is retrained and cnn_hmm_v4/top24 equals cnn_hmm_v3_fused/all24).
+   A participant is SAD when P(SAD) >= 0.5. Headline, fixed now, before any
+   v4 output exists: cnn_hmm_v4/top6 (the CNN-HMM is the thesis method;
+   k = 6 is a quarter of the exercises). Everything else is descriptive,
+   and no k is chosen after seeing the k curve. Reported: macro-F1,
+   accuracy, balanced accuracy and ROC-AUC with 2,000-resample bootstrap CIs
+   (seed 42) and the majority baseline for every (model, k); paired
+   macro-F1 differences top6 - top24 for each model and headline vs
+   cnn_hmm_fused/fused and lr_handcrafted/all; per exercise, the number of
+   folds it made the top 6, its mean rank and score; a permutation test of
+   the headline with N = 20 draws: in draw k, fold f the training labels are
+   shuffled with permutation_seed(seed, k, f), the same shuffle v3's draw k
+   used, then ranking, selection and LR refits are redone and the CNN rows
+   fuse v3's cached draw k (v3 draws 0-19, D2). v1 stays the primary model;
+   v2 and v3 stay exploratory; their outputs are not changed (SHA-256
+   snapshot before and after, scripts/hash_tree.py). v4 writes only to v4
+   paths, is labelled EXPLORATORY everywhere and is reported in full
+   whatever its result. Implementation note: SelectV4Config is excluded from
+   the pipeline runner's config fingerprint, like PerTaskV3Config. Reason:
+   the author's request to test every exercise one by one, find the weak
+   ones and focus on the stronger ones; v3 showed per-exercise results
+   near chance with overlapping CIs, so the selection must be honest about
+   its own noise. Real results seen: all v1, v2 and v3 results; no v4
+   result exists.
